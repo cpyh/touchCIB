@@ -16,7 +16,7 @@ scipy
 
 输入文件
 --------
-data/
+data/raw/
 ├── t_product.csv
 ├── partB_scenarios.csv
 └── partB_corr_matrix.csv
@@ -1890,6 +1890,3 @@ def main() -> int:
 
     return 0
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
