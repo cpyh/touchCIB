@@ -1,7 +1,16 @@
 [project]
 name = "touchcib"
 version = "0.1.0"
-description = "Add your description here"
+description = "A minimal Flask service for touchCIB"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "flask>=3.1.3",
+    "joblib>=1.5.3",
+    "numpy>=2.5.2",
+    "pandas>=2.3.0",
+    "pymysql>=1.2.0",
+    "python-dotenv>=1.2.3",
+    "scikit-learn>=1.7.0",
+    "scipy>=1.18.1",
+]

@@ -1,0 +1,240 @@
+"""Thin adapter between the Flask API and the portfolio optimizer."""
+
+from __future__ import annotations
+
+import math
+from functools import lru_cache
+
+import numpy as np
+import pymysql
+
+from .algorithms.partb import (
+    RANDOM_STATE,
+    SCORER_TOL,
+    ProductData,
+    Scenario,
+    build_covariance_matrix,
+    build_masks,
+    check_covariance_matrix,
+    solve_one_scenario,
+)
+
+from .database import database_connection
+
+
+class PortfolioInputError(ValueError):
+    """Raised when an API parameter is missing or invalid."""
+
+
+@lru_cache(maxsize=1)
+def optimizer_context() -> tuple[
+    ProductData,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    dict[str, dict[str, object]],
+]:
+    """Load and validate the MySQL-backed product universe once per process."""
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT product_id, product_name, product_type, risk_level, "
+                    "expected_return, volatility, liquidity "
+                    "FROM dwd_dim_product ORDER BY product_id"
+                )
+                product_rows = cursor.fetchall()
+                cursor.execute(
+                    "SELECT product_id, related_product_id, correlation "
+                    "FROM ref_product_correlation"
+                )
+                correlation_rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise RuntimeError("unable to load portfolio inputs from MySQL") from exc
+
+    if not product_rows:
+        raise RuntimeError("dwd_dim_product is empty")
+
+    product_ids = [row["product_id"] for row in product_rows]
+    if len(product_ids) != len(set(product_ids)):
+        raise ValueError("dwd_dim_product contains duplicate product IDs")
+
+    products = ProductData(
+        product_ids=product_ids,
+        expected_return=np.asarray(
+            [float(row["expected_return"]) for row in product_rows], dtype=float
+        ),
+        volatility=np.asarray(
+            [float(row["volatility"]) for row in product_rows], dtype=float
+        ),
+        risk_level=np.asarray(
+            [row["risk_level"] for row in product_rows], dtype=object
+        ),
+        liquidity=np.asarray(
+            [row["liquidity"] for row in product_rows], dtype=object
+        ),
+    )
+
+    product_indexes = {
+        product_id: index for index, product_id in enumerate(product_ids)
+    }
+    correlation = np.full((len(product_ids), len(product_ids)), np.nan)
+    for row in correlation_rows:
+        product_id = row["product_id"]
+        related_product_id = row["related_product_id"]
+        if (
+            product_id not in product_indexes
+            or related_product_id not in product_indexes
+        ):
+            raise ValueError("ref_product_correlation contains an unknown product ID")
+        correlation[
+            product_indexes[product_id], product_indexes[related_product_id]
+        ] = float(row["correlation"])
+
+    if np.isnan(correlation).any():
+        raise ValueError("ref_product_correlation is incomplete")
+
+    covariance = build_covariance_matrix(products.volatility, correlation)
+    check_covariance_matrix(covariance)
+    high_risk_mask, non_liquid_mask = build_masks(products)
+    product_details = {row["product_id"]: row for row in product_rows}
+    return (
+        products,
+        covariance,
+        high_risk_mask,
+        non_liquid_mask,
+        product_details,
+    )
+
+
+def number_param(
+    payload: dict,
+    name: str,
+    *,
+    minimum: float,
+    maximum: float | None = None,
+    minimum_inclusive: bool = True,
+) -> float:
+    value = payload.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PortfolioInputError(f"{name} must be a number")
+
+    number = float(value)
+    if not math.isfinite(number):
+        raise PortfolioInputError(f"{name} must be finite")
+    if minimum_inclusive and number < minimum:
+        raise PortfolioInputError(f"{name} must be at least {minimum}")
+    if not minimum_inclusive and number <= minimum:
+        raise PortfolioInputError(f"{name} must be greater than {minimum}")
+    if maximum is not None and number > maximum:
+        raise PortfolioInputError(f"{name} must be at most {maximum}")
+    return number
+
+
+def optimize_portfolio(payload: dict) -> dict:
+    """Optimize one custom scenario and return a JSON-ready result."""
+    products, covariance, high_risk_mask, non_liquid_mask, details = (
+        optimizer_context()
+    )
+
+    total_amount = number_param(
+        payload,
+        "total_amount",
+        minimum=0,
+        minimum_inclusive=False,
+    )
+    risk_aversion = number_param(payload, "risk_aversion", minimum=0)
+    max_single_weight = number_param(
+        payload,
+        "max_single_weight",
+        minimum=0,
+        maximum=1,
+        minimum_inclusive=False,
+    )
+    max_high_risk_weight = number_param(
+        payload,
+        "max_high_risk_weight",
+        minimum=0,
+        maximum=1,
+    )
+    min_liquid_weight = number_param(
+        payload,
+        "min_liquid_weight",
+        minimum=0,
+        maximum=1,
+    )
+
+    min_holdings = payload.get("min_holdings")
+    if isinstance(min_holdings, bool) or not isinstance(min_holdings, int):
+        raise PortfolioInputError("min_holdings must be an integer")
+    if not 1 <= min_holdings <= len(products.product_ids):
+        raise PortfolioInputError(
+            f"min_holdings must be between 1 and {len(products.product_ids)}"
+        )
+
+    scenario = Scenario(
+        scenario_id="custom",
+        total_amount=total_amount,
+        risk_aversion=risk_aversion,
+        max_single_weight=max_single_weight,
+        max_high_risk_weight=max_high_risk_weight,
+        min_liquid_weight=min_liquid_weight,
+        min_holdings=min_holdings,
+    )
+
+    result = solve_one_scenario(
+        scenario=scenario,
+        products=products,
+        sigma=covariance,
+        high_risk_mask=high_risk_mask,
+        non_liquid_mask=non_liquid_mask,
+        rng=np.random.default_rng(RANDOM_STATE),
+    )
+
+    allocations = []
+    for index, weight in enumerate(result.weights):
+        if weight < SCORER_TOL:
+            continue
+        product_id = products.product_ids[index]
+        product = details[product_id]
+        allocations.append(
+            {
+                "product_id": product_id,
+                "product_name": product["product_name"],
+                "product_type": product["product_type"],
+                "risk_level": product["risk_level"],
+                "liquidity": product["liquidity"],
+                "weight": round(float(weight), 12),
+                "amount": round(total_amount * float(weight), 2),
+            }
+        )
+    allocations.sort(key=lambda item: item["weight"], reverse=True)
+
+    invested_weight = float(result.weights.sum())
+    return {
+        "scenario": {
+            "total_amount": total_amount,
+            "risk_aversion": risk_aversion,
+            "max_single_weight": max_single_weight,
+            "max_high_risk_weight": max_high_risk_weight,
+            "min_liquid_weight": min_liquid_weight,
+            "min_holdings": min_holdings,
+        },
+        "summary": {
+            "utility": round(result.utility, 12),
+            "expected_return": round(result.expected_return, 12),
+            "portfolio_volatility": round(result.portfolio_volatility, 12),
+            "invested_weight": round(invested_weight, 12),
+            "invested_amount": round(total_amount * invested_weight, 2),
+            "cash_weight": round(result.cash_weight, 12),
+            "cash_amount": round(total_amount * result.cash_weight, 2),
+            "holdings_count": result.holdings_count,
+            "high_risk_weight": round(result.high_risk_weight, 12),
+            "liquid_plus_cash": round(result.liquid_plus_cash, 12),
+            "optimality_gap": result.absolute_gap,
+        },
+        "allocations": allocations,
+    }
