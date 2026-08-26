@@ -54,6 +54,20 @@ function encouragement(conversionGap: number | undefined, expiryCount: number | 
   return `转化目标还差 ${conversionGap} 个——把高意向客户排进今天的前三名。`;
 }
 
+/** 与看板一致的金额压缩格式（¥ 12.34亿 / ¥ 1,234.5万 / 全量） */
+function compactMoney(value: number | null | undefined) {
+  if (value == null) return "—";
+  if (Math.abs(value) >= 100_000_000) {
+    return `¥ ${(value / 100_000_000).toFixed(2)}亿`;
+  }
+  if (Math.abs(value) >= 10_000) {
+    return `¥ ${(value / 10_000).toFixed(1)}万`;
+  }
+  return `¥ ${value.toLocaleString("zh-CN", {
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
   const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getDashboardOverview>> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,7 +108,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
     },
     {
       label: "到期跟进客户",
-      value: expiry?.available ? `${expiry.customer_count}` : "—",
+      value: expiry?.available ? expiry.customer_count.toLocaleString() : "—",
       note: "未来 30 天资金到期",
       rate: expiry?.customer_count ? Math.min(1, expiry.customer_count / 300) : 0,
       module: "marketing" as Module,
@@ -169,7 +183,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
         </div>
         <div className="home-snapshot">
           {business && <span><small>客户总数</small><b>{business.customer_count.toLocaleString()}</b></span>}
-          {business && <span><small>客户AUM</small><b>¥{business.total_aum >= 1e8 ? `${(business.total_aum / 1e8).toFixed(1)}亿` : `${Math.round(business.total_aum / 1e4).toLocaleString()}万`}</b></span>}
+          {business && <span><small>客户AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
           {a1 && <span><small>模型AUC</small><b>{a1.auc?.toFixed(4) ?? "—"}</b></span>}
           {touch && <span><small>策略规模</small><b>{touch.total_strategies.toLocaleString()}</b></span>}
         </div>

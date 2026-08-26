@@ -11,7 +11,7 @@
 .home-goal-card:hover{background:#ffffff1c}
 .home-goal-card small,.home-goal-card strong,.home-goal-card span{display:block}
 .home-goal-card small{color:#a9c0d1;font-size:10px}
-.home-goal-card strong{margin:5px 0;font:700 21px "PingFang SC","Microsoft YaHei",sans-serif}
+.home-goal-card strong{margin:5px 0;font:700 19px "PingFang SC","Microsoft YaHei",sans-serif}
 .home-goal-card i{display:block;height:5px;margin:7px 0;border-radius:5px;background:#ffffff22;overflow:hidden}
 .home-goal-card i b{display:block;height:100%;background:linear-gradient(90deg,#e2c47e,#d39b36)}
 .home-goal-card span{color:#9fb7c8;font-size:9px}
