@@ -49,3 +49,26 @@
 .linkage-note{margin:8px 0;color:#75889a;font-size:10px;line-height:1.6}
 .linkage-card .secondary{min-height:32px;padding:6px 11px;font-size:10px}
 @media(max-width:850px){.linkage-grid{grid-template-columns:1fr}.profile-actions{margin-left:0}}
+
+/* 风险评估标签页 */
+.risk-assessment{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;padding:18px}
+.risk-score-card{padding:16px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.risk-score-card small,.risk-score-card strong,.risk-score-card span,.risk-score-card p{display:block}
+.risk-score-card small{color:#82919d;font-size:10px}
+.risk-score-card strong{margin:4px 0;color:var(--navy);font:700 32px Georgia}
+.risk-score-card span{color:#5d7181;font-size:11px}
+.risk-score-card span b{color:#966922}
+.risk-score-card p{margin:9px 0 0;color:#94a2ad;font-size:9px;line-height:1.5}
+.risk-band{display:flex;gap:4px;margin-top:12px}
+.risk-band i{flex:1;display:grid;place-items:center;height:26px;border-radius:6px;background:#e9eef2;color:#82919d;font-style:normal}
+.risk-band i em{font:700 9px Georgia}
+.risk-band i.on{background:linear-gradient(135deg,#2d6896,#b98b3e);color:#fff}
+.risk-factors{padding:16px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.risk-factors>b{color:var(--navy2);font-size:11px}
+.risk-factors ul{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.risk-factors li{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;border:1px solid #e7edf2;border-radius:7px;background:#fff;font-size:10px}
+.risk-factors li span{color:#4b6478}
+.risk-factors li em{color:var(--navy2);font-style:normal;font-weight:600}
+.risk-factors li.total{border-color:#e8cd9d;background:#fdf9f0}
+.risk-factors li.total span,.risk-factors li.total em{color:#8f6726;font-weight:700}
+@media(max-width:850px){.risk-assessment{grid-template-columns:1fr}}

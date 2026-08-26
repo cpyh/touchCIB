@@ -80,6 +80,13 @@ export interface CustomerProfile {
     response_rate: number | null;
     last_contact_date: string | null;
   };
+  risk_assessment?: {
+    score: number;
+    level: string;
+    label: string;
+    base_score: number;
+    factors: Array<{ factor: string; value: string; score: number }>;
+  };
   ai_summary: AiAnalysis | null;
   ai_summary_generated_at: string | null;
 }

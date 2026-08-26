@@ -148,6 +148,27 @@ def assess_risk(payload: dict) -> str:
     return "R5"
 
 
+def assess_risk_detail(payload: dict) -> dict:
+    """规则评估全过程：总分 + 分项因子 + 等级，供前端风险评估页展示。"""
+    age_score = AGE_SCORE[payload["age_group"]]
+    income_score = INCOME_SCORE[payload["income_level"]]
+    occupation_score = OCCUPATION_SCORE[payload["occupation"]]
+    aum_score = _aum_score(Decimal(str(payload["aum"])))
+    score = max(0, min(100, 50 + age_score + income_score + occupation_score + aum_score))
+    return {
+        "score": score,
+        "level": assess_risk(payload),
+        "label": risk_label(assess_risk(payload)),
+        "base_score": 50,
+        "factors": [
+            {"factor": "年龄", "value": payload["age_group"], "score": age_score},
+            {"factor": "收入", "value": payload["income_level"], "score": income_score},
+            {"factor": "职业", "value": payload["occupation"], "score": occupation_score},
+            {"factor": "资产规模", "value": f"{float(payload['aum']) / 10000:.0f}万", "score": aum_score},
+        ],
+    }
+
+
 def risk_label(level: str) -> str:
     return RISK_LABELS.get(level, level)
 
@@ -475,6 +496,14 @@ def get_customer_profile(customer_id: str) -> dict:
     return {
         "as_of_date": as_of_date.isoformat(),
         "basic_info": basic,
+        "risk_assessment": assess_risk_detail(
+            {
+                "age_group": basic.get("age_group"),
+                "income_level": basic.get("income_level"),
+                "occupation": basic.get("occupation"),
+                "aum": basic.get("aum"),
+            }
+        ),
         "asset_profile": asset_profile,
         "behavior_profile": behavior_profile,
         "campaign_summary": {
