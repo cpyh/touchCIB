@@ -61,3 +61,22 @@ b,strong{font-weight:600}
 .toast-box p { margin-top: 4px; font-size: .85rem; color: #444; line-height: 1.6; }
 .muted-note { color: #999; font-size: .9rem; padding: 16px; }
 .warn-text { color: #c0392b; margin-top: 4px; }
+
+/* ============================================================
+   数字呈现统一阶梯（视觉收敛）
+   L1 指标卡大数 21px · L2 卡片核心数 19px · L3 行内强调 13px
+   ============================================================ */
+.metric strong { font:700 21px Georgia,serif; color:var(--navy); }
+.metric.gold strong { color:#946921; }
+.business-kpis strong { font:700 21px "PingFang SC","Microsoft YaHei",sans-serif; }
+.action-card>strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
+.action-card>strong i { font:500 11px "PingFang SC","Microsoft YaHei",sans-serif; color:#9fb0bd; }
+.action-card>strong em { font:600 12px "PingFang SC","Microsoft YaHei",sans-serif; color:var(--navy2); }
+.linkage-fact strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
+.behavior-metrics strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
+.aum strong { font:700 18px Georgia,serif; }
+.risk strong { font:700 18px Georgia,serif; }
+.stats b { font:700 13px Georgia,serif; }
+.prob b { font:700 13px Georgia,serif; }
+.source>span>em { font:500 22px Georgia,serif; }
+.expiry-strip>span strong { font:700 12px "PingFang SC","Microsoft YaHei",sans-serif; }
