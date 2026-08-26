@@ -138,13 +138,20 @@ export function PortfolioPage({
       .then((data) => {
         setScenarios(data.scenarios);
         const first = data.scenarios.find((item) => item.scenario_id === "S01") ?? data.scenarios[0];
-        if (first) applyScenario(first);
+        // 从客户页跳转进入时不覆盖按画像自动生成的参数
+        if (first && !initialCustomerId) applyScenario(first);
       })
       .catch((error) => notify(`投资场景加载失败：${error.message}`));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    void loadCustomer(initialCustomerId || "C000001", false);
+    const target = initialCustomerId?.trim().toUpperCase() || "C000001";
+    void loadCustomer(target, false).then((profile) => {
+      // 从客户画像页跳转而来（带客户 ID）时自动按画像生成默认约束
+      if (profile && initialCustomerId) applyCustomerRisk(profile);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCustomerId]);
 
   const selectedScenario = useMemo(
@@ -186,11 +193,11 @@ export function PortfolioPage({
     setParameterSource("manual");
   }
 
-  async function loadCustomer(customerId: string, announce = true) {
+  async function loadCustomer(customerId: string, announce = true): Promise<CustomerProfile | null> {
     const normalized = customerId.trim().toUpperCase();
     if (!normalized) {
       notify("请输入客户编号");
-      return;
+      return null;
     }
     setCustomerBusy(true);
     try {
@@ -200,30 +207,33 @@ export function PortfolioPage({
       setCustomer(data);
       setCustomerQuery(normalized);
       if (announce) notify(`已加载客户 ${normalized} 的风险画像`);
+      return data;
     } catch (error) {
       notify(`客户画像加载失败：${(error as Error).message}`);
+      return null;
     } finally {
       setCustomerBusy(false);
     }
   }
 
-  function applyCustomerRisk() {
-    if (!customer) return;
-    const defaults = riskDefaults[customer.risk_appetite];
+  function applyCustomerRisk(profile?: CustomerProfile) {
+    const source = profile ?? customer;
+    if (!source) return;
+    const defaults = riskDefaults[source.risk_appetite];
     if (!defaults) {
-      notify(`无法识别风险等级 ${customer.risk_appetite}`);
+      notify(`无法识别风险等级 ${source.risk_appetite}`);
       return;
     }
     setRiskAversion(defaults.riskAversion);
     setMaxHighRiskWeight(defaults.maxHighRiskWeight);
-    setTotalAmount(customer.aum);
+    setTotalAmount(source.aum);
     setMaxSingleWeight(0.3);
     setMinLiquidWeight(0.2);
     setMinHoldings(4);
     setResult(null);
     setResultView("overview");
     setParameterSource("customer");
-    notify(`已按 ${customer.risk_appetite} ${riskNames[customer.risk_appetite]}和客户AUM生成默认方案`);
+    notify(`已按 ${source.risk_appetite} ${riskNames[source.risk_appetite]}与客户 AUM 自动生成默认方案`);
   }
 
   async function optimize() {
