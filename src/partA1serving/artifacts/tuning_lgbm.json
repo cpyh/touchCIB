@@ -1,0 +1,79 @@
+{
+  "model": "lgbm",
+  "cut": "2026-02-01",
+  "n_splits": 3,
+  "grid_size": 72,
+  "random_state": 42,
+  "best_params": {
+    "n_estimators": 300,
+    "learning_rate": 0.03,
+    "num_leaves": 7,
+    "min_child_samples": 50,
+    "colsample_bytree": 0.8,
+    "reg_lambda": 20.0
+  },
+  "best_cv_auc": 0.873549,
+  "best_cv_std": 0.003327,
+  "top5": [
+    {
+      "cv_auc": 0.873549,
+      "cv_std": 0.003327,
+      "params": {
+        "n_estimators": 300,
+        "learning_rate": 0.03,
+        "num_leaves": 7,
+        "min_child_samples": 50,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 20.0
+      }
+    },
+    {
+      "cv_auc": 0.87351,
+      "cv_std": 0.003272,
+      "params": {
+        "n_estimators": 300,
+        "learning_rate": 0.03,
+        "num_leaves": 7,
+        "min_child_samples": 100,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 20.0
+      }
+    },
+    {
+      "cv_auc": 0.873482,
+      "cv_std": 0.003515,
+      "params": {
+        "n_estimators": 200,
+        "learning_rate": 0.05,
+        "num_leaves": 7,
+        "min_child_samples": 50,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 5.0
+      }
+    },
+    {
+      "cv_auc": 0.873465,
+      "cv_std": 0.003496,
+      "params": {
+        "n_estimators": 500,
+        "learning_rate": 0.03,
+        "num_leaves": 7,
+        "min_child_samples": 50,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 20.0
+      }
+    },
+    {
+      "cv_auc": 0.873377,
+      "cv_std": 0.003456,
+      "params": {
+        "n_estimators": 500,
+        "learning_rate": 0.03,
+        "num_leaves": 7,
+        "min_child_samples": 100,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 20.0
+      }
+    }
+  ]
+}
