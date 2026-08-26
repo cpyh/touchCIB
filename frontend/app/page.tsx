@@ -26,6 +26,7 @@ const titles: Record<Module, string> = {
 export default function Home() {
   const [active, setActive] = useState<Module>("marketing");
   const [customerId, setCustomerId] = useState("");
+  const [marketingCohort, setMarketingCohort] = useState<"all" | "expiry">("all");
   const [toast, setToast] = useState("");
 
   function notify(message: string) {
@@ -35,6 +36,16 @@ export default function Home() {
 
   function openMarketing(nextCustomerId: string) {
     setCustomerId(nextCustomerId);
+    setMarketingCohort("all");
+    setActive("marketing");
+  }
+
+  function openMarketingWithCohort(
+    nextCustomerId: string,
+    cohort: "all" | "expiry"
+  ) {
+    setCustomerId(nextCustomerId);
+    setMarketingCohort(cohort);
     setActive("marketing");
   }
 
@@ -74,8 +85,8 @@ export default function Home() {
         <main className={`page-${active}`}>
           {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} onOpenMarketing={openMarketing} />}
-          {active === "marketing" && <MarketingPage initialCustomerId={customerId} onOpenCustomer={openCustomer} notify={notify} />}
-          {active === "dashboard" && <DashboardPage onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} />}
+          {active === "marketing" && <MarketingPage initialCustomerId={customerId} initialCohort={marketingCohort} onOpenCustomer={openCustomer} notify={notify} />}
+          {active === "dashboard" && <DashboardPage onOpenMarketing={openMarketing} onOpenExpiry={(nextCustomerId) => openMarketingWithCohort(nextCustomerId, "expiry")} onOpenPortfolio={openPortfolio} />}
         </main>
 
         <footer>

@@ -191,6 +191,7 @@ interface MarketingSummary {
 
 interface MarketingPageProps {
   initialCustomerId: string;
+  initialCohort?: "all" | "expiry";
   onOpenCustomer: (customerId: string) => void;
   notify: (message: string) => void;
 }
@@ -213,6 +214,7 @@ function formatTime(value: string) {
 
 export function MarketingPage({
   initialCustomerId,
+  initialCohort,
   onOpenCustomer,
   notify,
 }: MarketingPageProps) {
@@ -224,6 +226,7 @@ export function MarketingPage({
     converted: 0,
   });
   const [taskStatus, setTaskStatus] = useState<TaskStatus>("all");
+  const [taskCohort, setTaskCohort] = useState<"all" | "expiry">("all");
   const [taskPage, setTaskPage] = useState(1);
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskQuery, setTaskQuery] = useState("");
@@ -287,6 +290,14 @@ export function MarketingPage({
   }, []);
 
   useEffect(() => {
+    if (initialCohort && initialCohort !== taskCohort) {
+      setTaskCohort(initialCohort);
+      void loadTasks(1, taskStatus, taskQuery, initialCohort);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCohort]);
+
+  useEffect(() => {
     if (initialCustomerId) void loadStrategies(initialCustomerId);
   }, [initialCustomerId]);
 
@@ -318,6 +329,7 @@ export function MarketingPage({
     page: number,
     status: TaskStatus = taskStatus,
     keyword: string = taskQuery,
+    cohort: "all" | "expiry" = taskCohort,
   ) {
     const requestId = ++taskRequestId.current;
     setTaskLoading(true);
@@ -326,6 +338,7 @@ export function MarketingPage({
         page: String(page),
         size: String(TASK_PAGE_SIZE),
         status,
+        cohort,
       });
       if (keyword.trim()) params.set("keyword", keyword.trim());
       const data = await api<{
@@ -342,6 +355,7 @@ export function MarketingPage({
           Math.ceil(data.total / TASK_PAGE_SIZE),
           status,
           keyword,
+          cohort,
         );
         return;
       }
@@ -353,6 +367,7 @@ export function MarketingPage({
       setModelCoveredCustomers(data.model_covered_customers);
       setTaskPage(page);
       setTaskStatus(status);
+      setTaskCohort(cohort);
     } catch (error) {
       if (requestId === taskRequestId.current) {
         notify(`营销任务加载失败：${(error as Error).message}`);
@@ -365,7 +380,12 @@ export function MarketingPage({
   function changeTaskStatus(status: TaskStatus) {
     if (taskSearchTimer.current) window.clearTimeout(taskSearchTimer.current);
     setTaskStatus(status);
-    void loadTasks(1, status, taskQuery);
+    void loadTasks(1, status, taskQuery, taskCohort);
+  }
+
+  function changeTaskCohort(cohort: "all" | "expiry") {
+    setTaskCohort(cohort);
+    void loadTasks(1, taskStatus, taskQuery, cohort);
   }
 
   function changeTaskQuery(value: string) {
@@ -736,6 +756,20 @@ export function MarketingPage({
               </button>
             ))}
           </nav>
+          <div className="task-cohort">
+            <button
+              className={taskCohort === "all" ? "on" : ""}
+              onClick={() => changeTaskCohort("all")}
+            >
+              全部客户
+            </button>
+            <button
+              className={taskCohort === "expiry" ? "on" : ""}
+              onClick={() => changeTaskCohort("expiry")}
+            >
+              到期跟进
+            </button>
+          </div>
           <div className="task-search">
             <input
               aria-label="搜索营销任务"

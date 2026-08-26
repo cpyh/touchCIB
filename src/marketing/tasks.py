@@ -153,20 +153,54 @@ def _live_strategy_customers() -> frozenset[str]:
     return frozenset(str(row["customer_id"]) for row in rows)
 
 
+@lru_cache(maxsize=1)
+def _expiring_customers() -> frozenset[str]:
+    """未来30天有固定期限持仓到期的客户集合（策略日 2026-04-15 口径）。"""
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT DISTINCT h.customer_id
+                    FROM ods_holding h
+                    JOIN ods_product p ON p.product_id = h.product_id
+                    WHERE p.duration_days > 0
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) > %s
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) <= %s
+                    """,
+                    ("2026-04-15", "2026-05-15"),
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError):
+        return frozenset()
+    return frozenset(str(row["customer_id"]) for row in rows)
+
+
 def query_marketing_tasks(
     *,
     page: int = 1,
     size: int = 20,
     status: str = "all",
     keyword: str | None = None,
+    cohort: str = "all",
 ) -> dict:
-    """分页返回全量客户机会；未产生事件的客户默认为待联系。"""
+    """分页返回全量客户机会；未产生事件的客户默认为待联系。
+
+    cohort="expiry" 时仅返回未来30天有持仓到期的客户（到期跟进队列）。
+    """
     if page < 1 or size < 1 or size > 100:
         raise ValueError("page >= 1, 1 <= size <= 100")
     if status not in STATUS_VALUES:
         raise ValueError(f"status must be one of {STATUS_VALUES}")
+    if cohort not in ("all", "expiry"):
+        raise ValueError("cohort must be 'all' or 'expiry'")
 
     frame = _task_frame().copy()
+    if cohort == "expiry":
+        frame = frame[frame["customer_id"].isin(_expiring_customers())]
     statuses = _event_statuses()
     live_strategy_customers = _live_strategy_customers()
     frame["status"] = frame["customer_id"].map(statuses).fillna("pending")
@@ -279,6 +313,8 @@ def query_marketing_tasks(
         "population_total": int(len(_task_frame())),
         "page": page,
         "size": size,
+        "cohort": cohort,
+        "expiry_customer_count": len(_expiring_customers()) if cohort != "expiry" else total,
         "counts": counts,
         "official_target_customers": int(_task_frame()["official_target"].sum()),
         "model_covered_customers": int(_task_frame()["response_prob"].notna().sum()),

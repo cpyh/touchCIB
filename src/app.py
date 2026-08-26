@@ -265,6 +265,7 @@ def marketing_tasks():
                 size=int(request.args.get("size", 20)),
                 status=request.args.get("status", "all"),
                 keyword=request.args.get("keyword"),
+                cohort=request.args.get("cohort", "all"),
             )
         )
     except (ValueError, TypeError) as exc:

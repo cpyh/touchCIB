@@ -388,3 +388,8 @@
   .opportunity-toolbar,.lab-controls { grid-template-columns: 1fr; }
   .marketing-drawer > header { padding: 16px; }
 }
+
+/* 客户队列筛选：全部客户 / 到期跟进 */
+.task-cohort { flex: 0 0 auto; display: flex; gap: 4px; margin: 2px 8px 6px; padding: 3px; border-radius: 7px; background: #edf2f6; }
+.task-cohort button { flex: 1; padding: 5px 6px; border: 0; border-radius: 5px; background: transparent; color: #6c7e8c; font-size: 10px; white-space: nowrap; }
+.task-cohort button.on { background: #fff; color: var(--navy2); font-weight: 600; box-shadow: 0 2px 7px #10315017; }
