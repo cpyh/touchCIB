@@ -279,30 +279,28 @@ export function DashboardPage({
     dashboard.portfolio_summary;
   const funnel = dashboard.marketing_funnel;
 
-  const strategyCount =
-    funnel.generated_strategy_count ??
-    a2.result_row_count ??
-    a2.generated_customer_count * 3;
+  const customerCount =
+    funnel.target_customer_count ?? 0;
 
-  const sentCount =
-    funnel.sent_strategy_count ?? 0;
+  const contactedCount =
+    funnel.contacted_customer_count ?? 0;
 
   const respondedCount =
-    funnel.responded_strategy_count ?? 0;
+    funnel.responded_customer_count ?? 0;
 
   const pendingCount = Math.max(
     0,
-    strategyCount - sentCount
+    customerCount - contactedCount
   );
 
   const touchRate =
-    strategyCount > 0
-      ? sentCount / strategyCount
+    customerCount > 0
+      ? contactedCount / customerCount
       : null;
 
   const responseRate =
-    sentCount > 0
-      ? respondedCount / sentCount
+    contactedCount > 0
+      ? respondedCount / contactedCount
       : null;
 
   const validationEntries = Object.entries(
@@ -384,10 +382,10 @@ export function DashboardPage({
               <button className="primary" onClick={() => onOpenMarketing?.("")}>去营销工作台执行 →</button>
             </article>
 
-            <article className={`action-card ${(touch?.sent_strategies ?? 0) < (touch?.total_strategies ?? 1) ? "level-amber" : "level-green"}`}>
-              <header><b>触达缺口</b><span>{(touch?.total_strategies ?? 0) - (touch?.sent_strategies ?? 0)} 条策略待触达</span></header>
-              <strong>{touch?.sent_strategies?.toLocaleString()}<i>/</i><em>{touch?.total_strategies?.toLocaleString()}</em></strong>
-              <p>高意向客户（概率≥70%）中还有 <b>{touch?.high_intent_untouched ?? "—"}</b> 名未触达，建议今日优先执行</p>
+            <article className={`action-card ${(touch?.sent_customers ?? 0) < (touch?.total_customers ?? 1) ? "level-amber" : "level-green"}`}>
+              <header><b>触达缺口</b><span>{(touch?.total_customers ?? 0) - (touch?.sent_customers ?? 0)} 位客户待触达</span></header>
+              <strong>{touch?.sent_customers?.toLocaleString()}<i>/</i><em>{touch?.total_customers?.toLocaleString()}</em></strong>
+              <p>全量客户均为运营对象；高意向客户（概率≥70%）中还有 <b>{touch?.high_intent_untouched ?? "—"}</b> 名未触达，建议今日优先执行</p>
               <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
             </article>
 
@@ -617,7 +615,7 @@ export function DashboardPage({
         <SectionTitle
           index="02"
           title="营销运营闭环"
-          description="A2策略在工作台执行后，触达与响应事件实时回流到本页。"
+          description="工作台按客户执行触达与跟进，响应事件实时回流到本页。"
         />
 
         <section className="card operation-loop">
@@ -625,7 +623,7 @@ export function DashboardPage({
             <div>
               <h2>策略执行闭环</h2>
               <p>
-                策略生成 → 触达 → 响应，统一采用strategy_id事件口径
+                全量客户 → 已触达 → 已响应，统一采用客户口径
               </p>
             </div>
 
@@ -638,9 +636,9 @@ export function DashboardPage({
             <div>
               <i>1</i>
               <strong>
-                {strategyCount.toLocaleString()}
+                {customerCount.toLocaleString()}
               </strong>
-              <span>策略生成</span>
+              <span>全量客户</span>
             </div>
 
             <b>→</b>
@@ -648,9 +646,9 @@ export function DashboardPage({
             <div>
               <i>2</i>
               <strong>
-                {sentCount.toLocaleString()}
+                {contactedCount.toLocaleString()}
               </strong>
-              <span>已触达</span>
+              <span>已触达客户</span>
             </div>
 
             <b>→</b>
@@ -660,16 +658,16 @@ export function DashboardPage({
               <strong>
                 {respondedCount.toLocaleString()}
               </strong>
-              <span>已响应</span>
+              <span>已响应客户</span>
             </div>
           </div>
 
           <div className="operation-kpis">
             <div>
               <span>
-                <strong>策略触达率</strong>
+                <strong>客户触达率</strong>
                 <small>
-                  已触达策略 ÷ 全部策略
+                  已触达客户 ÷ 全量客户
                 </small>
               </span>
 
@@ -693,7 +691,7 @@ export function DashboardPage({
                   触达后响应率
                 </strong>
                 <small>
-                  已响应策略 ÷ 已触达策略
+                  已响应客户 ÷ 已触达客户
                 </small>
               </span>
 
@@ -717,7 +715,7 @@ export function DashboardPage({
 
             <div>
               <span>
-                <strong>待执行策略</strong>
+                <strong>待触达客户</strong>
                 <small>
                   尚未记录sent事件
                 </small>
@@ -728,9 +726,9 @@ export function DashboardPage({
                   className="pending"
                   style={{
                     width: `${
-                      strategyCount
+                      customerCount
                         ? (pendingCount /
-                            strategyCount) *
+                            customerCount) *
                           100
                         : 0
                     }%`,
@@ -739,7 +737,7 @@ export function DashboardPage({
               </i>
 
               <em>
-                {pendingCount.toLocaleString()} 条
+                {pendingCount.toLocaleString()} 位
               </em>
             </div>
           </div>

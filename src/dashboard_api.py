@@ -431,9 +431,21 @@ def _marketing_funnel() -> dict:
     sent_strategy_count = int(sent["strategies"] or 0) if sent else 0
     responded_strategy_count = int(responded["strategies"] or 0) if responded else 0
     a2 = _a2_performance()
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS count FROM ods_customer")
+                total_customers = int(cursor.fetchone()["count"])
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError):
+        total_customers = 0
     return {
         "status": "READY" if sent_strategy_count or responded_strategy_count else "NOT_STARTED",
-        "target_customer_count": a2["target_customer_count"],
+        # 平台运营口径：全量客户为目标；官方 A2 判分集合另列
+        "target_customer_count": total_customers,
+        "official_target_customer_count": a2["target_customer_count"],
         "generated_customer_count": a2["generated_customer_count"],
         "contacted_customer_count": int(sent["customers"] or 0) if sent else 0,
         "responded_customer_count": int(responded["customers"] or 0) if responded else 0,
@@ -502,6 +514,30 @@ def _action_items() -> dict:
     except (OSError, ValueError, KeyError):
         high_intent_customers = set()
 
+    target_customers = 0
+    if STRATEGY_TARGET_CSV.is_file():
+        try:
+            target_customers = int(
+                pd.read_csv(STRATEGY_TARGET_CSV, dtype={"customer_id": str})[
+                    "customer_id"
+                ].nunique()
+            )
+        except (OSError, ValueError, KeyError):
+            target_customers = 0
+
+    # 平台运营口径：全量客户均为运营对象；2,000 仅用于官方 A2 判分
+    total_customers = 0
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS count FROM ods_customer")
+                total_customers = int(cursor.fetchone()["count"])
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError):
+        total_customers = 0
+
     conversion_target = 30
     return {
         "conversion": {
@@ -511,6 +547,9 @@ def _action_items() -> dict:
             "label": "经理 MGR001 4月转化",
         },
         "touch": {
+            "total_customers": total_customers,
+            "sent_customers": len(sent_customers),
+            "official_target_customers": target_customers,
             "sent_strategies": sent_strategies,
             "total_strategies": int(len(strategy_channels)),
             "high_intent_untouched": len(high_intent_customers - sent_customers),

@@ -362,8 +362,18 @@ def create_sent_event(
     strategy_id: str,
     occurred_at: datetime | None = None,
 ) -> dict:
-    """标记"已触达"：写入 sent 事件。"""
-    _parse_strategy_id(strategy_id)
+    """标记"已触达"：写入 sent 事件。
+
+    口径：工作面板面向客户，一客户一次触达。
+    strategy_id 仅标注本次执行的首选策略，同一客户重复触达被拒绝。
+    """
+    customer_id, _ = _parse_strategy_id(strategy_id)
+    existing = list_campaign_events(customer_id=customer_id)
+    if any(event["event_type"] == "sent" for event in existing):
+        raise CampaignInputError(
+            f"客户 {customer_id} 已触达：按客户口径一次营销活动只触达一次，"
+            "请直接跟进后续动作"
+        )
     return _record_event(
         strategy_id=strategy_id,
         event_type="sent",
@@ -651,6 +661,11 @@ def _trace_context():
 
 
 def _derive_status(strategy_id: str, events: list[dict]) -> str:
+    """状态按客户口径推导：触达一次即全客户策略进入已触达。
+
+    响应仍按 strategy_id 归因（购买产品 ∈ Top3 命中对应 rank）。
+    """
+    customer_id = str(strategy_id).partition(":")[0]
     responded = any(
         event["event_type"] == "responded"
         and event["strategy_id"] == strategy_id
@@ -659,7 +674,8 @@ def _derive_status(strategy_id: str, events: list[dict]) -> str:
     if responded:
         return "已响应"
     sent = any(
-        event["event_type"] == "sent" and event["strategy_id"] == strategy_id
+        event["event_type"] == "sent"
+        and str(event["strategy_id"]).partition(":")[0] == customer_id
         for event in events
     )
     return "已触达" if sent else "待执行"

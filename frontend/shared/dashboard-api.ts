@@ -84,6 +84,9 @@ export interface DashboardOverview {
       label: string;
     };
     touch: {
+      total_customers: number;
+      sent_customers: number;
+      official_target_customers: number;
       sent_strategies: number;
       total_strategies: number;
       high_intent_untouched: number;
