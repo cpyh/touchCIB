@@ -498,7 +498,7 @@ def stream_ai_analysis(payload: dict):
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is not configured")
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    model = os.getenv("DEEPSEEK_FAST_MODEL", "deepseek-chat")
     timeout = float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "60"))
     try:
         from openai import OpenAI
@@ -525,7 +525,7 @@ def generate_ai_analysis(payload: dict) -> str:
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is not configured")
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    model = os.getenv("DEEPSEEK_FAST_MODEL", "deepseek-chat")
     timeout = float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "60"))
     try:
         from openai import OpenAI
