@@ -221,3 +221,13 @@
   .portfolio-ai-evidence,.portfolio-ai-trace { grid-template-columns: 1fr; }
   .optimization-placeholder { min-height: 430px; padding: 30px 18px; }
 }
+
+/* 客户闭环条：投顾配置缺口 → 营销触达 */
+.portfolio-closure-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:13px;padding:12px 15px;border:1px solid #e2d6b8;border-left-width:4px;border-left-color:var(--gold);border-radius:9px;background:#fbf8f0}
+.closure-gap{min-width:0}
+.closure-gap b,.closure-gap span,.closure-gap small{display:block}
+.closure-gap b{color:#8f6726;font-size:11px}
+.closure-gap span{margin-top:3px;color:#3f5566;font-size:12px}
+.closure-gap small{margin-top:2px;color:#8b99a4;font-size:9px}
+.portfolio-closure-bar .primary{min-height:36px;padding:8px 13px;font-size:11px;white-space:nowrap}
+@media(max-width:620px){.portfolio-closure-bar{flex-direction:column;align-items:flex-start}}

@@ -400,6 +400,7 @@ export function DashboardPage({
               <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
               <strong>{a1AllAnchorsMet ? "达标" : "复核"}<i>A1</i><em>{partBOk ? "达标" : "复核"} PartB</em></strong>
               <p>AUC {(a1.auc ?? 0).toFixed(4)} · F1 {(a1.f1 ?? 0).toFixed(4)} · Lift {(a1.lift_at_10 ?? 0).toFixed(2)}；Part B {portfolioSummary?.constraints_passed_count ?? "—"}/{portfolioSummary?.scenario_count ?? "—"} 场景约束通过</p>
+              <button className="primary" onClick={() => onOpenPortfolio?.("")}>去投顾演示最优性证书 →</button>
               <span className="action-hint">模型指标实时取自验证文件</span>
             </article>
           </div>

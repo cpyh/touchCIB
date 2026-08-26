@@ -54,6 +54,12 @@ interface RiskDefaults {
   maxHighRiskWeight: number;
 }
 
+interface HoldingGap {
+  toBuy: Array<{ product_id: string; product_name: string; weight: number }>;
+  toReduce: Array<{ product_id: string; product_name: string; amount: number }>;
+  summary: string;
+}
+
 const riskDefaults: Record<string, RiskDefaults> = {
   R1: { riskAversion: 2.9, maxHighRiskWeight: 0 },
   R2: { riskAversion: 2.2, maxHighRiskWeight: 0.1 },
@@ -113,9 +119,11 @@ const allocationColors = ["#123f6b", "#286b9f", "#5a91b8", "#d39b36", "#7b8fa3",
 export function PortfolioPage({
   initialCustomerId,
   notify,
+  onOpenMarketing,
 }: {
   initialCustomerId?: string;
   notify: (message: string) => void;
+  onOpenMarketing?: (customerId: string) => void;
 }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [scenarioId, setScenarioId] = useState("S01");
@@ -132,6 +140,7 @@ export function PortfolioPage({
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [customerBusy, setCustomerBusy] = useState(false);
   const [parameterSource, setParameterSource] = useState<"scenario" | "customer" | "manual">("scenario");
+  const [holdingGap, setHoldingGap] = useState<HoldingGap | null>(null);
 
   useEffect(() => {
     api<{ scenarios: Scenario[] }>("/portfolio/scenarios")
@@ -153,6 +162,64 @@ export function PortfolioPage({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCustomerId]);
+
+  useEffect(() => {
+    if (!customer || !result) {
+      setHoldingGap(null);
+      return;
+    }
+    let cancelled = false;
+    api<{
+      code: number;
+      data: {
+        asset_profile?: {
+          holdings?: Array<{
+            product_id: string;
+            product_name: string;
+            amount: number;
+          }>;
+        };
+      } | null;
+    }>(`/api/v1/customers/${customer.customer_id}/profile`)
+      .then((envelope) => {
+        if (cancelled) return;
+        const holdings = envelope.data?.asset_profile?.holdings ?? [];
+        const held = new Map(holdings.map((item) => [item.product_id, item]));
+        const toBuy = result.allocations
+          .filter((item) => !held.has(item.product_id))
+          .slice(0, 2);
+        const toReduce = holdings
+          .filter(
+            (item) =>
+              !result.allocations.some(
+                (allocation) => allocation.product_id === item.product_id
+              )
+          )
+          .sort((left, right) => right.amount - left.amount)
+          .slice(0, 2);
+        if (!toBuy.length && !toReduce.length) {
+          setHoldingGap(null);
+          return;
+        }
+        const buyText = toBuy.length
+          ? `增配 ${toBuy.map((item) => item.product_name).join("、")}`
+          : "";
+        const reduceText = toReduce.length
+          ? `减配 ${toReduce.map((item) => item.product_name).join("、")}`
+          : "";
+        setHoldingGap({
+          toBuy,
+          toReduce,
+          summary: [buyText, reduceText].filter(Boolean).join("，"),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setHoldingGap(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customer, result]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
@@ -533,6 +600,22 @@ export function PortfolioPage({
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {customer && holdingGap && onOpenMarketing && (
+                <div className="portfolio-closure-bar">
+                  <div className="closure-gap">
+                    <b>配置缺口</b>
+                    <span>{holdingGap.summary}</span>
+                    <small>对比当前持仓与推荐方案：投顾发现的缺口可转为营销触达线索</small>
+                  </div>
+                  <button
+                    className="primary"
+                    onClick={() => onOpenMarketing(customer.customer_id)}
+                  >
+                    查看该客户营销策略 →
+                  </button>
                 </div>
               )}
             </section>
