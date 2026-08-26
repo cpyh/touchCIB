@@ -277,31 +277,6 @@ export function DashboardPage({
   const a2 = dashboard.a2_performance;
   const portfolioSummary =
     dashboard.portfolio_summary;
-  const funnel = dashboard.marketing_funnel;
-
-  const customerCount =
-    funnel.target_customer_count ?? 0;
-
-  const contactedCount =
-    funnel.contacted_customer_count ?? 0;
-
-  const respondedCount =
-    funnel.responded_customer_count ?? 0;
-
-  const pendingCount = Math.max(
-    0,
-    customerCount - contactedCount
-  );
-
-  const touchRate =
-    customerCount > 0
-      ? contactedCount / customerCount
-      : null;
-
-  const responseRate =
-    contactedCount > 0
-      ? respondedCount / contactedCount
-      : null;
 
   const validationEntries = Object.entries(
     a2.validation ?? {}
@@ -392,7 +367,7 @@ export function DashboardPage({
             <article className={`action-card ${(channel?.manager_response_rate ?? 0) >= (channel?.manager_target ?? 1) ? "level-green" : "level-amber"}`}>
               <header><b>渠道机会</b><span>预算倾斜建议</span></header>
               <strong>{channel?.manager_response_rate != null ? `${(channel.manager_response_rate * 100).toFixed(1)}%` : "—"}<i>vs</i><em>{channel ? `${(channel.manager_target * 100).toFixed(0)}%` : "—"}</em></strong>
-              <p>经理渠道现场响应率对比历史均值 {percent(business.historical_response_rate)}，表现领先则继续倾斜经理渠道</p>
+              <p>经理渠道现场触达 {channel?.manager_sent ?? "—"} 位、响应 {channel?.manager_responded ?? "—"} 位，对比历史均值 {percent(business.historical_response_rate)}——表现领先则继续倾斜经理渠道</p>
               <span className="action-hint">数据引用 · 无需跳转</span>
             </article>
 
@@ -609,156 +584,6 @@ export function DashboardPage({
         </div>
       </section>
 
-      {/* ================= 营销运营闭环 ================= */}
-
-      <section className="dashboard-section operation-section">
-        <SectionTitle
-          index="02"
-          title="营销运营闭环"
-          description="工作台按客户执行触达与跟进，响应事件实时回流到本页。"
-        />
-
-        <section className="card operation-loop">
-          <div className="section-head">
-            <div>
-              <h2>策略执行闭环</h2>
-              <p>
-                全量客户 → 已触达 → 已响应，统一采用客户口径
-              </p>
-            </div>
-
-            <ResultStatus
-              status={funnel.status}
-            />
-          </div>
-
-          <div className="operation-steps">
-            <div>
-              <i>1</i>
-              <strong>
-                {customerCount.toLocaleString()}
-              </strong>
-              <span>全量客户</span>
-            </div>
-
-            <b>→</b>
-
-            <div>
-              <i>2</i>
-              <strong>
-                {contactedCount.toLocaleString()}
-              </strong>
-              <span>已触达客户</span>
-            </div>
-
-            <b>→</b>
-
-            <div>
-              <i>3</i>
-              <strong>
-                {respondedCount.toLocaleString()}
-              </strong>
-              <span>已响应客户</span>
-            </div>
-          </div>
-
-          <div className="operation-kpis">
-            <div>
-              <span>
-                <strong>客户触达率</strong>
-                <small>
-                  已触达客户 ÷ 全量客户
-                </small>
-              </span>
-
-              <i>
-                <b
-                  style={{
-                    width: `${
-                      (touchRate ?? 0) *
-                      100
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>{percent(touchRate)}</em>
-            </div>
-
-            <div>
-              <span>
-                <strong>
-                  触达后响应率
-                </strong>
-                <small>
-                  已响应客户 ÷ 已触达客户
-                </small>
-              </span>
-
-              <i>
-                <b
-                  style={{
-                    width: `${
-                      (responseRate ?? 0) *
-                      100
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>
-                {responseRate == null
-                  ? "尚未产生"
-                  : percent(responseRate)}
-              </em>
-            </div>
-
-            <div>
-              <span>
-                <strong>待触达客户</strong>
-                <small>
-                  尚未记录sent事件
-                </small>
-              </span>
-
-              <i>
-                <b
-                  className="pending"
-                  style={{
-                    width: `${
-                      customerCount
-                        ? (pendingCount /
-                            customerCount) *
-                          100
-                        : 0
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>
-                {pendingCount.toLocaleString()} 位
-              </em>
-            </div>
-          </div>
-
-          <div className="operation-note">
-            <span>
-              客户口径：目标客户{" "}
-              {funnel.target_customer_count.toLocaleString()}{" "}
-              位 · 已触达{" "}
-              {funnel.contacted_customer_count.toLocaleString()}{" "}
-              位 · 已响应{" "}
-              {funnel.responded_customer_count.toLocaleString()}{" "}
-              位
-            </span>
-
-            <b>
-              在营销运营工作台记录事件后，返回本页刷新即可查看变化。
-            </b>
-          </div>
-        </section>
-      </section>
     </>
   );
 }
