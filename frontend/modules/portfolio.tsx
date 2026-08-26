@@ -695,26 +695,26 @@ export function PortfolioPage({
                   </div>
                 </div>
               )}
-
-              {customer && holdingGap && onOpenMarketing && (
-                <div className="portfolio-closure-bar">
-                  <div className="closure-gap">
-                    <b>配置缺口</b>
-                    <span>{holdingGap.summary}</span>
-                    <small>对比当前持仓与推荐方案：投顾发现的缺口可转为营销触达线索</small>
-                  </div>
-                  <button
-                    className="primary"
-                    onClick={() => onOpenMarketing(customer.customer_id)}
-                  >
-                    查看该客户营销策略 →
-                  </button>
-                </div>
-              )}
             </section>
           )}
         </main>
       </div>
+
+      {customer && holdingGap && onOpenMarketing && (
+        <div className="portfolio-closure-bar">
+          <div className="closure-gap">
+            <b>配置缺口</b>
+            <span>{holdingGap.summary}</span>
+            <small>对比当前持仓与推荐方案：投顾发现的缺口可转为营销触达线索</small>
+          </div>
+          <button
+            className="primary"
+            onClick={() => onOpenMarketing(customer.customer_id)}
+          >
+            查看该客户营销策略 →
+          </button>
+        </div>
+      )}
     </>
   );
 }
