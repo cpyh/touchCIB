@@ -82,7 +82,7 @@
 .optimize-button { min-height: 44px; margin-top: 4px; }
 .solver-note { margin: 7px 0 0; color: #8a98a3; font-size: 8px; line-height: 1.45; text-align: center; }
 
-.portfolio-result-area { height: 100%; min-height: 0; display: grid; min-width: 0; }
+.portfolio-result-area { height: 100%; min-height: 0; display: grid; min-width: 0; overflow: hidden; }
 .optimization-placeholder { height: 100%; min-height: 0; display: grid; place-items: center; align-content: center; padding: 30px; overflow: hidden; text-align: center; background: radial-gradient(circle at 50% 38%, #edf4f9, transparent 32%), #fff; }
 .formula-mark { width: 115px; height: 115px; display: grid; place-items: center; border: 1px solid #d8e4ec; border-radius: 50%; background: #f8fbfd; color: var(--navy2); font: 600 18px Georgia, serif; box-shadow: 0 0 0 11px rgba(233,241,247,.65); }
 .optimization-placeholder h2 { margin: 22px 0 8px; color: var(--navy); font-size: 18px; }
@@ -99,7 +99,7 @@
 .result-tabs { display: flex; padding: 3px; border-radius: 8px; background: #edf2f6; }
 .result-tabs button { padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: #6c7e8c; font-size: 10px; }
 .result-tabs button.on { background: #fff; color: var(--navy2); font-weight: 600; box-shadow: 0 2px 7px rgba(16,49,80,.09); }
-.result-view { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.result-view { flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; }
 .portfolio-overview .metric strong { font-size: 23px; }
 .allocation-visual { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .allocation-visual-head { display: flex; align-items: flex-end; justify-content: space-between; }
@@ -157,8 +157,12 @@
 .detail-caption span b, .detail-caption span small { display: block; }
 .detail-caption span b { color: var(--navy2); font-size: 12px; }
 .detail-caption span small { margin-top: 3px; color: var(--muted); font-size: 9px; }
-.detail-view { display: flex; flex-direction: column; }
-.allocation-table { flex: 1; min-height: 0; max-height: none; overflow: auto; border: 1px solid #e2e8ed; border-radius: 8px; }
+.detail-view { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.allocation-table {
+  display: block; flex: 1 1 0; height: 0; min-height: 0; max-height: none;
+  overflow-x: auto; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  border: 1px solid #e2e8ed; border-radius: 8px;
+}
 .allocation-table thead { position: sticky; top: 0; z-index: 1; }
 
 @media (max-width: 1180px) {
@@ -174,6 +178,8 @@
   .constraint-panel { height: auto; overflow: visible; }
   .portfolio-result-area, .portfolio-overview, .optimization-placeholder { height: auto; min-height: 520px; }
   .result-view { overflow: visible; }
+  .detail-view { height: auto; overflow: visible; }
+  .allocation-table { flex: none; height: auto; max-height: 420px; }
   .constraint-page { min-height: 250px; }
   .portfolio-steps { justify-content: space-between; gap: 8px; }
   .portfolio-steps>div { min-width: 0; }

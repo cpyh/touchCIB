@@ -17,6 +17,7 @@ from flask import Blueprint, jsonify, request
 
 from .customer_api import RISK_LABELS, ServiceError, ValidationError
 from .database import database_connection
+from .partA1serving.metrics import load_validation_metrics
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 METRICS_JSON = (
@@ -79,9 +80,12 @@ def _a1_performance() -> dict:
     """A1 真实指标：验证 AUC/F1/Lift + 预测概率分布。"""
     import pandas as pd
 
-    if not METRICS_JSON.is_file():
-        return {"status": "NOT_READY", "auc": None, "f1": None, "lift_at_10": None, "probability_distribution": []}
-    metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
+    try:
+        metrics = load_validation_metrics()
+    except (FileNotFoundError, KeyError, TypeError, ValueError):
+        if not METRICS_JSON.is_file():
+            return {"status": "NOT_READY", "auc": None, "f1": None, "lift_at_10": None, "probability_distribution": []}
+        metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
     probabilities = pd.read_csv(PREDICTION_CSV)
     probs = pd.to_numeric(probabilities["response_prob"])
     distribution = [
@@ -208,32 +212,38 @@ def _portfolio_performance(scenario_id: str | None) -> dict:
 
 
 def _marketing_funnel() -> dict:
-    """营销漏斗真实数据：目标客户 → 已生成 → 已触达 → 已响应（事件表口径）。"""
+    """营销漏斗真实数据：全量客户 → Top3就绪 → 已触达 → 已响应。"""
+    generated_count = contacted_count = responded_count = 0
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS contacted, "
-                    "SUM(event_type = 'sent') AS sent_rows "
+                    "SELECT "
+                    "COUNT(DISTINCT CASE WHEN event_type = 'sent' THEN "
+                    "SUBSTRING_INDEX(strategy_id, ':', 1) END) AS contacted, "
+                    "COUNT(DISTINCT CASE WHEN event_type = 'responded' THEN "
+                    "SUBSTRING_INDEX(strategy_id, ':', 1) END) AS responded "
                     "FROM app_campaign_event"
                 )
-                sent = cursor.fetchone()
+                events = cursor.fetchone() or {}
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS responded "
-                    "FROM app_campaign_event WHERE event_type = 'responded'"
+                    "SELECT COUNT(DISTINCT customer_id) AS live_customers "
+                    "FROM app_marketing_strategy"
                 )
-                responded = cursor.fetchone()
+                live = cursor.fetchone() or {}
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
-        contacted = responded = 0
-    contacted_count = int(sent["contacted"]) if sent else 0
-    responded_count = int(responded["responded"]) if responded else 0
+        pass
+    else:
+        generated_count = min(8000, 2000 + int(live.get("live_customers") or 0))
+        contacted_count = int(events.get("contacted") or 0)
+        responded_count = int(events.get("responded") or 0)
     return {
         "status": "READY",
-        "target_customer_count": 2000,
-        "generated_customer_count": 2000,
+        "target_customer_count": 8000,
+        "generated_customer_count": generated_count,
         "contacted_customer_count": contacted_count,
         "responded_customer_count": responded_count,
     }

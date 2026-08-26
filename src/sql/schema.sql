@@ -190,6 +190,28 @@ CREATE TABLE IF NOT EXISTS app_portfolio_scenario (
     CONSTRAINT chk_app_scenario_type CHECK (scenario_type IN ('preset', 'custom'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组合优化场景配置';
 
+CREATE TABLE IF NOT EXISTS app_marketing_strategy (
+    strategy_id         VARCHAR(64)     NOT NULL COMMENT '运行策略标识（单活动约定 {customer_id}:{rank}）',
+    customer_id         VARCHAR(64)     NOT NULL COMMENT '客户标识',
+    strategy_rank       TINYINT UNSIGNED NOT NULL COMMENT '客户内推荐顺序 1~3',
+    strategy_date       DATE            NOT NULL COMMENT '策略计算日与归因窗口起点',
+    product_id          VARCHAR(16)     NOT NULL COMMENT '推荐产品',
+    recommended_channel VARCHAR(16)     NOT NULL COMMENT '推荐渠道',
+    recommended_time    VARCHAR(32)     NOT NULL COMMENT '推荐联系时段',
+    marketing_script    VARCHAR(300)    NOT NULL COMMENT '冻结的执行话术',
+    score               DECIMAL(16, 12) NOT NULL COMMENT '综合策略分',
+    model_prob          DECIMAL(16, 12) NOT NULL COMMENT 'A1模型响应概率',
+    cf_score            DECIMAL(16, 12) NOT NULL COMMENT '协同过滤信号',
+    overshoot           TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '是否使用风险溢出候选',
+    created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次生成时间；生成后不更新',
+    PRIMARY KEY (strategy_id),
+    UNIQUE KEY uk_app_marketing_strategy_customer_rank (customer_id, strategy_rank),
+    KEY idx_app_marketing_strategy_date (strategy_date),
+    CONSTRAINT chk_app_marketing_strategy_rank CHECK (strategy_rank BETWEEN 1 AND 3),
+    CONSTRAINT chk_app_marketing_strategy_channel CHECK (recommended_channel IN ('sms', 'call', 'app_push', 'manager')),
+    CONSTRAINT chk_app_marketing_strategy_overshoot CHECK (overshoot IN (0, 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='非A2客户按需生成的可执行Top3快照（不进入赛事提交）';
+
 CREATE TABLE IF NOT EXISTS app_campaign_event (
     campaign_event_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '触达事件唯一标识',
     strategy_id       VARCHAR(64)    NOT NULL COMMENT '关联策略（约定 {customer_id}:{rank}）',
@@ -197,12 +219,30 @@ CREATE TABLE IF NOT EXISTS app_campaign_event (
     occurred_at       DATETIME       NOT NULL COMMENT '事件发生时间',
     product_id        VARCHAR(16)    NULL COMMENT 'responded 事件归因的购买产品',
     amount            DECIMAL(18, 2) NULL COMMENT 'responded 事件归因的购买金额',
+    responded_strategy_id VARCHAR(64) GENERATED ALWAYS AS (
+        CASE WHEN event_type = 'responded' THEN strategy_id ELSE NULL END
+    ) STORED COMMENT '仅响应事件参与唯一约束，sent仍保持append-only',
     created_at        TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间（审计）',
     PRIMARY KEY (campaign_event_id),
+    UNIQUE KEY uk_campaign_event_responded_strategy (responded_strategy_id),
     KEY idx_campaign_event_strategy (strategy_id),
     KEY idx_campaign_event_type_time (event_type, occurred_at),
     CONSTRAINT chk_campaign_event_type CHECK (event_type IN ('sent', 'responded'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='营销触达执行事件（append-only 埋点）';
+
+CREATE TABLE IF NOT EXISTS app_demo_holding (
+    holding_id             VARCHAR(64)    NOT NULL COMMENT '模拟持仓唯一标识',
+    customer_id            VARCHAR(64)    NOT NULL COMMENT '客户标识',
+    product_id             VARCHAR(16)    NOT NULL COMMENT '购买产品标识',
+    amount                 DECIMAL(18, 2) NOT NULL COMMENT '模拟购买金额',
+    buy_date               DATE           NOT NULL COMMENT '模拟购买日期',
+    attributed_strategy_id VARCHAR(64)    NOT NULL COMMENT '归因策略（{customer_id}:{rank}）',
+    created_at             TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '模拟数据落库时间',
+    PRIMARY KEY (holding_id),
+    UNIQUE KEY uk_demo_holding_strategy (attributed_strategy_id),
+    KEY idx_demo_holding_customer_date (customer_id, buy_date),
+    CONSTRAINT chk_demo_holding_amount CHECK (amount > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='演示专用新增持仓（不污染原始 t_holding）';
 
 CREATE TABLE IF NOT EXISTS ads_marketing_response_score (
     contact_id             VARCHAR(64)    NOT NULL COMMENT '待预测触达记录标识',

@@ -7,6 +7,7 @@ from .campaign import (
     create_sent_event,
     customer_strategies,
     list_campaign_events,
+    simulate_holding_purchase,
 )
 from .customer import CustomerProfileError, get_customer_profile
 from .customer_api import customers_bp
@@ -23,6 +24,9 @@ from .marketing.models import (
 )
 from .marketing.roster import query_roster
 from .marketing.rules import build_default_engine
+from .marketing.tasks import MarketingTaskStoreError, query_marketing_tasks
+from .partA1serving.feature_service import FeatureAssemblyError
+from .partA1serving.runtime import get_mysql_predictor
 from .portfolio import PortfolioInputError, optimize_portfolio
 from .scenario import (
     ScenarioInputError,
@@ -201,6 +205,31 @@ def campaign_events_list():
     return jsonify(events=events)
 
 
+@app.post("/campaign/demo-holdings")
+def campaign_demo_holding_create():
+    """演示入口：模拟新增持仓，自动归因后驱动响应 KPI。"""
+    try:
+        payload = _campaign_event_payload()
+        amount = payload.get("amount", 50_000)
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+            raise CampaignInputError("amount must be a number")
+        result = simulate_holding_purchase(
+            customer_id=str(payload.get("customer_id", "")),
+            product_id=str(payload.get("product_id", "")),
+            buy_date=_parse_date(payload.get("buy_date"), "buy_date"),
+            amount=float(amount),
+            window_days=int(payload.get("window_days", 30)),
+        )
+    except CampaignInputError as exc:
+        return jsonify(error=str(exc)), 422
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=f"参数不合法：{exc}"), 422
+    except CampaignStoreError:
+        app.logger.exception("Demo holding simulation failed")
+        return jsonify(error="simulated holding could not be recorded"), 503
+    return jsonify(result), 201
+
+
 @app.get("/marketing/roster")
 def marketing_roster():
     """Tab3 A1 响应名单（默认概率降序，分页 + 渠道/最低概率筛选）。"""
@@ -216,6 +245,8 @@ def marketing_roster():
                     else None
                 ),
                 sort=request.args.get("sort", "prob_desc"),
+                keyword=request.args.get("keyword"),
+                contact_date=request.args.get("contact_date"),
             )
         )
     except (ValueError, TypeError) as exc:
@@ -224,9 +255,28 @@ def marketing_roster():
         return jsonify(error=str(exc)), 503
 
 
+@app.get("/marketing/tasks")
+def marketing_tasks():
+    """客户经理全量8000人机会队列；A2名单仅作为正式提交标识。"""
+    try:
+        return jsonify(
+            query_marketing_tasks(
+                page=int(request.args.get("page", 1)),
+                size=int(request.args.get("size", 20)),
+                status=request.args.get("status", "all"),
+                keyword=request.args.get("keyword"),
+            )
+        )
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+    except MarketingTaskStoreError:
+        app.logger.exception("Marketing task query failed")
+        return jsonify(error="marketing tasks are temporarily unavailable"), 503
+
+
 @app.get("/customers/<customer_id>/strategies")
 def customer_strategy_list(customer_id: str):
-    """Tab3 客户 Top3 策略卡：策略行 + 规则轨迹 + 事件状态。"""
+    """客户Top3：A2读正式提交，其余客户首次生成并冻结运行快照。"""
     try:
         return jsonify(customer_strategies(customer_id))
     except CampaignInputError as exc:
@@ -237,6 +287,21 @@ def customer_strategy_list(customer_id: str):
     except CampaignStoreError:
         app.logger.exception("Customer strategies query failed")
         return jsonify(error="customer strategies are temporarily unavailable"), 503
+
+
+@app.post("/marketing/response/predict")
+def marketing_response_predict():
+    """使用DWD历史与队友A1模型完成单客户/产品/渠道在线预测。"""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="request body must be a JSON object"), 400
+    try:
+        return jsonify(get_mysql_predictor().predict_dict(payload))
+    except (FeatureAssemblyError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    except (ImportError, FileNotFoundError, OSError, RuntimeError):
+        app.logger.exception("A1 online prediction failed")
+        return jsonify(error="A1 prediction service is temporarily unavailable"), 503
 
 
 @app.post("/marketing/strategy/generate")
@@ -262,12 +327,16 @@ def marketing_strategy_generate():
                 w_cf=w_cf,
                 manager_quota=manager_quota,
                 top_n=top_n,
+                response_predictor=get_mysql_predictor(),
             )
         )
     except StrategyGenerationError as exc:
         return jsonify(error=str(exc)), 404
     except (ValueError, TypeError) as exc:
         return jsonify(error=f"参数不合法：{exc}"), 400
+    except (ImportError, FileNotFoundError, OSError, RuntimeError):
+        app.logger.exception("A1-backed strategy generation failed")
+        return jsonify(error="A1 prediction service is temporarily unavailable"), 503
 
 
 @app.get("/marketing/rules")

@@ -1,7 +1,7 @@
 # SDD · 平台规格（Part C/D）
 
 > 范围：数据分层、API、前端运营看板（Part C 系统架构与工程、Part D 平台演示与看板，均为人工分）
-> 状态：数据层与 API ✅ ｜ 前端看板 ⬜（§4 为按赛会官方骨架 `src/docs/index.html` 重写的四 Tab 规格，作为前端实现与演示的定稿依据）
+> 状态：数据层、API 与四页前端主流程均已实现 ✅
 
 ---
 
@@ -14,9 +14,12 @@ flowchart TB
     ODS["ODS 原始层（贴源）<br/>ods_customer / ods_product / ods_holding<br/>ods_campaign / ods_event<br/>+ ref_product_correlation"]
     DWD["DWD 明细层（标准化 + CHECK 约束）<br/>dwd_dim_customer / dwd_dim_product<br/>dwd_fact_holding / dwd_fact_campaign / dwd_fact_event"]
     DWS["DWS 汇总层<br/>dws_customer_360（客户全景画像）"]
-    ADS["ADS 应用层<br/>ads_marketing_response_score（评分 + 解释 JSON）<br/>+ app_portfolio_scenario（场景配置）<br/>+ app_marketing_strategy（🟡 待建）<br/>+ app_campaign_execution（🟡 待建）"]
+    ADS["ADS 结果层<br/>ads_marketing_response_score（评分 + 解释 JSON）"]
+    APP["APP 业务状态<br/>app_portfolio_scenario（场景配置）<br/>app_marketing_strategy（非A2实时Top3快照）<br/>app_campaign_event（执行/归因事件）"]
     ODS --> DWD --> DWS
     DWD --> ADS
+    DWS --> APP
+    ADS --> APP
 ```
 
 ### 1.2 表清单与关键约束
@@ -25,7 +28,7 @@ flowchart TB
 |----|----|--------|
 | ODS | 5 张业务表 | 主键 + 联合索引（customer/date 类）+ `etl_batch_id` 批次溯源 + `loaded_at` |
 | REF | `ref_product_correlation` | 900 行 30×30 相关矩阵；CHECK correlation ∈ [-1,1] |
-| APP | `app_portfolio_scenario` | preset/custom 场景；CHECK 枚举约束 |
+| APP | `app_portfolio_scenario` / `app_marketing_strategy` / `app_campaign_event` | 场景配置、非A2 Top3快照、append-only执行与归因事件；与离线数仓分开 |
 | DWD | 维度/事实 ×5 | CHECK 约束下沉到库：risk ∈ R1..R5、channel/liquidity/event_type 枚举、amount>0、responded ∈ {0,1}、aum ≥ 0 |
 | DWS | `dws_customer_360` | 客户画像 + 持仓/事件/营销聚合（含 response_rate） |
 | ADS | `ads_marketing_response_score` | contact 级概率 + `model_version` + `feature_version` + `feature_as_of_date` + `explanation_json`；CHECK prob ∈ [0,1] |
@@ -50,39 +53,38 @@ flowchart TB
 | GET | `/portfolio/scenarios` | 官方 + 自定义场景列表 |
 | POST | `/portfolio/scenarios` | 新建自定义场景（201） |
 
-### 2.2 规划（🟡 随前端联动实现）
+### 2.2 营销与看板接口（✅）
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/marketing/rules` | 规则元数据（引擎 `metadata()` 直出）→ Tab3 规则清单 |
 | POST | `/marketing/strategy/generate` | 生成单客户 Top3（含轨迹）→ Tab3 实时生成与干预对比 |
-| POST | `/marketing/strategy/validate` | 提交前格式/合规校验 → 错误列表 |
-| POST | `/customers/intake` | Tab1 进件：属性入参 → 风险评估 → 写 ODS → 单客户画像 → 返回完整画像 |
+| GET | `/marketing/tasks` | 8000位全量客户机会队列；A2 2000人仅作正式提交标识 |
+| GET | `/customers/<id>/strategies` | A2读取正式Top3；非A2首次生成并冻结Top3 |
+| POST | `/campaign/events` | 联系事实与购买响应归因事件 |
 | GET | `/dashboard/summary` | Tab4 聚合数据（KPI/分布/漏斗/分层行数） |
 
-### 2.3 新增表设计（🟡）
+### 2.3 运行表设计（✅）
 
-**`app_marketing_strategy`**（Tab3 策略落库，引擎与队友 CSV 统一消费）：
+**`app_marketing_strategy`**（仅保存非A2客户首次生成的可执行Top3快照）：
 
 | 字段 | 说明 |
 |------|------|
-| strategy_id / customer_id / rank / product_id | 主键为 strategy_id；rank 1-3 |
+| strategy_id / customer_id / strategy_rank / product_id | 单活动约定 `{customer_id}:{rank}`；每客户恰好rank 1-3 |
 | recommended_channel / recommended_time / marketing_script | 与提交 CSV 同构 |
 | score / model_prob / cf_score / overshoot | 排序信号与溢出标记 |
-| rule_trace JSON | 13 条规则的命中/拦截轨迹（Tab3 合规验收的数据源） |
-| source | engine / teammate（区分生成来源） |
-| strategy_date / etl_batch_id / loaded_at | 批次溯源 |
+| strategy_date / created_at | 归因窗口起点与首次冻结时间；生成后不更新 |
 
-**`app_campaign_execution`**（Tab3 触达管理/执行追踪）：
+**`app_campaign_event`**（Tab3 触达管理/执行归因）：
 
 | 字段 | 说明 |
 |------|------|
-| execution_id / customer_id / strategy_id | 执行记录主键 |
-| channel / planned_time | 计划渠道与时段 |
-| status | pending → sent → responded（枚举 CHECK） |
-| executed_at / responded_at / updated_at | 状态流转时间戳 |
+| campaign_event_id / strategy_id | append-only事件主键与策略关联 |
+| event_type / occurred_at | sent / responded及发生时间 |
+| product_id / amount | responded购买事实；sent时为空 |
+| responded_strategy_id | 生成列唯一约束，数据库级保证同一策略只归因一次 |
 
-导入路径：`src/scripts/import_strategy.py` 读队友 CSV → `validate_strategy_file` → upsert 落库（source='teammate'）；引擎现场生成走 API 落库（source='engine'）。
+A2正式2000人始终读取 `partA_strategy.csv`，不会写入运行快照表；其他客户首次读取Top3时使用A1在线推理生成并事务冻结3行。
 
 ---
 
@@ -136,11 +138,11 @@ flowchart LR
 | 功能点 | 数据源 / 实现 | 状态 |
 |--------|--------------|------|
 | 响应名单（按概率排序 + 筛选） | `partA_prediction.csv` 或 `ads_marketing_response_score` | ✅ 数据在 |
-| 客户营销策略（Top3 卡） | `partA_strategy.csv` / `app_marketing_strategy` | ✅ 数据在，🟡 落库 |
-| **策略下钻**（为什么这么推） | 引擎 `rule_trace`（合规验收点）+ A1 解释审计 top±5 因子（个性化验收点） | 🟡 落库 + API |
-| **运营干预** | 调 `w_cf` / manager 配额 / 渠道偏好 → `POST /marketing/strategy/generate` 重跑 → 前后对比（平台联动验收点） | 🟡 营销 API |
-| 触达管理/执行追踪 | `app_campaign_execution` 状态流转（pending→sent→responded） | 🟡 新表 + 前端操作 |
-| 页面组件 | 名单表、策略卡、轨迹抽屉、干预面板（滑块）、对比视图、触达状态操作 | 🟡 前端 |
+| 客户营销策略（Top3 卡） | `partA_strategy.csv` / `app_marketing_strategy` | ✅ 正式/实时双路径 |
+| **策略下钻**（为什么这么推） | 引擎 `rule_trace` + A1产品级在线复核与解释因子 | ✅ |
+| **运营干预** | 调 `w_cf` / manager 配额 → 重跑并与当前快照对比 | ✅ |
+| 触达管理/执行追踪 | `app_campaign_event` 推导待执行→已触达→已响应 | ✅ |
+| 页面组件 | 全量客户队列、Top3、解释/合规/话术、归因、数据链路 | ✅ |
 
 **演示故事线**：名单按概率排序 → 下钻客户 → Top3 + 规则轨迹 + 解释因子（个性化+合规）→ 现场把 w_cf 从 0.3 调到 0.8 → Top3 变化（联动）→ 标记触达 → 状态流转到 Tab4 漏斗。
 

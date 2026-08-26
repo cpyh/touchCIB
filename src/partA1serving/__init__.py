@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from . import bootstrap
 from . import model_store
+from .data_source import A1DataBundle, A1DataSource, CsvDataSource, MySQLDataSource
 from .feature_service import (
     FeatureAssemblyError,
     FeatureService,
@@ -54,6 +55,10 @@ from .predictor import PredictResult, ResponsePredictor
 __all__ = [
     "FeatureAssemblyError",
     "FeatureService",
+    "A1DataBundle",
+    "A1DataSource",
+    "CsvDataSource",
+    "MySQLDataSource",
     "PredictRequest",
     "PredictResult",
     "ResponsePredictor",

@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from .database import database_connection
+from .partA1serving.metrics import load_validation_metrics
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 METRICS_JSON = (
@@ -26,7 +27,7 @@ PARTB_AUDIT_CSV = (
     PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
 )
 
-TOTAL_STRATEGIES = 6000
+TOTAL_CUSTOMERS = 8000
 DEMO_MANAGER_ID = "MGR001"
 
 KPI_TARGETS = [
@@ -69,15 +70,23 @@ def _channel_of(strategy_id: str) -> str | None:
     rows = frame[
         (frame["customer_id"] == customer_id) & (frame["rank"] == rank)
     ]
-    if rows.empty:
+    if not rows.empty:
+        return str(rows.iloc[0]["recommended_channel"])
+    try:
+        from .campaign import customer_strategy_channel
+
+        return customer_strategy_channel(customer_id, int(rank))
+    except (RuntimeError, ValueError):
         return None
-    return str(rows.iloc[0]["recommended_channel"])
 
 
 def _event_summary() -> dict:
     """事件表统计：sent/responded 数量 + manager 渠道口径。"""
     sent = responded = 0
     manager_sent = manager_responded = 0
+    sent_customers: set[str] = set()
+    responded_customers: set[str] = set()
+    manager_responded_customers: set[str] = set()
     try:
         connection = database_connection()
         try:
@@ -96,6 +105,9 @@ def _event_summary() -> dict:
             "responded": 0,
             "manager_sent": 0,
             "manager_responded": 0,
+            "sent_customers": 0,
+            "responded_customers": 0,
+            "manager_responded_customers": 0,
         }
 
     for row in rows:
@@ -104,18 +116,24 @@ def _event_summary() -> dict:
         count = int(row["count"])
         if event_type == "sent":
             sent += count
+            sent_customers.add(str(strategy_id).partition(":")[0])
             if _channel_of(strategy_id) == "manager":
                 manager_sent += count
         elif event_type == "responded":
             responded += count
+            responded_customers.add(str(strategy_id).partition(":")[0])
             if _channel_of(strategy_id) == "manager":
                 manager_responded += count
+                manager_responded_customers.add(str(strategy_id).partition(":")[0])
     return {
         "available": True,
         "sent": sent,
         "responded": responded,
         "manager_sent": manager_sent,
         "manager_responded": manager_responded,
+        "sent_customers": len(sent_customers),
+        "responded_customers": len(responded_customers),
+        "manager_responded_customers": len(manager_responded_customers),
     }
 
 
@@ -124,7 +142,12 @@ def _layer_counts() -> dict:
         "ods": ["ods_customer", "ods_product", "ods_holding", "ods_campaign", "ods_event"],
         "dwd": ["dwd_dim_customer", "dwd_dim_product", "dwd_fact_holding", "dwd_fact_campaign", "dwd_fact_event"],
         "dws": ["dws_customer_360"],
-        "ads": ["ads_marketing_response_score", "app_portfolio_scenario", "app_campaign_event"],
+        "ads": [
+            "ads_marketing_response_score",
+            "app_marketing_strategy",
+            "app_portfolio_scenario",
+            "app_campaign_event",
+        ],
     }
     counts: dict[str, int | None] = {}
     try:
@@ -188,9 +211,14 @@ def _channel_stats() -> dict:
 def dashboard_summary() -> dict:
     """Tab4 全部聚合数据，前端零计算。"""
     # ---- A1 模型指标 ----
-    metrics: dict = {}
-    if METRICS_JSON.is_file():
-        metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
+    try:
+        metrics = load_validation_metrics()
+    except (FileNotFoundError, KeyError, TypeError, ValueError):
+        metrics = (
+            json.loads(METRICS_JSON.read_text(encoding="utf-8"))
+            if METRICS_JSON.is_file()
+            else {}
+        )
 
     # ---- 预测分布 ----
     predictions = pd.read_csv(PREDICTION_CSV)
@@ -229,12 +257,12 @@ def dashboard_summary() -> dict:
 
     # ---- 漏斗与 KPI ----
     events = _event_summary()
-    pending = TOTAL_STRATEGIES - events["sent"]
+    pending = max(0, TOTAL_CUSTOMERS - events["sent_customers"])
     funnel = {
         "stages": [
-            {"stage": "策略生成", "count": TOTAL_STRATEGIES},
-            {"stage": "已触达", "count": events["sent"]},
-            {"stage": "已响应", "count": events["responded"]},
+            {"stage": "全量客户", "count": TOTAL_CUSTOMERS},
+            {"stage": "已触达客户", "count": events["sent_customers"]},
+            {"stage": "已响应客户", "count": events["responded_customers"]},
         ],
         "pending": pending,
     }
@@ -242,7 +270,7 @@ def dashboard_summary() -> dict:
     kpis = []
     for target in KPI_TARGETS:
         if target["kpi_id"] == "manager_conversion":
-            actual = events["manager_responded"]
+            actual = events["manager_responded_customers"]
         elif target["kpi_id"] == "manager_response_rate":
             actual = (
                 events["manager_responded"] / events["manager_sent"]
@@ -250,7 +278,7 @@ def dashboard_summary() -> dict:
                 else 0.0
             )
         else:  # campaign_touch_progress
-            actual = events["sent"] / TOTAL_STRATEGIES
+            actual = events["sent_customers"] / TOTAL_CUSTOMERS
         target_value = target["target"]
         completion = actual / target_value if target_value else 0.0
         kpis.append(
@@ -276,6 +304,8 @@ def dashboard_summary() -> dict:
             "available": events["available"],
             "sent": events["sent"],
             "responded": events["responded"],
+            "sent_customers": events["sent_customers"],
+            "responded_customers": events["responded_customers"],
         },
         "funnel": funnel,
         "kpis": kpis,

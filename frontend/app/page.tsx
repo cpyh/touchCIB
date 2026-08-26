@@ -80,7 +80,15 @@ export default function Home() {
       </div>
 
       {toast && (
-        <div className="toast-box" onClick={() => setToast("")}>
+        <div
+          className="toast-box"
+          role="button"
+          tabIndex={0}
+          onClick={() => setToast("")}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") setToast("");
+          }}
+        >
           <b>平台提示</b><p>{toast}</p>
         </div>
       )}
