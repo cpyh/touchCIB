@@ -508,31 +508,41 @@ export function DashboardPage({
         </div>
       </section>
 
-      {/* ================= 能力提升（教练评分卡） ================= */}
+      {/* ================= 转化机会挖掘 ================= */}
 
-      {dashboard.capability && (
-        <section className="dashboard-section capability-section">
+      {dashboard.opportunity && (
+        <section className="dashboard-section opportunity-section">
           <SectionTitle
             index="03"
-            title="能力提升"
-            description="五维能力评分全部来自真实数据；短板即今天的训练方向。"
+            title="转化机会挖掘"
+            description="从预测与事件数据中挖出可即刻促转化的三类机会，每张卡都是今天的增长点。"
           />
-          <div className="capability-grid">
-            {dashboard.capability.dimensions.map((item) => (
-              <div className={`capability-bar ${item.key === dashboard.capability!.weakest.key ? "weak" : ""}`} key={item.key}>
-                <header><span>{item.label}</span><strong>{item.score.toFixed(1)}</strong></header>
-                <i><b style={{ width: `${Math.min(100, item.score)}%` }} /></i>
-                <small>{item.note}</small>
-              </div>
-            ))}
-            <div className="capability-diagnose">
-              <span><b>短板诊断</b></span>
-              <strong>{dashboard.capability.weakest.label} {dashboard.capability.weakest.score.toFixed(1)} 分</strong>
-              <p>{dashboard.capability.weakest.advice}</p>
+          <div className="opportunity-grid">
+            <article className="opportunity-card lead">
+              <header><b>黄金客户机会</b><span>高意向未触达</span></header>
+              <strong>{dashboard.opportunity.golden.count.toLocaleString()}<i>名</i></strong>
+              <p>响应概率 ≥70% 未触达客户，期望响应约 <b>{dashboard.opportunity.golden.expected_responses.toLocaleString()} 名</b>——触达即转化</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
+            </article>
+
+            <article className="opportunity-card">
+              <header><b>产品机会榜</b><span>高意向待触达 Top3</span></header>
+              <ul className="opportunity-products">
+                {dashboard.opportunity.products.map((item) => (
+                  <li key={item.product_id}><span>{item.product_id}</span><em>{item.count} 条高意向触达未执行</em></li>
+                ))}
+              </ul>
+              <p>这些产品的高意向客户最集中，批量触达效率最高</p>
               <button className="primary" onClick={() => onOpenMarketing?.("")}>去营销工作台执行 →</button>
-            </div>
+            </article>
+
+            <article className="opportunity-card">
+              <header><b>到期承接机会</b><span>再配置窗口</span></header>
+              <strong>{dashboard.opportunity.expiry.customer_count.toLocaleString()}<i>位</i></strong>
+              <p>{dashboard.opportunity.expiry.window_days} 天内 ¥{compactMoney(dashboard.opportunity.expiry.amount)} 到期，是先发制人的交叉销售窗口</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>跟进到期客户 →</button>
+            </article>
           </div>
-          <p className="capability-footnote">评分口径：渠道覆盖=已触达/全量 · 响应转化=已响应/已触达 · 高意向挖掘=已处理高意向占比 · 到期经营=到期客户已触达占比 · 合规执行=1−策略溢出比例</p>
         </section>
       )}
 

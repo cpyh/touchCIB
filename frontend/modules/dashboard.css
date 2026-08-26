@@ -1325,3 +1325,21 @@
 .capability-diagnose .primary{min-height:32px;padding:7px 12px;font-size:10px;white-space:nowrap}
 .capability-footnote{margin:8px 0 0;color:#94a2ad;font-size:9px}
 @media(max-width:850px){.capability-section .capability-grid{grid-template-columns:1fr 1fr}.capability-diagnose{flex-wrap:wrap}}
+
+/* 转化机会挖掘 */
+.opportunity-section .opportunity-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.opportunity-card{min-width:0;display:flex;flex-direction:column;gap:9px;padding:14px 15px;border:1px solid #e3eaf0;border-radius:10px;background:#fff}
+.opportunity-card.lead{border-color:#e8cd9d;background:#fdf9f0}
+.opportunity-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.opportunity-card>header b{color:var(--navy);font-size:12px}
+.opportunity-card>header span{color:#966922;font-size:9px;font-weight:600}
+.opportunity-card>strong{color:var(--navy);font:700 24px "PingFang SC","Microsoft YaHei",sans-serif}
+.opportunity-card>strong i{margin-left:5px;color:#8b99a4;font:500 11px "PingFang SC","Microsoft YaHei",sans-serif}
+.opportunity-card>p{margin:0;color:#6b7f90;font-size:10px;line-height:1.6}
+.opportunity-card>p b{color:#966922}
+.opportunity-card .primary{align-self:flex-start;min-height:32px;padding:6px 12px;font-size:10px}
+.opportunity-products{display:grid;gap:5px;margin:0;padding:0;list-style:none}
+.opportunity-products li{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fbfcfd;font-size:10px}
+.opportunity-products li span{color:var(--navy2);font-weight:600}
+.opportunity-products li em{color:#6c8293;font-style:normal}
+@media(max-width:850px){.opportunity-section .opportunity-grid{grid-template-columns:1fr}}

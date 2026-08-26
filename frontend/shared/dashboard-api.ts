@@ -129,6 +129,17 @@ export interface DashboardOverview {
       advice: string;
     };
   };
+  opportunity?: {
+    golden: { count: number; expected_responses: number };
+    products: Array<{ product_id: string; count: number }>;
+    expiry: {
+      available: boolean;
+      holding_count: number;
+      customer_count: number;
+      amount: number;
+      window_days: number;
+    };
+  };
 }
 
 export interface PortfolioResult {
