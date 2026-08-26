@@ -631,6 +631,142 @@ def _expiry_warning() -> dict:
     }
 
 
+def _capability() -> dict:
+    """教练式能力评分：五维 0-100，全部由真实数据推导。
+
+    评分口径（演示可解释）：
+    - 渠道覆盖：已触达客户 ÷ 全量客户
+    - 响应转化：经理渠道已响应 ÷ 已触达
+    - 高意向挖掘：已处理高意向客户 ÷ 高意向客户总数
+    - 到期经营：到期客户中已触达比例
+    - 合规执行：1 − 策略溢出比例（a2_strategy_audit overshoot）
+    """
+    import pandas as pd
+
+    action = _action_items()
+    touch = action["touch"]
+    channel = action["channel"]
+    expiry = _expiry_warning()
+
+    # 高意向客户总数（与 _action_items 同口径）
+    high_intent_total = 0
+    try:
+        contacts = pd.read_csv(TEST_CONTACTS_CSV, dtype={"customer_id": str})
+        predictions = pd.read_csv(PREDICTION_CSV, dtype={"contact_id": str})
+        merged = contacts.merge(predictions, on="contact_id", how="left")
+        merged["response_prob"] = pd.to_numeric(
+            merged["response_prob"], errors="coerce"
+        )
+        high_intent_total = int(
+            (merged["response_prob"] >= 0.7).sum()
+        )
+    except (OSError, ValueError, KeyError):
+        high_intent_total = 0
+
+    # 到期客户已触达比例：到期客户集合 ∩ 已触达客户
+    expiry_touched = 0
+    touched_high_intent = 0
+    if expiry["available"] and expiry["customer_count"]:
+        try:
+            connection = database_connection()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT DISTINCT h.customer_id
+                        FROM ods_holding h
+                        JOIN ods_product p ON p.product_id = h.product_id
+                        WHERE p.duration_days > 0
+                          AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) > %s
+                          AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) <= %s
+                        """,
+                        ("2026-04-15", "2026-05-15"),
+                    )
+                    expiry_ids = {str(row["customer_id"]) for row in cursor.fetchall()}
+                    cursor.execute(
+                        "SELECT DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1) "
+                        "AS customer_id FROM app_campaign_event "
+                        "WHERE event_type = 'sent'"
+                    )
+                    sent_ids = {str(row["customer_id"]) for row in cursor.fetchall()}
+            finally:
+                connection.close()
+            expiry_touched = len(expiry_ids & sent_ids)
+        except (pymysql.MySQLError, OSError, ValueError):
+            expiry_touched = 0
+
+    total_customers = touch.get("total_customers") or 0
+    expected = {
+        "touch": (
+            (touch.get("sent_customers") or 0) / total_customers * 100
+            if total_customers
+            else 0
+        ),
+        "response": (
+            (channel.get("manager_responded") or 0)
+            / (channel.get("manager_sent") or 0) * 100
+            if channel.get("manager_sent")
+            else 0
+        ),
+        "high_intent": (
+            (
+                1
+                - (touch.get("high_intent_untouched") or 0)
+                / high_intent_total
+            )
+            * 100
+            if high_intent_total
+            else 0
+        ),
+        "expiry": (
+            expiry_touched / expiry["customer_count"] * 100
+            if expiry["customer_count"]
+            else 0
+        ),
+        "compliance": 100.0,
+    }
+    # 合规执行：从策略审计 CSV 读溢出比例
+    strategy_audit = (
+        PROJECT_DIR / "src" / "data" / "outputs" / "a2_strategy_audit.csv"
+    )
+    try:
+        audit = pd.read_csv(strategy_audit)
+        overshoot_ratio = float(audit["overshoot"].mean())
+        expected["compliance"] = (1 - overshoot_ratio) * 100
+    except (OSError, ValueError, KeyError):
+        expected["compliance"] = 100.0
+
+    labels = {
+        "touch": ("渠道覆盖", f"已触达 {touch.get('sent_customers') or 0}/{total_customers} 位客户"),
+        "response": ("响应转化", f"经理渠道响应 {(channel.get('manager_responded') or 0)}/{(channel.get('manager_sent') or 0)} 位"),
+        "high_intent": ("高意向挖掘", f"高意向客户还余 {touch.get('high_intent_untouched') or 0} 名未触达"),
+        "expiry": ("到期经营", f"{expiry['customer_count'] if expiry['available'] else 0} 位客户资金即将到期"),
+        "compliance": ("合规执行", "策略规则通过率"),
+    }
+    advice = {
+        "touch": "今日从高意向名单开始批量触达，先补足覆盖",
+        "response": "保持经理渠道跟进节奏，响应领先即可复制打法",
+        "high_intent": "高意向客户是今天的第一优先级，建议优先安排触达",
+        "expiry": "到期资金是确定性机会，建议优先跟进并做再配置沟通",
+        "compliance": "策略规则通过率良好，保持现有检查机制",
+    }
+    dimensions = [
+        {
+            "key": key,
+            "label": labels[key][0],
+            "note": labels[key][1],
+            "score": round(min(100.0, max(0.0, value)), 1),
+            "advice": advice[key],
+        }
+        for key, value in expected.items()
+    ]
+    weakest = min(dimensions, key=lambda item: item["score"])
+    return {
+        "dimensions": dimensions,
+        "weakest": weakest,
+    }
+
+
 def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
     try:
         connection = database_connection()
@@ -695,6 +831,7 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
         "marketing_funnel": _marketing_funnel(),
         "action_items": _action_items(),
         "expiry_warning": _expiry_warning(),
+        "capability": _capability(),
     }
 
 

@@ -672,7 +672,7 @@ export function PortfolioPage({
                   </div>
                   <div className="chat-body">
                     {chatMessages.map((message, index) => (
-                      <div key={index} className={`chat-row ${message.role}`}>
+                      <div key={index} className={`chat-row chat-${message.role}`}>
                         <div className="chat-bubble">
                           {message.content}{chatBusy && index === chatMessages.length - 1 && message.role === "assistant" ? "▍" : ""}
                         </div>

@@ -1305,3 +1305,23 @@
 .reference-fact small{color:#94a2ad;font-size:9px}
 .reference-card .secondary{align-self:flex-start;min-height:32px;padding:6px 11px;font-size:10px}
 @media(max-width:850px){.reference-section .reference-grid{grid-template-columns:1fr}}
+
+/* 能力提升：教练式评分卡 */
+.capability-section .capability-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.capability-bar{min-width:0;padding:11px 13px;border:1px solid #e3eaf0;border-radius:9px;background:#fff}
+.capability-bar.weak{border-color:#e8cd9d;background:#fdf9f0}
+.capability-bar header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.capability-bar header span{color:#5d7181;font-size:11px}
+.capability-bar header strong{color:var(--navy);font:700 15px Georgia}
+.capability-bar.weak header strong{color:#966922}
+.capability-bar>i{display:block;height:6px;margin:7px 0 5px;border-radius:6px;background:#e9eef2;overflow:hidden}
+.capability-bar>i b{display:block;height:100%;background:linear-gradient(90deg,#2d6896,#b98b3e);border-radius:6px}
+.capability-bar small{color:#94a2ad;font-size:9px}
+.capability-diagnose{grid-column:1/-1;display:flex;align-items:center;gap:14px;margin-top:2px;padding:12px 15px;border:1px solid #ecd9ae;border-left-width:4px;border-left-color:var(--gold);border-radius:9px;background:#fdf8ec}
+.capability-diagnose>span{white-space:nowrap}
+.capability-diagnose>span b{color:#8f6726;font-size:11px}
+.capability-diagnose strong{color:var(--navy);font-size:13px;white-space:nowrap}
+.capability-diagnose p{margin:0;flex:1;color:#6c7e8c;font-size:11px}
+.capability-diagnose .primary{min-height:32px;padding:7px 12px;font-size:10px;white-space:nowrap}
+.capability-footnote{margin:8px 0 0;color:#94a2ad;font-size:9px}
+@media(max-width:850px){.capability-section .capability-grid{grid-template-columns:1fr 1fr}.capability-diagnose{flex-wrap:wrap}}

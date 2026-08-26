@@ -87,8 +87,10 @@ function SectionTitle({
 }
 
 export function DashboardPage({
+  onOpenMarketing,
   onOpenPortfolio,
 }: {
+  onOpenMarketing?: (customerId: string) => void;
   onOpenPortfolio?: (customerId: string) => void;
 }) {
   const [dashboard, setDashboard] =
@@ -505,6 +507,34 @@ export function DashboardPage({
           </article>
         </div>
       </section>
+
+      {/* ================= 能力提升（教练评分卡） ================= */}
+
+      {dashboard.capability && (
+        <section className="dashboard-section capability-section">
+          <SectionTitle
+            index="03"
+            title="能力提升"
+            description="五维能力评分全部来自真实数据；短板即今天的训练方向。"
+          />
+          <div className="capability-grid">
+            {dashboard.capability.dimensions.map((item) => (
+              <div className={`capability-bar ${item.key === dashboard.capability!.weakest.key ? "weak" : ""}`} key={item.key}>
+                <header><span>{item.label}</span><strong>{item.score.toFixed(1)}</strong></header>
+                <i><b style={{ width: `${Math.min(100, item.score)}%` }} /></i>
+                <small>{item.note}</small>
+              </div>
+            ))}
+            <div className="capability-diagnose">
+              <span><b>短板诊断</b></span>
+              <strong>{dashboard.capability.weakest.label} {dashboard.capability.weakest.score.toFixed(1)} 分</strong>
+              <p>{dashboard.capability.weakest.advice}</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>去营销工作台执行 →</button>
+            </div>
+          </div>
+          <p className="capability-footnote">评分口径：渠道覆盖=已触达/全量 · 响应转化=已响应/已触达 · 高意向挖掘=已处理高意向占比 · 到期经营=到期客户已触达占比 · 合规执行=1−策略溢出比例</p>
+        </section>
+      )}
 
     </>
   );

@@ -113,6 +113,22 @@ export interface DashboardOverview {
       amount: number;
     }>;
   };
+  capability?: {
+    dimensions: Array<{
+      key: string;
+      label: string;
+      note: string;
+      score: number;
+      advice: string;
+    }>;
+    weakest: {
+      key: string;
+      label: string;
+      note: string;
+      score: number;
+      advice: string;
+    };
+  };
 }
 
 export interface PortfolioResult {
