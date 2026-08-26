@@ -496,7 +496,7 @@ export function PortfolioPage({
                 <b>{customer.customer_id}</b>
                 <i>{customer.risk_appetite} · {riskNames[customer.risk_appetite]}</i>
                 <small>{customer.vip_level} · AUM ¥{money(customer.aum).replace("¥ ", "")}</small>
-                <button onClick={applyCustomerRisk}>应用{customer.risk_appetite}参数</button>
+                <button onClick={() => applyCustomerRisk()}>应用{customer.risk_appetite}参数</button>
               </div>
             ) : <small>加载画像后可按风险偏好生成默认约束</small>}
           </div>
