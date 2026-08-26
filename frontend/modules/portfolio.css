@@ -312,3 +312,15 @@
 .ai-advice-summary .secondary{min-height:32px;padding:6px 12px;font-size:10px}
 .ai-advice-summary small{color:#94a2ad;font-size:9px}
 @media(max-width:850px){.ai-advice-grid{grid-template-columns:1fr}.ai-advice-summary{justify-items:start;padding-left:0;border-left:0;text-align:left}}
+
+/* AI 营销信号联动小卡 */
+.portfolio-ai-marketing{margin-top:12px;padding:14px;border:1px solid #dce7f0;border-left-width:4px;border-left-color:var(--blue);border-radius:9px;background:#f5f9fc}
+.ai-marketing-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.ai-marketing-head small{color:#356d99;font-size:8px;font-weight:700;letter-spacing:.12em}
+.ai-marketing-head h3{margin:2px 0 0;color:var(--navy);font-size:13px}
+.portfolio-ai-marketing>p{margin:0;color:#5d7181;font-size:10px;line-height:1.7}
+.portfolio-ai-marketing>p strong{color:#966922}
+.ai-marketing-top3{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}
+.ai-marketing-top3 span{padding:4px 9px;border:1px solid #e0e8ee;border-radius:6px;background:#fff;color:#4b6478;font-size:9px}
+.ai-marketing-top3 b{margin-right:5px;color:#966922}
+.portfolio-ai-marketing .secondary{min-height:30px;padding:5px 11px;font-size:9px}

@@ -132,9 +132,11 @@ const allocationColors = ["#123f6b", "#286b9f", "#5a91b8", "#d39b36", "#7b8fa3",
 export function PortfolioPage({
   initialCustomerId,
   notify,
+  onOpenMarketing,
 }: {
   initialCustomerId?: string;
   notify: (message: string) => void;
+  onOpenMarketing?: (customerId: string) => void;
 }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [scenarioId, setScenarioId] = useState("S01");
@@ -154,6 +156,11 @@ export function PortfolioPage({
   const [rebalance, setRebalance] = useState<{
     buys: Array<{ product_id: string; product_name: string; amount: number }>;
     sells: Array<{ product_id: string; product_name: string; amount: number }>;
+  } | null>(null);
+  const [marketingSignal, setMarketingSignal] = useState<{
+    prob: number | null;
+    product_name: string | null;
+    strategies: Array<{ rank: number; product_name: string }>;
   } | null>(null);
 
   useEffect(() => {
@@ -230,6 +237,37 @@ export function PortfolioPage({
       cancelled = true;
     };
   }, [customer, result]);
+
+  useEffect(() => {
+    if (!customer) {
+      setMarketingSignal(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      api<{ customers: Array<{ customer_id: string; product_name: string; response_prob: number }> }>(
+        `/marketing/roster?keyword=${encodeURIComponent(customer.customer_id)}&size=20`
+      )
+        .then((data) => data.customers.filter((row) => row.customer_id === customer.customer_id))
+        .catch(() => []),
+      api<{ items: Array<{ rank: number; product_name: string }> }>(
+        `/customers/${customer.customer_id}/strategies`
+      )
+        .then((data) => data.items)
+        .catch(() => []),
+    ]).then(([rows, strategies]) => {
+      if (cancelled) return;
+      const best = [...rows].sort((left, right) => right.response_prob - left.response_prob)[0];
+      setMarketingSignal({
+        prob: best ? best.response_prob : null,
+        product_name: best ? best.product_name : null,
+        strategies: strategies.map((item) => ({ rank: item.rank, product_name: item.product_name })),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customer]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
@@ -677,6 +715,37 @@ export function PortfolioPage({
                           <small>保存后可复用 · 不影响官方提交文件</small>
                         </div>
                       </div>
+                    </section>
+                  )}
+
+                  {marketingSignal && (
+                    <section className="portfolio-ai-marketing">
+                      <div className="ai-marketing-head">
+                        <span><small>MARKETING LINKAGE</small><h3>营销信号联动</h3></span>
+                        <Status>AI 综合建议</Status>
+                      </div>
+                      <p>
+                        {marketingSignal.prob != null ? (
+                          <>AI 识别该客户为<strong>高意向客户</strong>：A1 响应概率 <strong>{(marketingSignal.prob * 100).toFixed(1)}%</strong>（{marketingSignal.product_name}）。</>
+                        ) : (
+                          <>该客户不在 A1 触达名单，建议通过画像与持仓线索维护关系。</>
+                        )}
+                        {marketingSignal.strategies.length ? (
+                          <>已生成 Top3 营销策略，投后同步跟进可衔接投顾与营销闭环。</>
+                        ) : (
+                          <>未覆盖 A2 目标名单，可在营销工作台按需生成策略。</>
+                        )}
+                      </p>
+                      {marketingSignal.strategies.length > 0 && (
+                        <div className="ai-marketing-top3">
+                          {marketingSignal.strategies.map((item) => (
+                            <span key={item.rank}><b>TOP{item.rank}</b>{item.product_name}</span>
+                          ))}
+                        </div>
+                      )}
+                      <button className="secondary" onClick={() => onOpenMarketing?.(customer.customer_id)}>
+                        查看该客户营销策略 →
+                      </button>
                     </section>
                   )}
                 </div>
