@@ -67,17 +67,21 @@ b,strong{font-weight:600}
    数字呈现统一阶梯（视觉收敛）
    L1 指标卡大数 21px · L2 卡片核心数 19px · L3 行内强调 13px
    ============================================================ */
-.metric strong { font:700 21px Georgia,serif; color:var(--navy); }
+:root { --number-font:"SF Pro Display","Helvetica Neue","PingFang SC","Microsoft YaHei",Arial,sans-serif; }
+body,button,input,select,textarea { font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+.metric strong { font:700 21px var(--number-font); color:var(--navy); }
 .metric.gold strong { color:#946921; }
-.business-kpis strong { font:700 21px "PingFang SC","Microsoft YaHei",sans-serif; }
-.action-card>strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
-.action-card>strong i { font:500 11px "PingFang SC","Microsoft YaHei",sans-serif; color:#9fb0bd; }
-.action-card>strong em { font:600 12px "PingFang SC","Microsoft YaHei",sans-serif; color:var(--navy2); }
-.linkage-fact strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
-.behavior-metrics strong { font:700 19px "PingFang SC","Microsoft YaHei",sans-serif; }
-.aum strong { font:700 18px Georgia,serif; }
-.risk strong { font:700 18px Georgia,serif; }
-.stats b { font:700 13px Georgia,serif; }
-.prob b { font:700 13px Georgia,serif; }
-.source>span>em { font:500 22px Georgia,serif; }
-.expiry-strip>span strong { font:700 12px "PingFang SC","Microsoft YaHei",sans-serif; }
+.business-kpis strong,.campaign-kpis strong { font:700 21px var(--number-font); }
+.action-card>strong { font:700 19px var(--number-font); }
+.action-card>strong i { font:500 11px var(--number-font); color:#9fb0bd; }
+.action-card>strong em { font:600 12px var(--number-font); color:var(--navy2); }
+.linkage-fact strong,.behavior-metrics strong { font:700 19px var(--number-font); }
+.aum strong,.risk strong { font:700 18px var(--number-font); }
+.stats b,.prob b { font:700 13px var(--number-font); }
+.source>span>em { font:600 22px var(--number-font); }
+.expiry-strip>span strong { font:700 12px var(--number-font); }
+.money-cell,.money input,.donut b,.product em strong,.steps b,
+.allocation-visual-head>strong,.bridge-core strong,.execution-summary strong,.ai-advice-summary strong,
+.manager-kpis strong,.task-card-opportunity>em b,.signal-cards strong,.personal-kpi strong,
+.model-metrics-proof strong,.lab-compare article>em,.capability-bar header strong,
+.opportunity-card>strong,.reference-fact strong { font-family:var(--number-font); font-variant-numeric:tabular-nums lining-nums; }

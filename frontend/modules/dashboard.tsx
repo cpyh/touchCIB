@@ -302,9 +302,9 @@ export function DashboardPage({
           description="本批营销活动的规模、触达、转化与机会，一屏总览。"
         />
         <div className="campaign-kpis">
-          <article className="gold"><small>策略规模</small><strong>{formatNumber(
-            dashboard.action_items?.touch?.total_strategies
-          )}</strong><span>条策略</span></article>
+          <article className="gold"><small>高意向客户</small><strong>{formatNumber(
+            dashboard.opportunity?.golden.count
+          )}</strong><span>概率≥70% 未触达</span></article>
           <article><small>已触达客户</small><strong>{
             formatNumber(dashboard.marketing_funnel?.contacted_customer_count)
           }</strong><span>全量 {formatNumber(business.customer_count)} 位</span></article>
