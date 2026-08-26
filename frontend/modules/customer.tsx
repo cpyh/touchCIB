@@ -15,7 +15,7 @@ import {
 } from "../shared/customer-api";
 import { api } from "../shared/api";
 import { channelNames } from "../shared/ui";
-import { exactMoney as money, percent } from "../shared/format";
+import { formatNumber, money, percent } from "../shared/format";
 
 interface RosterRow {
   contact_id: string;
@@ -276,7 +276,7 @@ export function CustomerPage(props: CustomerPageProps) {
   const asset = profile?.asset_profile;
   const behavior = profile?.behavior_profile;
   const sourceCounts = useMemo(
-    () => dataSources.map((source, index) => index === 0 && total > 0 ? [source[0], source[1], total.toLocaleString("zh-CN")] : source),
+    () => dataSources.map((source, index) => index === 0 && total > 0 ? [source[0], source[1], formatNumber(total)] : source),
     [total],
   );
 
@@ -372,7 +372,7 @@ export function CustomerPage(props: CustomerPageProps) {
           <select aria-label="按城市筛选" value={cityFilter} onChange={event => { setListLoading(true); setListError(""); setCityFilter(event.target.value); setPage(1); }}><option value="">全部城市</option>{cities.map(option => <option key={option}>{option}</option>)}</select>
           <button className="reset-filter" onClick={resetFilters}>重置条件</button>
         </div>
-        <div className="customer-result-meta"><span>{listError ? "客户列表加载失败" : <>共 <b>{total.toLocaleString("zh-CN")}</b> 位客户，当前第 <b>{page}</b> 页</>}</span><small>{CUSTOMER_API_BASE_URL}</small></div>
+        <div className="customer-result-meta"><span>{listError ? "客户列表加载失败" : <>共 <b>{formatNumber(total)}</b> 位客户，当前第 <b>{formatNumber(page)}</b> 页</>}</span><small>{CUSTOMER_API_BASE_URL}</small></div>
         {listError && <div className="api-error"><b>无法读取客户数据</b><p>{listError}</p><button className="secondary" onClick={() => { setListLoading(true); setListError(""); setRefreshKey(value => value + 1); }}>重新连接</button></div>}
         {!listError && <div className={`table customer-table ${listLoading ? "is-loading" : ""}`}>
           <table><thead><tr>{["客户编号", "客户等级", "年龄段 / 城市", "职业", "资产管理规模", "风险偏好", "App状态", "注册日期", ""].map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{items.map(customer => <tr key={customer.customer_id}><td><div className="customer-id"><i>{customer.customer_id.slice(-2)}</i><b>{customer.customer_id}</b></div></td><td><span className="vip-tag">{customer.vip_level}客户</span></td><td><b>{customer.age_group}</b><small>{customer.city}</small></td><td>{customer.occupation}</td><td className="money-cell">{money(customer.aum)}</td><td><span className={`risk-pill ${customer.risk_appetite.toLowerCase()}`}>{customer.risk_appetite}</span><small>{customer.risk_label}</small></td><td><span className={customer.has_app ? "app-state on" : "app-state"}>{customer.has_app ? "已安装" : "未安装"}</span></td><td>{customer.register_date}</td><td><button className="row-action" onClick={() => openCustomer(customer.customer_id)} aria-label={`查看${customer.customer_id}客户详情`}>查看 ›</button></td></tr>)}</tbody></table>
@@ -411,7 +411,7 @@ export function CustomerPage(props: CustomerPageProps) {
                 </section>
                 <section className="linkage-card">
                   <b>投顾信号 <small>Part B</small></b>
-                  <div className="linkage-fact"><span>当前持仓产品</span><strong>{asset.holding_product_count} 款</strong><em>高流动性占比 {percent(asset.high_liquidity_ratio)}</em></div>
+                  <div className="linkage-fact"><span>当前持仓产品</span><strong>{formatNumber(asset.holding_product_count)} 款</strong><em>高流动性占比 {percent(asset.high_liquidity_ratio)}</em></div>
                   <p className="linkage-note">投顾模块支持按客户风险偏好与资金规模新建配置场景，凸优化求解并给出最优性证书。</p>
                   <button className="secondary" onClick={() => props.onOpenPortfolio(basic.customer_id)}>去投顾生成配置 →</button>
                 </section>
@@ -419,7 +419,7 @@ export function CustomerPage(props: CustomerPageProps) {
                   <b>历史触达 <small>训练口径</small></b>
                   {profile.campaign_summary ? (
                     <>
-                      <div className="linkage-fact"><span>历史触达</span><strong>{profile.campaign_summary.contact_count} 次</strong><em>响应 {profile.campaign_summary.responded_count} 次 · 响应率 {percent(profile.campaign_summary.response_rate)}</em></div>
+                      <div className="linkage-fact"><span>历史触达</span><strong>{formatNumber(profile.campaign_summary.contact_count)} 次</strong><em>响应 {formatNumber(profile.campaign_summary.responded_count)} 次 · 响应率 {percent(profile.campaign_summary.response_rate)}</em></div>
                       <div className="linkage-fact"><span>最近触达</span><strong>{profile.campaign_summary.last_contact_date ?? "—"}</strong><em>来自 ods_campaign 训练集口径</em></div>
                     </>
                   ) : (
@@ -436,12 +436,12 @@ export function CustomerPage(props: CustomerPageProps) {
                 <article><h4>基础信息</h4><dl><div><dt>年龄段</dt><dd>{basic.age_group}</dd></div><div><dt>城市</dt><dd>{basic.city}</dd></div><div><dt>职业</dt><dd>{basic.occupation}</dd></div><div><dt>注册日期</dt><dd>{basic.register_date}</dd></div></dl></article>
                 <article><h4>风险信息</h4><div className="risk-row"><b>{basic.risk_appetite}</b><span>{basic.risk_label}<small>数据库风险评估结果</small></span></div><div className="risk-scale dynamic">{riskLevels.map(level => <i key={level} className={Number(level.slice(1)) <= Number(basic.risk_appetite.slice(1)) ? "active" : ""} />)}</div><p>统计截止日期：{profile.as_of_date}</p></article>
                 <article><h4>资产结构</h4>{asset.product_type_distribution.length ? <div className="mini-bars">{asset.product_type_distribution.map(item => <label key={item.name}>{item.name}<i><b style={{ width: `${(item.ratio ?? 0) * 100}%` }} /></i><em>{percent(item.ratio)}</em></label>)}</div> : <div className="inline-empty">暂无可识别持仓</div>}</article>
-                <article><h4>近30天行为</h4><div className="stats"><div><b>{behavior.recent_30d_counts.login}</b><span>登录</span></div><div><b>{behavior.recent_30d_counts.consult}</b><span>咨询</span></div><div><b>{behavior.recent_30d_counts.complaint}</b><span>投诉</span></div></div></article>
-                <article className="asset-metric"><h4>资产画像指标</h4><dl><div><dt>持仓产品</dt><dd>{asset.holding_product_count} 款</dd></div><div><dt>高流动性比例</dt><dd>{percent(asset.high_liquidity_ratio)}</dd></div><div><dt>加权预期收益</dt><dd>{percent(asset.weighted_expected_return)}</dd></div><div><dt>持仓覆盖率</dt><dd>{basic.aum > 0 ? percent(asset.holding_amount / basic.aum) : "—"}</dd></div></dl></article>
-                <article className="asset-metric"><h4>最近行为</h4><dl><div><dt>最近事件</dt><dd>{behavior.latest_event_type || "暂无"}</dd></div><div><dt>事件日期</dt><dd>{behavior.latest_event_date || "暂无"}</dd></div><div><dt>历史登录</dt><dd>{behavior.total_counts.login} 次</dd></div><div><dt>历史咨询</dt><dd>{behavior.total_counts.consult} 次</dd></div></dl></article>
+                <article><h4>近30天行为</h4><div className="stats"><div><b>{formatNumber(behavior.recent_30d_counts.login)}</b><span>登录</span></div><div><b>{formatNumber(behavior.recent_30d_counts.consult)}</b><span>咨询</span></div><div><b>{formatNumber(behavior.recent_30d_counts.complaint)}</b><span>投诉</span></div></div></article>
+                <article className="asset-metric"><h4>资产画像指标</h4><dl><div><dt>持仓产品</dt><dd>{formatNumber(asset.holding_product_count)} 款</dd></div><div><dt>高流动性比例</dt><dd>{percent(asset.high_liquidity_ratio)}</dd></div><div><dt>加权预期收益</dt><dd>{percent(asset.weighted_expected_return)}</dd></div><div><dt>持仓覆盖率</dt><dd>{basic.aum > 0 ? percent(asset.holding_amount / basic.aum) : "—"}</dd></div></dl></article>
+                <article className="asset-metric"><h4>最近行为</h4><dl><div><dt>最近事件</dt><dd>{behavior.latest_event_type || "暂无"}</dd></div><div><dt>事件日期</dt><dd>{behavior.latest_event_date || "暂无"}</dd></div><div><dt>历史登录</dt><dd>{formatNumber(behavior.total_counts.login)} 次</dd></div><div><dt>历史咨询</dt><dd>{formatNumber(behavior.total_counts.consult)} 次</dd></div></dl></article>
               </div>}
               {customerTab === "holding" && <div className="table"><table><thead><tr>{["产品", "类型", "风险", "持仓金额", "流动性", "预期收益", "购买日期"].map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{asset.holdings.map(holding => <tr key={holding.holding_id}><td><b>{holding.product_id}</b><small>{holding.product_name}</small></td><td>{holding.product_type}</td><td><span className="risk-tag">{holding.risk_level}</span></td><td>{money(holding.amount)}</td><td>{holding.liquidity}</td><td>{percent(holding.expected_return)}</td><td>{holding.buy_date}</td></tr>)}</tbody></table>{asset.holdings.length === 0 && <div className="empty-result"><b>暂无持仓记录</b><span>该客户当前没有可识别的产品持仓。</span></div>}</div>}
-              {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{item[1]}</strong><span>近30天 {item[2]} 次</span></article>)}</div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
+              {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{formatNumber(Number(item[1]))}</strong><span>近30天 {formatNumber(Number(item[2]))} 次</span></article>)}</div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
             </div>
             <aside className="ai-card"><div className="ai-title"><b>AI</b><span><strong>客户洞察</strong><small>基于结构化画像生成并保存</small></span></div>{aiBusy ? <div className="loading">正在调用画像总结服务…</div> : (profile.ai_summary ? <AiAnalysisPanel analysis={profile.ai_summary} /> : <div className="ai-empty">该客户尚未生成画像总结。点击下方按钮后，系统会形成画像概述、需求洞察和服务建议。</div>)}{aiError && <div className="ai-error">{aiError}</div>}<div className="evidence"><small>引用依据</small><span>风险偏好 {basic.risk_appetite} · {basic.risk_label}</span><span>持仓产品 {asset.holding_product_count} 款</span><span>高流动性比例 {percent(asset.high_liquidity_ratio)}</span>{profile.ai_summary_generated_at && <span>生成时间 {new Date(profile.ai_summary_generated_at).toLocaleString("zh-CN")}</span>}</div><button disabled={aiBusy} onClick={refreshAiSummary}>↻ {profile.ai_summary ? "重新生成总结" : "生成画像总结"}</button><em>{summaryProvider ? `${summaryProvider} · ` : ""}AI内容仅供辅助分析</em></aside>
           </div>

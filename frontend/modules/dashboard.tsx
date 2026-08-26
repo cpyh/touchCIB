@@ -13,6 +13,7 @@ import {
   compactMoney,
   exactMoney,
   formatDateTime,
+  formatNumber,
   metric,
   percent,
 } from "../shared/format";
@@ -292,35 +293,37 @@ export function DashboardPage({
         </div>
       )}
 
-      {/* ================= 投放概览（账户级） ================= */}
+      {/* ================= 营销概览（账户级） ================= */}
 
       <section className="dashboard-section campaign-section">
         <SectionTitle
           index="00"
-          title="投放概览"
-          description="银行版投放系统：预算消耗、投放漏斗与转化效率一屏掌握。"
+          title="营销概览"
+          description="本批营销活动的规模、触达、转化与机会，一屏总览。"
         />
         <div className="campaign-kpis">
-          <article className="gold"><small>计划规模</small><strong>{(
+          <article className="gold"><small>策略规模</small><strong>{(
             dashboard.action_items?.touch?.total_strategies ?? 0
           ).toLocaleString()}</strong><span>策略单元</span></article>
-          <article><small>已消耗</small><strong>{
-            dashboard.action_items?.touch?.sent_customers?.toLocaleString() ?? "—"
-          }</strong><span>已触达客户</span></article>
-          <article><small>已转化</small><strong>{
-            dashboard.action_items?.touch?.sent_customers
-              ? Math.round((dashboard.action_items.touch.sent_customers ?? 0) * 22 / 30).toLocaleString()
+          <article><small>已触达客户</small><strong>{
+            dashboard.marketing_funnel?.contacted_customer_count?.toLocaleString() ?? "—"
+          }</strong><span>全量 8,000 位</span></article>
+          <article><small>已响应客户</small><strong>{
+            dashboard.marketing_funnel?.responded_customer_count?.toLocaleString() ?? "—"
+          }</strong><span>归因口径</span></article>
+          <article><small>触达后响应率</small><strong>{
+            dashboard.marketing_funnel?.contacted_customer_count
+              ? `${(
+                  (dashboard.marketing_funnel.responded_customer_count ?? 0)
+                  / dashboard.marketing_funnel.contacted_customer_count
+                  * 100
+                ).toFixed(1)}%`
               : "—"
-          }</strong><span>已响应客户</span></article>
-          <article><small>转化效率</small><strong>{
-            dashboard.action_items?.channel?.manager_response_rate != null
-              ? `${(dashboard.action_items.channel.manager_response_rate * 100).toFixed(1)}%`
-              : "—"
-          }</strong><span>触达后响应率</span></article>
-          <article><small>期望增量</small><strong>{
+          }</strong><span>客户口径</span></article>
+          <article><small>高意向潜力</small><strong>{
             dashboard.opportunity?.golden.expected_responses?.toLocaleString() ?? "—"
-          }</strong><span>黄金客户潜在响应</span></article>
-          <article><small>预警金额</small><strong>{
+          }</strong><span>潜在响应客户</span></article>
+          <article><small>到期资金</small><strong>{
             dashboard.expiry_warning?.available
               ? compactMoney(dashboard.expiry_warning.amount)
               : "—"
@@ -344,7 +347,7 @@ export function DashboardPage({
           <article>
             <small>客户总数</small>
             <strong>
-              {business.customer_count.toLocaleString()}
+              {formatNumber(business.customer_count)}
             </strong>
             <span>财富客户记录</span>
           </article>
@@ -366,7 +369,7 @@ export function DashboardPage({
           <article>
             <small>在售产品</small>
             <strong>
-              {business.product_count.toLocaleString()} 款
+              {formatNumber(business.product_count)} 款
             </strong>
             <span>财富产品数量</span>
           </article>
@@ -390,7 +393,7 @@ export function DashboardPage({
           <article>
             <small>历史营销触达</small>
             <strong>
-              {business.historical_contact_count.toLocaleString()}
+              {formatNumber(business.historical_contact_count)}
             </strong>
             <span>历史营销记录</span>
           </article>
@@ -415,7 +418,7 @@ export function DashboardPage({
               </div>
 
               <Status>
-                {business.customer_count.toLocaleString()} 位客户
+                {formatNumber(business.customer_count)} 位客户
               </Status>
             </div>
 
@@ -424,7 +427,7 @@ export function DashboardPage({
                 (item, index) => (
                   <div key={item.risk_level}>
                     <em>
-                      {item.count.toLocaleString()}
+                      {formatNumber(item.count)}
                     </em>
 
                     <i
@@ -503,21 +506,21 @@ export function DashboardPage({
         </div>
       </section>
 
-      {/* ================= 投放单元与算法（运营参考） ================= */}
+      {/* ================= 渠道表现与算法质量（运营参考） ================= */}
 
       <section className="dashboard-section reference-section">
         <SectionTitle
           index="03"
-          title="投放单元与算法质量"
-          description="渠道单元表现供预算倾斜参考，算法健康度保障投放稳定性。"
+          title="渠道表现与算法质量"
+          description="渠道表现供资源倾斜参考，算法健康度保障活动稳定性。"
         />
         <div className="reference-grid">
           <article className="reference-card">
-            <header><b>渠道表现</b><span>预算倾斜参考</span></header>
+            <header><b>渠道表现</b><span>资源倾斜参考</span></header>
             <div className="reference-fact">
               <span>经理渠道现场响应率</span>
-              <strong>{channel?.manager_response_rate != null ? `${(channel.manager_response_rate * 100).toFixed(1)}%` : "—"}</strong>
-              <small>目标 {channel ? `${(channel.manager_target * 100).toFixed(0)}%` : "—"} · 触达 {channel?.manager_sent ?? "—"} 位 / 响应 {channel?.manager_responded ?? "—"} 位</small>
+              <strong>{percent(channel?.manager_response_rate)}</strong>
+              <small>目标 {percent(channel?.manager_target, 0)} · 触达 {formatNumber(channel?.manager_sent)} 位 / 响应 {formatNumber(channel?.manager_responded)} 位</small>
             </div>
             <div className="reference-fact">
               <span>历史渠道平均响应率</span>
@@ -531,7 +534,7 @@ export function DashboardPage({
             <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
             <div className="reference-fact">
               <span>A1 验证指标</span>
-              <strong>AUC {(a1.auc ?? 0).toFixed(4)} · F1 {(a1.f1 ?? 0).toFixed(4)} · Lift {(a1.lift_at_10 ?? 0).toFixed(2)}</strong>
+              <strong>AUC {metric(a1.auc, 4)} · F1 {metric(a1.f1, 4)} · Lift {metric(a1.lift_at_10, 2)}</strong>
               <small>三项全部达到题目满分锚点</small>
             </div>
             <div className="reference-fact">
@@ -550,14 +553,14 @@ export function DashboardPage({
         <section className="dashboard-section opportunity-section">
           <SectionTitle
             index="02"
-            title="人群与创意优化"
-            description="定向人群、创意表现与到期承接——广告范式里决定转化的三要素。"
+            title="转化机会洞察"
+            description="从预测与事件数据挖出的三类转化机会：高意向客户、产品机会与到期承接。"
           />
           <div className="opportunity-grid">
             <article className="opportunity-card lead">
-              <header><b>黄金客户机会</b><span>高意向未触达</span></header>
-              <strong>{dashboard.opportunity.golden.count.toLocaleString()}<i>名</i></strong>
-              <p>响应概率 ≥70% 未触达客户，期望响应约 <b>{dashboard.opportunity.golden.expected_responses.toLocaleString()} 名</b>——触达即转化</p>
+              <header><b>高意向客户机会</b><span>高意向未触达</span></header>
+              <strong>{formatNumber(dashboard.opportunity.golden.count)}<i>名</i></strong>
+              <p>响应概率 ≥ 70% 未触达客户，期望响应约 <b>{formatNumber(dashboard.opportunity.golden.expected_responses)} 名</b>——触达即转化</p>
               <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
             </article>
 
@@ -565,7 +568,7 @@ export function DashboardPage({
               <header><b>产品机会榜</b><span>高意向待触达 Top3</span></header>
               <ul className="opportunity-products">
                 {dashboard.opportunity.products.map((item) => (
-                  <li key={item.product_id}><span>{item.product_id}</span><em>{item.count} 条高意向触达未执行</em></li>
+                  <li key={item.product_id}><span>{item.product_id}</span><em>{formatNumber(item.count)} 条高意向触达未执行</em></li>
                 ))}
               </ul>
               <p>这些产品的高意向客户最集中，批量触达效率最高</p>
@@ -574,8 +577,8 @@ export function DashboardPage({
 
             <article className="opportunity-card">
               <header><b>到期承接机会</b><span>再配置窗口</span></header>
-              <strong>{dashboard.opportunity.expiry.customer_count.toLocaleString()}<i>位</i></strong>
-              <p>{dashboard.opportunity.expiry.window_days} 天内 ¥{compactMoney(dashboard.opportunity.expiry.amount)} 到期，是先发制人的交叉销售窗口</p>
+              <strong>{formatNumber(dashboard.opportunity.expiry.customer_count)}<i>位</i></strong>
+              <p>{formatNumber(dashboard.opportunity.expiry.window_days)} 天内 {compactMoney(dashboard.opportunity.expiry.amount)} 到期，是先发制人的交叉销售窗口</p>
               <button className="primary" onClick={() => onOpenMarketing?.("")}>跟进到期客户 →</button>
             </article>
           </div>

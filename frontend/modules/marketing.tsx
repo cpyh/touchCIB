@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "../shared/api";
 import { channelNames, Status } from "../shared/ui";
-import { formatTime, money, percent } from "../shared/format";
+import { formatNumber, formatTime, metric, money, percent } from "../shared/format";
 
 type TaskStatus = "all" | "pending" | "follow_up" | "converted";
 type StrategyDetailTab = "why" | "compliance" | "script";
@@ -714,10 +714,10 @@ export function MarketingPage({
           <p>优先处理高机会客户，完成策略选择、客户触达与转化追踪。</p>
         </div>
         <div className="manager-kpis">
-          <div><small>客户池</small><strong>{taskPopulation.toLocaleString()}</strong><span>覆盖全部可运营客户</span></div>
-          <div><small>高机会覆盖</small><strong>{modelCoveredCustomers.toLocaleString()}</strong><span>A1 已完成机会评分</span></div>
-          <div><small>已转化</small><strong>{eventServiceAvailable ? summary?.events.responded_customers ?? summary?.events.responded : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
-          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? managerKpi?.actual ?? "—" : "—"}<i>/ {managerKpi?.target ?? 30}</i></strong><span>A2正式目标 {officialTargetCount.toLocaleString()} 人</span></div>
+          <div><small>客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>覆盖全部可运营客户</span></div>
+          <div><small>高机会覆盖</small><strong>{formatNumber(modelCoveredCustomers)}</strong><span>A1 已完成机会评分</span></div>
+          <div><small>已转化</small><strong>{eventServiceAvailable ? formatNumber(summary?.events.responded_customers ?? summary?.events.responded) : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
+          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>A2 正式目标 {formatNumber(officialTargetCount)} 人</span></div>
         </div>
         <div className="manager-head-actions">
           <button onClick={openOpportunityPool}><span><b>机会客户池</b><small>查看 A1 排序</small></span><i>›</i></button>
@@ -729,7 +729,7 @@ export function MarketingPage({
         <aside className="task-pane">
           <header>
             <div><small>客户机会</small><h2>全量客户队列</h2></div>
-            <Status>{taskLoading ? "更新中" : `${taskTotal}人`}</Status>
+            <Status>{taskLoading ? "更新中" : `${formatNumber(taskTotal)} 人`}</Status>
           </header>
           <nav className="task-status-tabs">
             {(Object.keys(taskStatusNames) as TaskStatus[]).map((status) => (
@@ -739,7 +739,7 @@ export function MarketingPage({
                 onClick={() => changeTaskStatus(status)}
               >
                 <span>{taskStatusNames[status]}</span>
-                <b>{taskCounts[status]}</b>
+                <b>{formatNumber(taskCounts[status])}</b>
               </button>
             ))}
           </nav>
@@ -1063,7 +1063,7 @@ export function MarketingPage({
               <div className={lastSimulation?.kpi_delta.manager_conversion ? "personal-kpi changed" : "personal-kpi"}>
                 <span><small>我的本月转化</small><strong>{eventServiceAvailable ? managerKpi?.actual ?? "—" : "—"} / {managerKpi?.target ?? 30}</strong></span>
                 <i><b style={{ width: `${eventServiceAvailable ? Math.min(100, ((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30)) * 100) : 0}%` }} /></i>
-                <em>{lastSimulation?.kpi_delta.manager_conversion ? "本次归因 +1" : eventServiceAvailable ? `完成率 ${Math.round((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30) * 100)}%` : "事件服务暂不可用"}</em>
+                <em>{lastSimulation?.kpi_delta.manager_conversion ? "本次归因 +1" : eventServiceAvailable ? `完成率 ${percent((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30), 0)}` : "事件服务暂不可用"}</em>
               </div>
             </>
           )}
@@ -1113,16 +1113,16 @@ export function MarketingPage({
                   </table>
                   {rosterLoading && <div className="drawer-loading">正在加载模型名单…</div>}
                 </div>
-                <footer className="drawer-pagination"><span>共 {rosterTotal.toLocaleString()} 条触达预测</span><div><button disabled={rosterPage <= 1} onClick={() => void loadRoster(rosterPage - 1)}>上一页</button><b>{rosterPage} / {rosterPageCount}</b><button disabled={rosterPage >= rosterPageCount} onClick={() => void loadRoster(rosterPage + 1)}>下一页</button></div></footer>
+                <footer className="drawer-pagination"><span>共 {formatNumber(rosterTotal)} 条触达预测</span><div><button disabled={rosterPage <= 1} onClick={() => void loadRoster(rosterPage - 1)}>上一页</button><b>{formatNumber(rosterPage)} / {formatNumber(rosterPageCount)}</b><button disabled={rosterPage >= rosterPageCount} onClick={() => void loadRoster(rosterPage + 1)}>下一页</button></div></footer>
               </div>
             )}
 
             {drawer === "model" && (
               <div className="model-proof-body">
                 <div className="model-metrics-proof">
-                  <article><small>AUC</small><strong>{summary?.model_metrics.auc?.toFixed(3) ?? "—"}</strong><span>排序区分能力</span></article>
-                  <article><small>F1</small><strong>{summary?.model_metrics.best_f1?.toFixed(3) ?? "—"}</strong><span>最佳阈值效果</span></article>
-                  <article><small>Lift@10%</small><strong>{summary?.model_metrics.lift_at_10_percent?.toFixed(2) ?? "—"}×</strong><span>高意向客户提升</span></article>
+                  <article><small>AUC</small><strong>{metric(summary?.model_metrics.auc, 3)}</strong><span>排序区分能力</span></article>
+                  <article><small>F1</small><strong>{metric(summary?.model_metrics.best_f1, 3)}</strong><span>最佳阈值效果</span></article>
+                  <article><small>Lift@10%</small><strong>{metric(summary?.model_metrics.lift_at_10_percent, 2)}×</strong><span>高意向客户提升</span></article>
                 </div>
                 <div className="model-pipeline">
                   {[
