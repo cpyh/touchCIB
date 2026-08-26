@@ -10,17 +10,17 @@ import { PortfolioPage } from "../modules/portfolio";
 type Module = "customer" | "portfolio" | "marketing" | "dashboard";
 
 const navigation: [Module, string, string, string][] = [
-  ["customer", "客", "客户360", "画像与风险证据"],
-  ["portfolio", "投", "智能投顾", "客户适配与组合优化"],
-  ["marketing", "营", "营销运营", "响应预测与策略执行"],
-  ["dashboard", "览", "Part C/D看板", "工程与运营闭环"],
+  ["customer", "客", "客户进件与风险评估", "全景画像与风险证据"],
+  ["portfolio", "投", "智能投顾推荐", "组合配置优化"],
+  ["marketing", "营", "营销运营工作台", "响应预测与策略执行"],
+  ["dashboard", "览", "可视化看板", "经营指标与算法证据"],
 ];
 
 const titles: Record<Module, string> = {
-  customer: "客户360与风险画像",
-  portfolio: "智能投顾组合配置优化",
-  marketing: "精准营销运营工作台",
-  dashboard: "Part C/D经营与工程看板",
+  customer: "客户进件与风险评估",
+  portfolio: "智能投顾推荐",
+  marketing: "营销运营工作台",
+  dashboard: "可视化看板",
 };
 
 export default function Home() {

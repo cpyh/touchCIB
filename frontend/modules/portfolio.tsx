@@ -327,7 +327,7 @@ export function PortfolioPage({
       <section className="portfolio-hero">
         <div className="portfolio-hero-copy">
           <span>智能投顾 · 投资组合优化</span>
-          <h1>智能投顾组合配置沙盘</h1>
+          <h1>智能投顾推荐</h1>
           <p>选择客户与投资场景，调整约束并实时生成可解释的近优组合。</p>
           <div className="portfolio-hero-tags"><i>{officialCount || 20}个场景</i><i>30个产品</i><i>5类硬约束</i></div>
           <div className="portfolio-client-link">

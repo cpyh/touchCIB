@@ -704,7 +704,7 @@ export function MarketingPage({
       <header className="manager-marketing-head">
         <div className="manager-title">
           <small>4月财富营销活动 · 客户经理 MGR001</small>
-          <h1>我的精准营销工作台</h1>
+          <h1>营销运营工作台</h1>
           <p>从客户机会、个性化策略到联系跟进和转化归因，全部在同一任务中完成。</p>
         </div>
         <div className="manager-kpis">

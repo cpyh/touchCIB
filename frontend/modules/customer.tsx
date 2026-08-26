@@ -357,7 +357,7 @@ export function CustomerPage(props: CustomerPageProps) {
 
   return <>
     <div className="page-head">
-      <div><h1>客户画像与风险评估</h1><p>通过真实客户、持仓与行为数据，形成可追溯的客户全景视图。</p></div>
+      <div><h1>客户进件与风险评估</h1><p>通过真实客户、持仓与行为数据，形成可追溯的客户全景视图。</p></div>
       <button className="primary import-button" onClick={() => { setCreateError(""); setCreateOpen(true); }}>＋ 新建客户</button>
     </div>
 

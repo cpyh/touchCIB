@@ -239,7 +239,7 @@ export function DashboardPage({
     return (
       <>
         <PageHead
-          title="可视化经营看板"
+          title="可视化看板"
           description="从业务数据到算法决策，再到策略执行与结果回流。"
           action={<Status>正在读取真实数据</Status>}
         />
@@ -257,7 +257,7 @@ export function DashboardPage({
     return (
       <>
         <PageHead
-          title="可视化经营看板"
+          title="可视化看板"
           description="从业务数据到算法决策，再到策略执行与结果回流。"
           action={<Status warn>接口连接失败</Status>}
         />
@@ -341,7 +341,7 @@ export function DashboardPage({
   return (
     <>
       <PageHead
-        title="可视化经营看板"
+        title="可视化看板"
         description="从数据基础、算法决策到营销执行，展示智能财富管理的完整业务闭环。"
         action={
           <div className="dashboard-actions">
