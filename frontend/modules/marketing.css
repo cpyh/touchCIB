@@ -10,8 +10,8 @@
   gap: 10px; overflow: hidden; background: transparent;
 }
 .manager-marketing-head {
-  position: relative; flex: 0 0 104px; display: grid; grid-template-columns: minmax(285px,1fr) auto auto;
-  align-items: center; gap: 16px; padding: 14px 16px 14px 22px; overflow: hidden; border: 1px solid rgba(255,255,255,.08);
+  position: relative; flex: 0 0 104px; display: grid; grid-template-columns: minmax(210px,0.85fr) auto minmax(0,1.2fr);
+  align-items: center; gap: 14px; padding: 14px 16px 14px 22px; overflow: hidden; border: 1px solid rgba(255,255,255,.08);
   border-radius: 16px; color: #fff; box-shadow: 0 12px 28px rgba(8,42,73,.16);
   background: radial-gradient(circle at 84% -50%,rgba(229,183,93,.34),transparent 36%),linear-gradient(118deg,#082e58 0%,#0a4779 62%,#153b5d 100%);
 }
@@ -20,11 +20,11 @@
 .manager-title small { color: #e7c783; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
 .manager-title h1 { margin: 4px 0 3px; font-size: 23px; font-weight: 650; letter-spacing: -.025em; }
 .manager-title p { margin: 0; overflow: hidden; color: #bfd1de; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.manager-kpis { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4,minmax(88px,1fr)); gap: 7px; }
-.manager-kpis > div { min-width: 88px; padding: 9px 10px 8px; border: 1px solid rgba(255,255,255,.11); border-radius: 11px; background: rgba(255,255,255,.065); backdrop-filter: blur(5px); }
+.manager-kpis { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; min-width: 0; }
+.manager-kpis > div { min-width: 0; padding: 9px 10px 8px; border: 1px solid rgba(255,255,255,.11); border-radius: 11px; background: rgba(255,255,255,.065); backdrop-filter: blur(5px); overflow: hidden; }
 .manager-kpis small,.manager-kpis strong,.manager-kpis span { display: block; }
 .manager-kpis small { color: #b9cbd8; font-size: 9px; }
-.manager-kpis strong { margin: 2px 0 3px; color: #fff; font-size: 18px; line-height: 1.05; letter-spacing: -.02em; }
+.manager-kpis strong { margin: 2px 0 3px; color: #fff; font-size: 16px; line-height: 1.1; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .manager-kpis strong i { margin-left: 3px; color: #c2d1dc; font-size: 10px; font-style: normal; font-weight: 400; }
 .manager-kpis span { color: #91a9bb; font-size: 8px; white-space: nowrap; }
 .manager-kpis .target { border-color: rgba(230,194,117,.4); background: linear-gradient(145deg,rgba(197,146,50,.22),rgba(255,255,255,.06)); }
