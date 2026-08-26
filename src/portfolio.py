@@ -490,6 +490,43 @@ def _ai_prompt(payload: dict) -> str:
     )
 
 
+def stream_chat(context: dict, messages: list):
+    """多轮对话流式接口：以组合方案上下文为系统消息，逐段 yield 回复。
+
+    context: 组合方案上下文（customer/summary/business/buys/sells）
+    messages: [{"role": "user"|"assistant", "content": str}, ...]
+    """
+    import json
+    import os
+
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY is not configured")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    model = os.getenv("DEEPSEEK_FAST_MODEL", "deepseek-chat")
+    timeout = float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "60"))
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("openai SDK is not installed") from exc
+
+    system = (
+        "你是智能财富管理平台的投顾助手。请始终基于下面给定的客户组合方案上下文回答"
+        "客户经理的问题，语气简短专业、可执行，尽量 3 句以内，不用 markdown、不编造数据。\n\n"
+        f"方案上下文：{json.dumps(context, ensure_ascii=False)}"
+    )
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system}, *messages],
+        temperature=0.4,
+        stream=True,
+    )
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
 def stream_ai_analysis(payload: dict):
     """流式调用 DeepSeek，逐段 yield 文本增量（供 SSE 端点使用）。"""
     import os

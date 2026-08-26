@@ -35,6 +35,7 @@ from .portfolio import (
     list_portfolio_scenarios,
     optimize_portfolio,
     stream_ai_analysis,
+    stream_chat,
 )
 
 
@@ -115,6 +116,31 @@ def portfolio_ai_analysis_stream():
     def generate():
         try:
             for delta in stream_ai_analysis(payload):
+                yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+        except (RuntimeError, ValueError) as exc:
+            yield f"data: {_json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/portfolio/chat/stream")
+def portfolio_chat_stream():
+    """投顾 AI 助手多轮对话（SSE 流式）。"""
+    import json as _json
+
+    payload = request.get_json(silent=True) or {}
+    context = payload.get("context") or {}
+    messages = payload.get("messages") or []
+    if not isinstance(messages, list):
+        return jsonify(error="messages must be a list"), 400
+
+    def generate():
+        try:
+            for delta in stream_chat(context, messages):
                 yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
         except (RuntimeError, ValueError) as exc:
             yield f"data: {_json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"

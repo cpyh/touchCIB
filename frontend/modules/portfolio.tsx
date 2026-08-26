@@ -155,8 +155,9 @@ export function PortfolioPage({
     buys: Array<{ product_id: string; product_name: string; amount: number }>;
     sells: Array<{ product_id: string; product_name: string; amount: number }>;
   } | null>(null);
-  const [aiText, setAiText] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
 
   useEffect(() => {
     api<{ scenarios: Scenario[] }>("/portfolio/scenarios")
@@ -232,13 +233,6 @@ export function PortfolioPage({
       cancelled = true;
     };
   }, [customer, result]);
-
-  useEffect(() => {
-    if (resultView === "ai" && result && !aiText && !aiLoading) {
-      void loadAiAnalysis();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resultView, result, aiText]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
@@ -338,7 +332,7 @@ export function PortfolioPage({
       });
       setResult(data);
       setResultView("overview");
-      setAiText(null);
+      setChatMessages([]);
     } catch (error) {
       notify(`组合优化失败：${(error as Error).message}`);
     } finally {
@@ -346,22 +340,28 @@ export function PortfolioPage({
     }
   }
 
-  async function loadAiAnalysis() {
-    if (!result || aiLoading) return;
-    setAiLoading(true);
-    setAiText("");
+  function chatContext() {
+    return {
+      customer: customer ? { risk_appetite: customer.risk_appetite, aum: customer.aum } : null,
+      summary: result?.summary ?? null,
+      business: result?.business ?? null,
+      buys: rebalance?.buys ?? [],
+      sells: rebalance?.sells ?? [],
+    };
+  }
+
+  async function sendChat(text: string) {
+    const content = text.trim();
+    if (!content || chatBusy) return;
+    const history = [...chatMessages, { role: "user" as const, content }];
+    setChatMessages([...history, { role: "assistant", content: "" }]);
+    setChatInput("");
+    setChatBusy(true);
     try {
-      const response = await fetch(`${API_BASE}/portfolio/ai-analysis/stream`, {
+      const response = await fetch(`${API_BASE}/portfolio/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer: customer ? { risk_appetite: customer.risk_appetite, aum: customer.aum } : null,
-          summary: result.summary,
-          business: result.business ?? null,
-          buys: rebalance?.buys ?? [],
-          sells: rebalance?.sells ?? [],
-          marketing_prob: null,
-        }),
+        body: JSON.stringify({ context: chatContext(), messages: history }),
       });
       const reader = response.body?.getReader();
       if (!reader) throw new Error("浏览器不支持流式读取");
@@ -378,18 +378,34 @@ export function PortfolioPage({
           for (const line of raw.split("\n")) {
             if (!line.startsWith("data: ")) continue;
             const data = JSON.parse(line.slice(6));
-            if (data.delta) setAiText((prev) => (prev ?? "") + data.delta);
-            else if (data.error) notify(`AI 解读失败：${data.error}`);
+            if (data.delta) {
+              setChatMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === "assistant") {
+                  next[next.length - 1] = { ...last, content: last.content + data.delta };
+                }
+                return next;
+              });
+            } else if (data.error) {
+              notify(`AI 回复失败：${data.error}`);
+            }
           }
         }
       }
     } catch (error) {
-      if (!aiText) setAiText(null);
-      notify(`AI 解读生成失败：${(error as Error).message}`);
+      notify(`AI 对话失败：${(error as Error).message}`);
     } finally {
-      setAiLoading(false);
+      setChatBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (resultView === "ai" && result && chatMessages.length === 0 && !chatBusy) {
+      void sendChat("帮我解读这个组合方案");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultView, result]);
 
   async function saveScenario() {
     if (!customer) return;
@@ -675,18 +691,34 @@ export function PortfolioPage({
               )}
 
               {resultView === "ai" && (
-                <div className="result-view portfolio-ai-page">
-                  <section className="portfolio-ai-brief">
+                <div className="result-view portfolio-ai-page portfolio-chat">
+                  <div className="chat-head">
                     <div className="portfolio-ai-mark">AI</div>
-                    <div>
-                      <small>AI ANALYSIS</small>
-                      <h3>AI 组合解读</h3>
-                      <p>{aiLoading ? (aiText ? `${aiText}▍` : "AI 正在分析组合方案…") : (aiText || explanation)}</p>
-                    </div>
-                    <Status>{aiLoading ? "生成中" : "DeepSeek 实时解读"}</Status>
-                  </section>
+                    <span><small>AI 投顾助手</small><h3>组合方案问答</h3></span>
+                    <Status>{chatBusy ? "回复中" : "DeepSeek"}</Status>
+                  </div>
+                  <div className="chat-body">
+                    {chatMessages.map((message, index) => (
+                      <div key={index} className={`chat-bubble ${message.role}`}>
+                        <p>{message.content}{chatBusy && index === chatMessages.length - 1 && message.role === "assistant" ? "▍" : ""}</p>
+                      </div>
+                    ))}
+                    {chatMessages.length === 0 && !chatBusy && (
+                      <div className="chat-empty">生成方案后，AI 会自动解读；你也可以随时追问。</div>
+                    )}
+                  </div>
+                  <div className="chat-foot">
+                    <input
+                      aria-label="向 AI 投顾助手提问"
+                      placeholder="追问：为什么选这个产品？风险改 R4 会怎样？"
+                      value={chatInput}
+                      onChange={(event) => setChatInput(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === "Enter" && !chatBusy) void sendChat(chatInput); }}
+                    />
+                    <button className="primary" disabled={chatBusy || !chatInput.trim()} onClick={() => void sendChat(chatInput)}>发送</button>
+                  </div>
                   <div className="portfolio-ai-trace">
-                    <p>AI解读用于辅助客户经理理解方案，不替代客户适当性、产品准入和起投金额校验。</p>
+                    <p>AI 回复基于当前方案上下文，不替代客户适当性、产品准入和起投金额校验。</p>
                   </div>
                 </div>
               )}

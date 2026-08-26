@@ -324,3 +324,21 @@
 .ai-marketing-top3 span{padding:4px 9px;border:1px solid #e0e8ee;border-radius:6px;background:#fff;color:#4b6478;font-size:9px}
 .ai-marketing-top3 b{margin-right:5px;color:#966922}
 .portfolio-ai-marketing .secondary{min-height:30px;padding:5px 11px;font-size:9px}
+
+/* AI 投顾助手聊天框 */
+.portfolio-chat{flex-direction:column;display:flex;gap:0}
+.chat-head{display:flex;align-items:center;gap:9px;padding:0 0 10px;border-bottom:1px solid #e5eaee}
+.chat-head small{color:var(--gold);font-size:8px;font-weight:700;letter-spacing:.12em}
+.chat-head h3{margin:2px 0 0;color:var(--navy);font-size:13px}
+.chat-head .status{margin-left:auto}
+.chat-body{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:12px 2px;overflow:auto}
+.chat-bubble{max-width:86%}
+.chat-bubble.user{align-self:flex-end}
+.chat-bubble.assistant{align-self:flex-start}
+.chat-bubble p{margin:0;padding:9px 12px;border-radius:10px;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.chat-bubble.user p{background:linear-gradient(135deg,#1d5a8b,#123d68);color:#fff;border-bottom-right-radius:3px}
+.chat-bubble.assistant p{background:#f4f7f9;color:#2b4253;border-bottom-left-radius:3px}
+.chat-empty{color:#94a2ad;font-size:11px;padding:16px 4px}
+.chat-foot{display:flex;gap:8px;padding:10px 0 8px;border-top:1px solid #e5eaee}
+.chat-foot input{flex:1;height:36px;padding:0 11px;border:1px solid #ccd9e2;border-radius:7px;background:#fbfcfd;color:#20394d;font-size:12px}
+.chat-foot .primary{min-height:36px;padding:0 14px;font-size:11px}
