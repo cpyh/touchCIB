@@ -1292,3 +1292,16 @@
 .expiry-strip li b{color:#b34837;font-weight:600}
 .expiry-strip .primary{grid-column:1/-1;justify-self:start;min-height:32px;padding:6px 12px;font-size:10px}
 @media(max-width:620px){.expiry-strip{grid-template-columns:1fr}.expiry-strip>ul{flex-direction:column;gap:4px}}
+
+/* 运营参考：背景信息卡（比行动卡更轻的视觉权重） */
+.reference-section .reference-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.reference-card{min-width:0;display:flex;flex-direction:column;gap:10px;padding:14px 15px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.reference-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.reference-card>header b{color:var(--navy2);font-size:12px}
+.reference-card>header span{color:#8b99a4;font-size:9px;font-weight:600}
+.reference-fact{display:grid;gap:3px}
+.reference-fact span{color:#7c8f9e;font-size:10px}
+.reference-fact strong{color:var(--navy);font:600 14px "PingFang SC","Microsoft YaHei",sans-serif}
+.reference-fact small{color:#94a2ad;font-size:9px}
+.reference-card .secondary{align-self:flex-start;min-height:32px;padding:6px 11px;font-size:10px}
+@media(max-width:850px){.reference-section .reference-grid{grid-template-columns:1fr}}

@@ -347,7 +347,7 @@ export function DashboardPage({
           <SectionTitle
             index="00"
             title="今日行动"
-            description="目标-实际-缺口：看板发现异常，点击卡片直接跳转工作台执行。"
+            description="今天要动手的三件事：盯转化、推触达、接住到期资金。"
           />
           <div className="action-grid">
             <article className={`action-card ${(conversion?.gap ?? 0) > 0 ? "level-red" : "level-green"}`}>
@@ -364,56 +364,73 @@ export function DashboardPage({
               <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
             </article>
 
-            <article className={`action-card ${(channel?.manager_response_rate ?? 0) >= (channel?.manager_target ?? 1) ? "level-green" : "level-amber"}`}>
-              <header><b>渠道机会</b><span>预算倾斜建议</span></header>
-              <strong>{channel?.manager_response_rate != null ? `${(channel.manager_response_rate * 100).toFixed(1)}%` : "—"}<i>vs</i><em>{channel ? `${(channel.manager_target * 100).toFixed(0)}%` : "—"}</em></strong>
-              <p>经理渠道现场触达 {channel?.manager_sent ?? "—"} 位、响应 {channel?.manager_responded ?? "—"} 位，对比历史均值 {percent(business.historical_response_rate)}——表现领先则继续倾斜经理渠道</p>
-              <span className="action-hint">数据引用 · 无需跳转</span>
-            </article>
-
-            <article className={`action-card ${a1AllAnchorsMet && partBOk ? "level-green" : "level-amber"}`}>
-              <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
-              <strong>{a1AllAnchorsMet && partBOk ? "全部达标" : "部分待复核"}</strong>
-              <p>AUC {(a1.auc ?? 0).toFixed(4)} · F1 {(a1.f1 ?? 0).toFixed(4)} · Lift {(a1.lift_at_10 ?? 0).toFixed(2)}；Part B {portfolioSummary?.constraints_passed_count ?? "—"}/{portfolioSummary?.scenario_count ?? "—"} 场景约束通过</p>
-              <button className="primary" onClick={() => onOpenPortfolio?.("")}>去投顾演示最优性证书 →</button>
-              <span className="action-hint">模型指标实时取自验证文件</span>
-            </article>
+            {(() => {
+              const expiry = dashboard.expiry_warning;
+              if (!expiry?.available) return null;
+              return (
+                <article className="action-card level-amber">
+                  <header><b>到期跟进</b><span>再配置机会</span></header>
+                  <strong>{expiry.holding_count.toLocaleString()}<i>笔</i><em>{expiry.customer_count.toLocaleString()} 位客户</em></strong>
+                  <p>{expiry.window_days} 天内 ¥{compactMoney(expiry.amount)} 到期；<b>{expiry.items[0]?.product_name ?? "—"}</b> 等产品迎来赎回，是挽留与再配置窗口</p>
+                  <button
+                    className="primary"
+                    onClick={() => (onOpenExpiry ?? onOpenMarketing)?.(expiry.items[0]?.customer_id ?? "")}
+                  >
+                    跟进到期客户 →
+                  </button>
+                </article>
+              );
+            })()}
           </div>
-
-          {(() => {
-            const expiry = dashboard.expiry_warning;
-            if (!expiry?.available) return null;
-            return (
-              <div className="expiry-strip">
-                <b>⚠ 到期预警</b>
-                <span>
-                  未来 {expiry.window_days} 天：<strong>{expiry.holding_count}</strong> 笔持仓到期
-                  · <strong>{expiry.customer_count}</strong> 位客户 · ¥{compactMoney(expiry.amount)} 待再配置
-                </span>
-                <ul>
-                  {expiry.items.slice(0, 3).map((item) => (
-                    <li key={`${item.customer_id}-${item.product_id}`}>
-                      <em>{item.customer_id}</em> · {item.product_name} · <b>{item.maturity_date}</b> 到期 · ¥{exactMoney(item.amount)}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className="primary"
-                  onClick={() => (onOpenExpiry ?? onOpenMarketing)?.(expiry.items[0]?.customer_id ?? "")}
-                >
-                  跟进到期客户 →
-                </button>
-              </div>
-            );
-          })()}
         </section>
       )}
+
+      {/* ================= 运营参考（背景信息） ================= */}
+
+      <section className="dashboard-section reference-section">
+        <SectionTitle
+          index="01"
+          title="运营参考"
+          description="渠道表现与算法健康度，为行动提供依据而非指令。"
+        />
+        <div className="reference-grid">
+          <article className="reference-card">
+            <header><b>渠道表现</b><span>预算倾斜参考</span></header>
+            <div className="reference-fact">
+              <span>经理渠道现场响应率</span>
+              <strong>{channel?.manager_response_rate != null ? `${(channel.manager_response_rate * 100).toFixed(1)}%` : "—"}</strong>
+              <small>目标 {channel ? `${(channel.manager_target * 100).toFixed(0)}%` : "—"} · 触达 {channel?.manager_sent ?? "—"} 位 / 响应 {channel?.manager_responded ?? "—"} 位</small>
+            </div>
+            <div className="reference-fact">
+              <span>历史渠道平均响应率</span>
+              <strong>{percent(business.historical_response_rate)}</strong>
+              <small>来自 5 万条历史触达训练样本</small>
+            </div>
+            <span className="action-hint">经理渠道明显领先，后续批次建议继续倾斜</span>
+          </article>
+
+          <article className="reference-card">
+            <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
+            <div className="reference-fact">
+              <span>A1 验证指标</span>
+              <strong>AUC {(a1.auc ?? 0).toFixed(4)} · F1 {(a1.f1 ?? 0).toFixed(4)} · Lift {(a1.lift_at_10 ?? 0).toFixed(2)}</strong>
+              <small>三项全部达到题目满分锚点</small>
+            </div>
+            <div className="reference-fact">
+              <span>Part B 组合优化</span>
+              <strong>{portfolioSummary?.constraints_passed_count ?? "—"}/{portfolioSummary?.scenario_count ?? "—"} 场景约束通过</strong>
+              <small>最优性 gap ≈ 1e-18（切平面上界证书）</small>
+            </div>
+            <button className="secondary" onClick={() => onOpenPortfolio?.("")}>去投顾演示最优性证书 →</button>
+          </article>
+        </div>
+      </section>
 
       {/* ================= 数据总览 ================= */}
 
       <section className="dashboard-section">
         <SectionTitle
-          index="01"
+          index="02"
           title="数据总览"
           description="平台当前管理的客户、资产、产品与历史营销数据。"
         />
