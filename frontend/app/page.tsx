@@ -4,12 +4,14 @@ import { useState } from "react";
 
 import { CustomerPage } from "../modules/customer";
 import { DashboardPage } from "../modules/dashboard";
+import { HomePage } from "../modules/home";
 import { MarketingPage } from "../modules/marketing";
 import { PortfolioPage } from "../modules/portfolio";
 
-type Module = "customer" | "portfolio" | "marketing" | "dashboard";
+type Module = "home" | "customer" | "portfolio" | "marketing" | "dashboard";
 
 const navigation: [Module, string, string, string][] = [
+  ["home", "今", "今日工作台", "经理的一天与目标"],
   ["customer", "客", "客户进件与风险评估", "全景画像与风险证据"],
   ["portfolio", "投", "智能投顾推荐", "组合配置优化"],
   ["marketing", "营", "营销运营工作台", "响应预测与策略执行"],
@@ -17,6 +19,7 @@ const navigation: [Module, string, string, string][] = [
 ];
 
 const titles: Record<Module, string> = {
+  home: "今日工作台",
   customer: "客户进件与风险评估",
   portfolio: "智能投顾推荐",
   marketing: "营销运营工作台",
@@ -24,7 +27,7 @@ const titles: Record<Module, string> = {
 };
 
 export default function Home() {
-  const [active, setActive] = useState<Module>("marketing");
+  const [active, setActive] = useState<Module>("home");
   const [customerId, setCustomerId] = useState("");
   const [marketingCohort, setMarketingCohort] = useState<"all" | "expiry">("all");
   const [toast, setToast] = useState("");
@@ -32,6 +35,10 @@ export default function Home() {
   function notify(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 4000);
+  }
+
+  function openModule(module: Module) {
+    setActive(module);
   }
 
   function openMarketing(nextCustomerId: string) {
@@ -83,6 +90,7 @@ export default function Home() {
         </header>
 
         <main className={`page-${active}`}>
+          {active === "home" && <HomePage onOpenModule={openModule} onOpenExpiry={(nextCustomerId) => openMarketingWithCohort(nextCustomerId, "expiry")} />}
           {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} onOpenMarketing={openMarketing} />}
           {active === "marketing" && <MarketingPage initialCustomerId={customerId} initialCohort={marketingCohort} onOpenCustomer={openCustomer} notify={notify} />}

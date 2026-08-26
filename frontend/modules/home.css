@@ -1,0 +1,39 @@
+/* 今日工作台首页：问候 + 目标 + 模块入口 + 今日建议 */
+
+.home-page{display:grid;gap:14px;width:100%}
+.home-hero{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(0,1.4fr);gap:18px;align-items:center;padding:24px 26px;border:1px solid #254f76;border-radius:14px;color:#fff;background:radial-gradient(circle at 76% -40%,#d39b364d,transparent 35%),linear-gradient(128deg,#062855,#0a3d70 64%,#133a61);box-shadow:0 10px 28px #06285529}
+.home-greeting small{color:#e4c37d;letter-spacing:.14em;font-size:10px;font-weight:600}
+.home-greeting h1{margin:7px 0 8px;font-size:28px;font-weight:600}
+.home-greeting p{margin:0;color:#d3e0ea;font-size:14px;line-height:1.6}
+.home-expiry-hint{display:inline-block;margin-top:10px;padding:6px 11px;border:1px solid #ffffff29;border-radius:7px;background:#ffffff14;color:#f0d9a8;font-size:11px}
+.home-goals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.home-goal-card{min-width:0;padding:14px;border:1px solid #ffffff26;border-radius:11px;background:#ffffff10;cursor:pointer;transition:background .15s}
+.home-goal-card:hover{background:#ffffff1c}
+.home-goal-card small,.home-goal-card strong,.home-goal-card span{display:block}
+.home-goal-card small{color:#a9c0d1;font-size:10px}
+.home-goal-card strong{margin:5px 0;font:700 21px "PingFang SC","Microsoft YaHei",sans-serif}
+.home-goal-card i{display:block;height:5px;margin:7px 0;border-radius:5px;background:#ffffff22;overflow:hidden}
+.home-goal-card i b{display:block;height:100%;background:linear-gradient(90deg,#e2c47e,#d39b36)}
+.home-goal-card span{color:#9fb7c8;font-size:9px}
+.home-modules{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.home-module-card{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:11px;padding:16px 15px;border:1px solid #dde6ed;border-radius:11px;background:#fff;text-align:left;transition:border-color .15s,box-shadow .15s}
+.home-module-card:hover{border-color:#8caac1;box-shadow:0 7px 18px #19426914}
+.home-module-card>b{width:42px;height:42px;display:grid;place-items:center;border-radius:9px;background:linear-gradient(145deg,#0d4c87,#062a58);color:#e3c98d;font:700 13px Georgia}
+.home-module-card span,.home-module-card strong,.home-module-card small{display:block}
+.home-module-card strong{color:var(--navy);font-size:13px}
+.home-module-card small{margin-top:3px;color:#85939e;font-size:9px}
+.home-module-card em{color:#9fb0bd;font-style:normal;font-size:14px}
+.home-today-strip{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:15px 17px;border:1px solid #e2d6b8;border-left-width:4px;border-left-color:var(--gold);border-radius:10px;background:#fbf8f0}
+.home-today-strip>div:first-child{display:flex;align-items:center;gap:12px;min-width:0}
+.home-today-strip b{color:#8f6726;font-size:11px;white-space:nowrap}
+.home-today-strip span{color:#5d6f7f;font-size:11px}
+.home-today-strip .primary{min-height:34px;padding:7px 12px;font-size:10px;white-space:nowrap}
+.home-snapshot{display:flex;gap:22px;padding-left:18px;border-left:1px solid #e6dcc4}
+.home-snapshot span,.home-snapshot small,.home-snapshot b{display:block}
+.home-snapshot small{color:#96a3ad;font-size:8px}
+.home-snapshot b{margin-top:2px;color:var(--navy2);font:700 13px Georgia}
+.home-loading,.home-error{display:grid;place-items:center;min-height:120px;color:#718391;font-size:12px}
+.home-error{color:#b34837}
+
+@media(max-width:1100px){.home-hero{grid-template-columns:1fr}.home-modules{grid-template-columns:repeat(2,1fr)}.home-today-strip{grid-template-columns:1fr}.home-snapshot{padding-left:0;border-left:0}}
+@media(max-width:620px){.home-goals{grid-template-columns:1fr}.home-modules{grid-template-columns:1fr}.home-today-strip>div:first-child{flex-wrap:wrap}}

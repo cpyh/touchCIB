@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../modules/home.css";
 @import "../modules/customer.css";
 @import "../modules/portfolio.css";
 @import "../modules/marketing.css";
