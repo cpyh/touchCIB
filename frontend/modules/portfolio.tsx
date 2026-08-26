@@ -460,6 +460,22 @@ export function PortfolioPage({
         </div>
       </section>
 
+      <nav className="portfolio-story" aria-label="投顾叙事进度">
+        {[
+          ["画像", customer != null],
+          ["理论最优", !!summary],
+          ["业务可执行", !!result?.business],
+          ["配置缺口", !!holdingGap],
+          ["营销跟进", customer != null && !!summary],
+        ].map(([label, done], index) => (
+          <span key={label as string} className={done ? "on" : ""}>
+            <i>{index + 1}</i>
+            <b>{label as string}</b>
+            {index < 4 && <em>→</em>}
+          </span>
+        ))}
+      </nav>
+
       <div className="investment-workbench">
         <aside className="card constraint-panel">
           <div className="section-head"><div><h2>约束控制台</h2><p>修改任一参数后重新生成方案</p></div><span className="engine-live"><i />求解器在线</span></div>
@@ -545,6 +561,26 @@ export function PortfolioPage({
                       {distribution.map((item, index) => <span key={item.label}><i style={{ background: allocationColors[index % allocationColors.length] }} /><b>{item.label}</b><em>{(item.weight * 100).toFixed(1)}%</em></span>)}
                     </div>
                   </div>
+
+                  {result?.business && (
+                    <div className="theory-business-bridge">
+                      <div className="bridge-side">
+                        <small>理论最优方案</small>
+                        <b>{summary.holdings_count} 款产品</b>
+                        <span>收益 {(summary.expected_return * 100).toFixed(2)}% · 现金 {(summary.cash_weight * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="bridge-core">
+                        <em>业务保真率</em>
+                        <strong>{result.business.retention_ratio != null ? `${(result.business.retention_ratio * 100).toFixed(1)}%` : "—"}</strong>
+                        <button className="secondary" onClick={() => setResultView("business")}>查看业务落地明细 →</button>
+                      </div>
+                      <div className="bridge-side">
+                        <small>业务可执行方案</small>
+                        <b>{result.business.holdings_count} 款产品</b>
+                        <span>收益 {(result.business.expected_return * 100).toFixed(2)}% · 现金 {(result.business.cash_weight * 100).toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               )}
