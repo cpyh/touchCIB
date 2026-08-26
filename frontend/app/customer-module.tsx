@@ -76,6 +76,21 @@ function activity(profile: CustomerProfile) {
   return "低活跃";
 }
 
+function paginationItems(current: number, total: number): Array<number | "ellipsis"> {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
+
+  const items: Array<number | "ellipsis"> = [1];
+  let start = Math.max(2, current - 1);
+  let end = Math.min(total - 1, current + 1);
+  if (current <= 4) end = 5;
+  if (current >= total - 3) start = total - 4;
+  if (start > 2) items.push("ellipsis");
+  for (let pageNumber = start; pageNumber <= end; pageNumber += 1) items.push(pageNumber);
+  if (end < total - 1) items.push("ellipsis");
+  items.push(total);
+  return items;
+}
+
 export default function CustomerModule() {
   const [items, setItems] = useState<CustomerListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -108,13 +123,16 @@ export default function CustomerModule() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setListLoading(true);
-      setListError("");
-      setKeyword(queryInput.trim());
-      setPage(1);
+      const nextKeyword = queryInput.trim();
+      if (nextKeyword !== keyword) {
+        setListLoading(true);
+        setListError("");
+        setKeyword(nextKeyword);
+        setPage(1);
+      }
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [queryInput]);
+  }, [queryInput, keyword]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -160,6 +178,7 @@ export default function CustomerModule() {
   }, [selectedId, profileRefreshKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const visiblePages = paginationItems(page, totalPages);
   const currentActivity = profile ? activity(profile) : "";
   const basic = profile?.basic_info;
   const asset = profile?.asset_profile;
@@ -187,6 +206,12 @@ export default function CustomerModule() {
     setAiError("");
     setSelectedId(customerId);
     setCustomerTab("overview");
+  }
+
+  function goToPage(nextPage: number) {
+    if (nextPage === page || nextPage < 1 || nextPage > totalPages || listLoading) return;
+    setListLoading(true);
+    setPage(nextPage);
   }
 
   async function submitCustomer(event: FormEvent<HTMLFormElement>) {
@@ -256,13 +281,13 @@ export default function CustomerModule() {
           <button className="reset-filter" onClick={resetFilters}>重置条件</button>
         </div>
         <div className="customer-result-meta"><span>{listError ? "客户列表加载失败" : <>共 <b>{total.toLocaleString("zh-CN")}</b> 位客户，当前第 <b>{page}</b> 页</>}</span><small>{CUSTOMER_API_BASE_URL}</small></div>
-        {listError && <div className="api-error"><b>无法读取客户数据</b><p>{listError}</p><button className="secondary" onClick={() => setRefreshKey(value => value + 1)}>重新连接</button></div>}
+        {listError && <div className="api-error"><b>无法读取客户数据</b><p>{listError}</p><button className="secondary" onClick={() => { setListLoading(true); setListError(""); setRefreshKey(value => value + 1); }}>重新连接</button></div>}
         {!listError && <div className={`table customer-table ${listLoading ? "is-loading" : ""}`}>
           <table><thead><tr>{["客户编号", "客户等级", "年龄段 / 城市", "职业", "资产管理规模", "风险偏好", "App状态", "注册日期", ""].map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{items.map(customer => <tr key={customer.customer_id}><td><div className="customer-id"><i>{customer.customer_id.slice(-2)}</i><b>{customer.customer_id}</b></div></td><td><span className="vip-tag">{customer.vip_level}客户</span></td><td><b>{customer.age_group}</b><small>{customer.city}</small></td><td>{customer.occupation}</td><td className="money-cell">{money(customer.aum)}</td><td><span className={`risk-pill ${customer.risk_appetite.toLowerCase()}`}>{customer.risk_appetite}</span><small>{customer.risk_label}</small></td><td><span className={customer.has_app ? "app-state on" : "app-state"}>{customer.has_app ? "已安装" : "未安装"}</span></td><td>{customer.register_date}</td><td><button className="row-action" onClick={() => openCustomer(customer.customer_id)} aria-label={`查看${customer.customer_id}客户详情`}>查看 ›</button></td></tr>)}</tbody></table>
           {listLoading && <div className="table-loading">正在从客户画像服务读取数据…</div>}
           {!listLoading && items.length === 0 && <div className="empty-result"><b>未找到匹配客户</b><span>请缩短关键词或重置筛选条件。</span></div>}
         </div>}
-        {!listError && <div className="customer-pagination"><span>每页 {PAGE_SIZE} 条 · 共 {totalPages} 页</span><div><button disabled={page <= 1 || listLoading} onClick={() => { setListLoading(true); setPage(value => value - 1); }}>‹</button><button className="on">{page}</button><button disabled={page >= totalPages || listLoading} onClick={() => { setListLoading(true); setPage(value => value + 1); }}>›</button></div></div>}
+        {!listError && <div className="customer-pagination"><span>每页 {PAGE_SIZE} 条 · 共 {totalPages} 页</span><nav aria-label="客户列表分页"><button aria-label="上一页" disabled={page <= 1 || listLoading} onClick={() => goToPage(page - 1)}>‹</button>{visiblePages.map((item, index) => item === "ellipsis" ? <i className="pagination-ellipsis" key={`ellipsis-${index}`}>…</i> : <button key={item} className={page === item ? "on" : ""} aria-current={page === item ? "page" : undefined} disabled={listLoading} onClick={() => goToPage(item)}>{item}</button>)}<button aria-label="下一页" disabled={page >= totalPages || listLoading} onClick={() => goToPage(page + 1)}>›</button></nav></div>}
       </>}
 
       {selectedId && <>
