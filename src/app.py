@@ -5,9 +5,12 @@ from .campaign import (
     CampaignStoreError,
     create_responded_event,
     create_sent_event,
+    customer_strategies,
     list_campaign_events,
 )
 from .customer import CustomerProfileError, get_customer_profile
+from .dashboard import dashboard_summary
+from .marketing.roster import query_roster
 from .portfolio import PortfolioInputError, optimize_portfolio
 from .scenario import (
     ScenarioInputError,
@@ -18,6 +21,20 @@ from .scenario import (
 
 
 app = Flask(__name__)
+
+
+@app.after_request
+def add_cors_headers(response):
+    """允许前端开发服务器（vinext :3000）跨域调用 API。"""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+@app.route("/<path:path>", methods=["OPTIONS"])
+def preflight(path: str):
+    return jsonify(status="ok")
 
 
 @app.get("/health")
@@ -165,6 +182,49 @@ def campaign_events_list():
         app.logger.exception("Campaign event query failed")
         return jsonify(error="campaign events are temporarily unavailable"), 503
     return jsonify(events=events)
+
+
+@app.get("/marketing/roster")
+def marketing_roster():
+    """Tab3 A1 响应名单（默认概率降序，分页 + 渠道/最低概率筛选）。"""
+    try:
+        return jsonify(
+            query_roster(
+                page=int(request.args.get("page", 1)),
+                size=int(request.args.get("size", 50)),
+                channel=request.args.get("channel"),
+                min_prob=(
+                    float(request.args["min_prob"])
+                    if request.args.get("min_prob") is not None
+                    else None
+                ),
+                sort=request.args.get("sort", "prob_desc"),
+            )
+        )
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get("/customers/<customer_id>/strategies")
+def customer_strategy_list(customer_id: str):
+    """Tab3 客户 Top3 策略卡：策略行 + 规则轨迹 + 事件状态。"""
+    try:
+        return jsonify(customer_strategies(customer_id))
+    except CampaignInputError as exc:
+        return jsonify(error=str(exc)), 404
+    except CampaignStoreError:
+        app.logger.exception("Customer strategies query failed")
+        return jsonify(error="customer strategies are temporarily unavailable"), 503
+
+
+@app.get("/dashboard/summary")
+def dashboard_summary_endpoint():
+    """Tab4 看板聚合：模型指标 + 分布 + 漏斗 + KPI + 数据分层行数。"""
+    try:
+        return jsonify(dashboard_summary())
+    except (ValueError, OSError):
+        app.logger.exception("Dashboard summary failed")
+        return jsonify(error="dashboard summary is temporarily unavailable"), 503
 
 
 def main() -> None:

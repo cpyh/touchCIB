@@ -1,0 +1,33 @@
+.model-note {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 11px 13px;
+  border-left: 3px solid var(--gold);
+  background: #f8f5ee;
+  color: #6f6d67;
+  font-size: 12px;
+}
+.model-note b { color: #815e24; white-space: nowrap; }
+.customer-strip input {
+  width: 145px;
+  padding: 9px 10px;
+  border: 1px solid #d0dbe3;
+  border-radius: 7px;
+}
+.rule-list { display: grid; gap: 5px; max-height: 170px; margin: 9px 0 0; padding: 0; overflow: auto; list-style: none; }
+.rule-list li { display: grid; grid-template-columns: 18px 1fr; gap: 6px; align-items: start; font-size: 10px; line-height: 1.45; }
+.rule-list li b { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; }
+.rule-list .passed b { background: #e4f4ed; color: var(--green); }
+.rule-list .failed b { background: #fae9e6; color: #b34837; }
+.strategy-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.strategy-actions button { border: 0; background: transparent; color: var(--blue); font-size: 11px; }
+.track-selector { display: flex; align-items: center; gap: 10px; margin: 0 20px 14px; color: var(--muted); font-size: 12px; }
+.track-selector select { min-width: 240px; padding: 8px 10px; border: 1px solid #d0dbe3; border-radius: 7px; background: #fff; }
+.timeline-head { padding: 18px 20px 0; }
+
+@media (max-width: 620px) {
+  .model-note { display: grid; }
+  .customer-strip input, .track-selector select { width: 100%; min-width: 0; }
+  .track-selector { align-items: stretch; flex-direction: column; }
+}

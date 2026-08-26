@@ -251,3 +251,136 @@ def list_campaign_events(
     except (pymysql.MySQLError, OSError, ValueError) as exc:
         raise CampaignStoreError("unable to list campaign events") from exc
     return [_event_json(row) for row in rows]
+
+
+# ----------------------------------------------------------------
+# 客户策略查询（Tab3 策略卡 + 规则轨迹 + 执行状态）
+# ----------------------------------------------------------------
+
+# 对外部提交行（队友生成）只做"校验型"规则轨迹；manager 配额等生成期规则不适用
+TRACE_RULE_IDS = (
+    "risk_match",
+    "product_launched",
+    "customer_registered",
+    "duration_valid",
+    "channel_app_requires_app",
+    "channel_call_complaint_block",
+    "slot_in_enum",
+    "script_length",
+    "script_compliance_note",
+)
+
+
+@lru_cache(maxsize=1)
+def _trace_context():
+    """装载轨迹求值所需上下文（客户/产品/行为/引擎/策略日期）。"""
+    from .marketing.io import (
+        build_behaviors,
+        load_customers,
+        load_products,
+    )
+    from .marketing.rules import build_default_engine
+    from .marketing.models import RISK_RANK
+
+    raw = PROJECT_DIR / "src" / "data" / "raw"
+    customers = load_customers(raw / "t_customer.csv")
+    products = {p.product_id: p for p in load_products(raw / "t_product.csv")}
+    events = pd.read_csv(raw / "t_event.csv", dtype={"customer_id": str})
+    holdings = pd.read_csv(
+        raw / "t_holding.csv",
+        dtype={"customer_id": str, "product_id": str},
+    )
+    strategy_dates_frame = pd.read_csv(
+        STRATEGY_CUSTOMERS_CSV, dtype={"customer_id": str}
+    )
+    strategy_dates = {
+        row.customer_id: pd.to_datetime(row.strategy_date).date()
+        for row in strategy_dates_frame.itertuples()
+    }
+    behaviors = build_behaviors(customers, events, holdings, strategy_dates)
+    engine = build_default_engine()
+    return customers, products, behaviors, engine, strategy_dates, RISK_RANK
+
+
+def _derive_status(strategy_id: str, events: list[dict]) -> str:
+    responded = any(
+        event["event_type"] == "responded"
+        and event["strategy_id"] == strategy_id
+        for event in events
+    )
+    if responded:
+        return "已响应"
+    sent = any(
+        event["event_type"] == "sent" and event["strategy_id"] == strategy_id
+        for event in events
+    )
+    return "已触达" if sent else "待执行"
+
+
+def customer_strategies(customer_id: str) -> dict:
+    """返回某客户 Top3 策略卡数据：策略行 + 规则轨迹 + 事件状态。
+
+    未触达不存储——无事件即推导为"待执行"。
+    """
+    frame = load_strategy_frame()
+    rows = frame[frame["customer_id"] == customer_id].sort_values("rank")
+    if rows.empty:
+        raise CampaignInputError(f"客户 {customer_id} 不在目标名单")
+
+    customers, products, behaviors, engine, strategy_dates, risk_rank = (
+        _trace_context()
+    )
+    customer = customers[customer_id]
+    behavior = behaviors[customer_id]
+    as_of = strategy_dates[customer_id]
+    events = list_campaign_events(customer_id=customer_id)
+
+    items: list[dict] = []
+    for row in rows.itertuples():
+        strategy_id = f"{row.customer_id}:{row.rank}"
+        product = products[row.product_id]
+        context = {
+            "customer": customer,
+            "behavior": behavior,
+            "product": product,
+            "strategy_date": as_of,
+            "channel": row.recommended_channel,
+            "recommended_time": row.recommended_time,
+            "marketing_script": row.marketing_script,
+            "max_allowed_risk": risk_rank[customer.risk_appetite] + 1,
+            "overshoot": False,
+        }
+        trace = [
+            outcome
+            for outcome in engine.evaluate_all(context)
+            if outcome.rule_id in TRACE_RULE_IDS
+        ]
+        items.append(
+            {
+                "strategy_id": strategy_id,
+                "rank": int(row.rank),
+                "product_id": row.product_id,
+                "product_name": product.product_name,
+                "risk_level": product.risk_level,
+                "expected_return": round(float(product.expected_return), 4),
+                "product_type": product.product_type,
+                "recommended_channel": row.recommended_channel,
+                "recommended_time": row.recommended_time,
+                "marketing_script": row.marketing_script,
+                "status": _derive_status(strategy_id, events),
+                "rule_trace": [
+                    {
+                        "rule_id": outcome.rule_id,
+                        "passed": outcome.passed,
+                        "reason": outcome.reason,
+                    }
+                    for outcome in trace
+                ],
+            }
+        )
+    return {
+        "customer_id": customer_id,
+        "strategy_date": as_of.isoformat(),
+        "risk_appetite": customer.risk_appetite,
+        "items": items,
+    }

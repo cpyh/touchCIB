@@ -1,0 +1,34 @@
+.score-section { margin-bottom: 14px; }
+.layer-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 26px 0; }
+.layer-flow>div { position: relative; display: grid; gap: 5px; padding: 18px; border: 1px solid #dce5ec; border-radius: 10px; background: #f8fafc; }
+.layer-flow>div>b { color: var(--gold); font-size: 12px; }
+.layer-flow>div>strong { color: var(--navy); font-size: 22px; }
+.layer-flow>div>span { color: var(--muted); font-size: 11px; }
+.layer-flow>div>i { position: absolute; right: -18px; top: 37px; z-index: 2; color: var(--gold); font-style: normal; }
+.engineering-facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.engineering-facts span { padding: 10px; border-radius: 7px; background: #eef3f7; color: var(--muted); font-size: 10px; }
+.engineering-facts b { display: block; margin-bottom: 3px; color: var(--navy2); font-size: 13px; }
+.submission-list { display: grid; gap: 11px; margin-top: 23px; }
+.submission-list>div { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; padding: 12px; border: 1px solid #e0e7ec; border-radius: 8px; }
+.submission-list>div>b { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 7px; background: var(--navy2); color: #e4c889; }
+.submission-list span strong, .submission-list span small { display: block; }
+.submission-list span strong { font-size: 11px; }
+.submission-list span small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.kpi-list { display: grid; gap: 10px; margin-top: 18px; }
+.kpi-list>div { display: grid; grid-template-columns: minmax(200px, 1fr) 2fr 120px; gap: 14px; align-items: center; }
+.kpi-list span strong, .kpi-list span small { display: block; }
+.kpi-list span strong { font-size: 11px; }.kpi-list span small { color: var(--muted); font-size: 9px; }
+.kpi-list>div>i { height: 7px; overflow: hidden; border-radius: 7px; background: #e7edf1; }
+.kpi-list>div>i>b { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--gold)); }
+.kpi-list em { color: var(--navy2); font-size: 10px; font-style: normal; text-align: right; }
+.compact-bars { height: 190px; }
+
+@media (max-width: 850px) {
+  .layer-flow, .engineering-facts { grid-template-columns: repeat(2, 1fr); }
+  .layer-flow>div>i { display: none; }
+}
+@media (max-width: 620px) {
+  .layer-flow, .engineering-facts { grid-template-columns: 1fr; }
+  .kpi-list>div { grid-template-columns: 1fr; }
+  .kpi-list em { text-align: left; }
+}

@@ -1,0 +1,7 @@
+.competition-strip { margin-bottom: 18px; }
+.customer-query-bar { grid-template-columns: minmax(320px, 1fr) auto; }
+.customer-query-bar .primary { min-width: 150px; }
+
+@media (max-width: 620px) {
+  .customer-query-bar { grid-template-columns: 1fr; }
+}
