@@ -261,3 +261,8 @@
 .bridge-core strong{color:#b07f24;font:700 24px Georgia}
 .bridge-core .secondary{min-height:30px;padding:5px 10px;font-size:9px}
 @media(max-width:850px){.portfolio-story{flex-wrap:wrap}.theory-business-bridge{grid-template-columns:1fr}.bridge-core{padding:12px 0;border-left:0;border-right:0;border-top:1px solid #e6dcc4;border-bottom:1px solid #e6dcc4}}
+
+/* 结果内容可滚动，闭环节固定在卡片底部，避免遮挡 */
+.portfolio-overview .result-view { overflow: auto; }
+.portfolio-closure-bar { flex: 0 0 auto; }
+.business-view { max-height: 100%; overflow: auto; }
