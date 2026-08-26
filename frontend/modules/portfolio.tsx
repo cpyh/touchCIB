@@ -407,32 +407,6 @@ export function PortfolioPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultView, result]);
 
-  async function saveScenario() {
-    if (!customer) return;
-    setBusy(true);
-    try {
-      const created = await api<{ scenario_id: string; scenario_name: string }>(
-        "/portfolio/scenarios",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            scenario_name: `${customer.customer_id} 专属方案`,
-            total_amount: totalAmount,
-            risk_aversion: riskAversion,
-            max_single_weight: maxSingleWeight,
-            max_high_risk_weight: maxHighRiskWeight,
-            min_liquid_weight: minLiquidWeight,
-            min_holdings: minHoldings,
-          }),
-        }
-      );
-      notify(`方案已保存为「${created.scenario_name}」，可在场景列表中复用`);
-    } catch (error) {
-      notify(`方案保存失败：${(error as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
   const summary = result?.summary;
   const allocations = result?.allocations ?? [];
   const maxWeight = allocations.reduce((current, item) => Math.max(current, item.weight), 0);
@@ -628,7 +602,6 @@ export function PortfolioPage({
                   <button className={resultView === "ai" ? "on" : ""} onClick={() => setResultView("ai")}>AI分析</button>
                 </div>
                 <Status warn={!allPassed}>{allPassed ? "全部约束通过" : "存在约束违例"}</Status>
-                <button className="secondary" disabled={busy || !customer} onClick={() => void saveScenario()}>保存方案</button>
               </div>
 
               {resultView === "overview" && (
