@@ -185,7 +185,7 @@
 | `GET /api/v1/dashboard/overview?scenario_id=` | 看板总览：业务指标（客户/AUM/历史触达/响应率）、风险分布、持仓类型分布、A1 指标（AUC/F1/Lift + 概率分箱）、A2 指标（覆盖/渠道分布）、营销漏斗（事件表口径）、组合配置（给 scenario_id 时实时求解） |
 | `GET /api/v1/dashboard/portfolio?scenario_id=` | 单场景组合：效用/波动/现金/约束/gap + 按产品类型聚合 + 明细权重 |
 
-AI 摘要（结构化）：`POST /api/v1/customers/<id>/ai-summary` 返回 `{analysis: {overview, insight, suggestion, highlights}, provider, model}`；配置 `DEEPSEEK_API_KEY` 走 DeepSeek（openai SDK），未配置自动回退本地规则模板。
+AI 摘要（结构化）：`POST /api/v1/customers/<id>/ai-summary` 返回 `{analysis: {overview, insight, suggestion, highlights}, provider, model}`；配置 `DEEPSEEK_API_KEY` 走 DeepSeek（openai SDK），未配置自动回退本地规则模板。DeepSeek 根据 Prompt 直接返回“画像概述、需求洞察、服务建议、高亮关键词”四行固定文本，不依赖模型接口的 JSON Output 功能；后端解析并校验后再按上述接口结构返回。
 
 ---
 
