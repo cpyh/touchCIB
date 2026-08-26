@@ -336,8 +336,8 @@
 .chat-row.user{justify-content:flex-end}
 .chat-row.assistant{justify-content:flex-start}
 .chat-bubble{max-width:86%;min-width:80px;padding:9px 12px;border-radius:10px;font-size:12px;line-height:1.7;white-space:pre-line;word-break:break-word}
-.chat-row.user .chat-bubble{background:linear-gradient(135deg,#1d5a8b,#123d68);color:#fff;border-bottom-right-radius:3px}
-.chat-row.assistant .chat-bubble{background:#f4f7f9;color:#2b4253;border-bottom-left-radius:3px}
+.chat-row.user .chat-bubble{margin-left:auto;background:linear-gradient(135deg,#1d5a8b,#123d68);color:#fff;border-bottom-right-radius:3px}
+.chat-row.assistant .chat-bubble{margin-right:auto;background:#f4f7f9;color:#2b4253;border-bottom-left-radius:3px}
 .chat-empty{color:#94a2ad;font-size:11px;padding:16px 4px}
 .chat-foot{display:flex;gap:8px;padding:10px 0 8px;border-top:1px solid #e5eaee}
 .chat-foot input{flex:1;height:36px;padding:0 11px;border:1px solid #ccd9e2;border-radius:7px;background:#fbfcfd;color:#20394d;font-size:12px}
