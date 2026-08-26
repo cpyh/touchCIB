@@ -70,7 +70,7 @@ export default function Home() {
           {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} />}
           {active === "marketing" && <MarketingPage initialCustomerId={customerId} onOpenCustomer={openCustomer} notify={notify} />}
-          {active === "dashboard" && <DashboardPage notify={notify} />}
+          {active === "dashboard" && <DashboardPage />}
         </main>
 
         <footer>

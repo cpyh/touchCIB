@@ -1,8 +1,8 @@
 """可视化看板 API（由 liantiao backend/app/services/dashboard_service.py 统一而来）。
 
 契约：envelope {code, message, data}，路径 /api/v1/dashboard/overview 与 /portfolio。
-与队友版本的区别：A1/A2/组合/漏斗的 NOT_READY 占位已用平台真实数据填满
-（表映射 t_* → ods_*，组合配置调用现有 Part B 求解器）。
+数据边界：A1 预测读取 MySQL，A2 读取正式策略 CSV，Part B 读取正式配置 CSV
+及其审计文件，营销漏斗读取 app_campaign_event。看板请求本身不运行算法。
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ from flask import Blueprint, jsonify, request
 
 from .customer_api import RISK_LABELS, ServiceError, ValidationError
 from .database import database_connection
+from .marketing.models import CHANNELS, TIME_SLOTS
+from .marketing.rules import RULES
 from .partA1serving.metrics import load_validation_metrics
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -25,6 +27,15 @@ METRICS_JSON = (
 )
 PREDICTION_CSV = PROJECT_DIR / "partA_prediction.csv"
 STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
+STRATEGY_TARGET_CSV = (
+    PROJECT_DIR / "src" / "data" / "raw" / "partA_strategy_customers.csv"
+)
+ALLOCATION_CSV = PROJECT_DIR / "partB_allocation.csv"
+PARTB_AUDIT_CSV = (
+    PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
+)
+PRODUCT_CSV = PROJECT_DIR / "src" / "data" / "raw" / "t_product.csv"
+SCENARIO_CSV = PROJECT_DIR / "src" / "data" / "raw" / "partB_scenarios.csv"
 
 ZERO = Decimal("0")
 RISK_LEVELS = ("R1", "R2", "R3", "R4", "R5")
@@ -77,59 +88,204 @@ def build_holding_distribution(
 
 
 def _a1_performance() -> dict:
-    """A1 真实指标：验证 AUC/F1/Lift + 预测概率分布。"""
+    """A1 指标取 partA1serving 验证口径，预测分布读正式提交 CSV。"""
     import pandas as pd
 
     try:
         metrics = load_validation_metrics()
     except (FileNotFoundError, KeyError, TypeError, ValueError):
         if not METRICS_JSON.is_file():
-            return {"status": "NOT_READY", "auc": None, "f1": None, "lift_at_10": None, "probability_distribution": []}
+            return {
+                "status": "NOT_READY",
+                "data_source": "CSV",
+                "auc": None,
+                "f1": None,
+                "lift_at_10": None,
+                "prediction_count": 0,
+                "mean_probability": None,
+                "probability_distribution": [],
+            }
         metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
-    probabilities = pd.read_csv(PREDICTION_CSV)
-    probs = pd.to_numeric(probabilities["response_prob"])
+    try:
+        probabilities = pd.to_numeric(
+            pd.read_csv(PREDICTION_CSV)["response_prob"]
+        )
+    except (OSError, ValueError) as exc:
+        raise ServiceError("unable to read A1 prediction results") from exc
+    prediction = {
+        "total": int(len(probabilities)),
+        "mean_prob": float(probabilities.mean()),
+        "high_intent": int((probabilities >= 0.7).sum()),
+        "mid_intent": int(
+            ((probabilities >= 0.3) & (probabilities < 0.7)).sum()
+        ),
+        "low_intent": int((probabilities < 0.3).sum()),
+    }
+    total = int(prediction["total"])
     distribution = [
-        {"bucket": "高意向(≥70%)", "count": int((probs >= 0.7).sum())},
-        {"bucket": "中意向(30%~70%)", "count": int(((probs >= 0.3) & (probs < 0.7)).sum())},
-        {"bucket": "低意向(<30%)", "count": int((probs < 0.3).sum())},
+        {"bucket": "高意向(≥70%)", "count": int(prediction["high_intent"] or 0)},
+        {
+            "bucket": "中意向(30%~70%)",
+            "count": int(prediction["mid_intent"] or 0),
+        },
+        {"bucket": "低意向(<30%)", "count": int(prediction["low_intent"] or 0)},
     ]
     return {
-        "status": "READY",
+        "status": "READY" if total else "NOT_READY",
+        "data_source": "CSV",
         "metric_scope": "OFFLINE_VALIDATION",
         "auc": metrics.get("auc"),
         "f1": metrics.get("best_f1"),
         "lift_at_10": metrics.get("lift_at_10_percent"),
+        "prediction_count": total,
+        "mean_probability": (
+            round(float(prediction["mean_prob"]), 6)
+            if prediction["mean_prob"] is not None
+            else None
+        ),
         "probability_distribution": distribution,
     }
 
 
 def _a2_performance() -> dict:
-    """A2 真实指标：策略规模/覆盖率 + 渠道分布（HitRate 为隐藏标签，置 None）。"""
+    """A2 使用正式提交 CSV；隐藏标签不可用，因此 HitRate 保持为空。"""
     import pandas as pd
 
-    strategies = pd.read_csv(STRATEGY_CSV, dtype=str)
-    total_target = 2000
-    generated = int(strategies["customer_id"].nunique())
+    if not STRATEGY_CSV.is_file() or not STRATEGY_TARGET_CSV.is_file():
+        return {
+            "status": "NOT_READY",
+            "data_source": "CSV",
+            "result_row_count": 0,
+            "target_customer_count": 0,
+            "generated_customer_count": 0,
+            "coverage_rate": None,
+            "hit_rate_at_3": None,
+            "rule_count": len(RULES),
+            "channel_distribution": [],
+            "time_distribution": [],
+            "validation": {},
+        }
+    try:
+        strategies = pd.read_csv(STRATEGY_CSV, dtype=str)
+        targets = pd.read_csv(STRATEGY_TARGET_CSV, dtype=str)
+    except (OSError, ValueError) as exc:
+        raise ServiceError("unable to read A2 strategy results") from exc
+
+    required = {
+        "customer_id",
+        "rank",
+        "product_id",
+        "recommended_channel",
+        "recommended_time",
+        "marketing_script",
+    }
+    if not required.issubset(strategies.columns) or "customer_id" not in targets:
+        raise ServiceError("invalid A2 strategy file columns")
+
+    target_ids = set(targets["customer_id"].dropna())
+    strategy_ids = set(strategies["customer_id"].dropna())
+    valid_customers = 0
+    for customer_id, rows in strategies.groupby("customer_id"):
+        ranks = set(rows["rank"])
+        products = set(rows["product_id"])
+        if len(rows) == 3 and ranks == {"1", "2", "3"} and len(products) == 3:
+            valid_customers += 1
+    total_target = len(target_ids)
+    generated = valid_customers
+    channel_counts = strategies["recommended_channel"].value_counts().to_dict()
     channel_distribution = [
-        {"channel": channel, "count": int(count)}
-        for channel, count in strategies["recommended_channel"].value_counts().items()
+        {"channel": channel, "count": int(channel_counts.get(channel, 0))}
+        for channel in CHANNELS
     ]
+    time_counts = strategies["recommended_time"].value_counts().to_dict()
+    time_distribution = [
+        {"time_slot": time_slot, "count": int(time_counts.get(time_slot, 0))}
+        for time_slot in TIME_SLOTS
+    ]
+    grouped = strategies.groupby("customer_id")
+    validation = {
+        "customer_coverage_passed": strategy_ids == target_ids,
+        "top3_complete_passed": bool(
+            len(grouped) == total_target
+            and all(len(rows) == 3 and set(rows["rank"]) == {"1", "2", "3"}
+                    for _, rows in grouped)
+        ),
+        "product_unique_passed": bool(
+            len(grouped) == total_target
+            and all(rows["product_id"].nunique() == 3 for _, rows in grouped)
+        ),
+        "channel_enum_passed": set(strategies["recommended_channel"].dropna()).issubset(CHANNELS),
+        "time_enum_passed": set(strategies["recommended_time"].dropna()).issubset(TIME_SLOTS),
+        "script_length_passed": bool(
+            strategies["marketing_script"].notna().all()
+            and strategies["marketing_script"].str.len().between(10, 300).all()
+        ),
+    }
+    unknown_customers = strategy_ids - target_ids
+    status = (
+        "READY"
+        if generated == total_target and not unknown_customers and all(validation.values())
+        else "INVALID"
+    )
     return {
-        "status": "READY",
-        "metric_scope": "OFFLINE_VALIDATION",
+        "status": status,
+        "data_source": "CSV",
+        "result_row_count": int(len(strategies)),
         "target_customer_count": total_target,
         "generated_customer_count": generated,
         "coverage_rate": round(generated / total_target, 4) if total_target else None,
         "hit_rate_at_3": None,
+        "rule_count": len(RULES),
         "channel_distribution": channel_distribution,
+        "time_distribution": time_distribution,
+        "validation": validation,
+    }
+
+
+def _portfolio_summary() -> dict:
+    """汇总正式 Part B 结果，供看板展示 20 个场景的整体质量。"""
+    import pandas as pd
+
+    if not ALLOCATION_CSV.is_file() or not PARTB_AUDIT_CSV.is_file():
+        return {
+            "status": "NOT_READY",
+            "scenario_count": 0,
+            "constraints_passed_count": 0,
+            "allocation_row_count": 0,
+            "total_utility": None,
+            "max_optimality_gap": None,
+        }
+    try:
+        allocations = pd.read_csv(ALLOCATION_CSV, dtype={"scenario_id": str})
+        audit = pd.read_csv(PARTB_AUDIT_CSV, dtype={"scenario_id": str})
+    except (OSError, ValueError) as exc:
+        raise ServiceError("unable to read Part B summary") from exc
+
+    passed = (
+        (audit["product_weight_sum"] <= 1 + 1e-6)
+        & (audit["high_risk_weight"] <= audit["high_risk_cap"] + 1e-6)
+        & (audit["liquid_plus_cash"] + 1e-6 >= audit["liquid_floor"])
+        & (audit["holdings_count"] >= audit["required_min_holdings"])
+        & (audit["max_product_weight"] <= audit["single_product_cap"] + 1e-6)
+    )
+    scenario_count = int(audit["scenario_id"].nunique())
+    passed_count = int(passed.sum())
+    return {
+        "status": "READY" if scenario_count and passed_count == scenario_count else "INVALID",
+        "scenario_count": scenario_count,
+        "constraints_passed_count": passed_count,
+        "allocation_row_count": int(len(allocations)),
+        "total_utility": round(float(audit["utility"].sum()), 12) if scenario_count else None,
+        "max_optimality_gap": float(audit["absolute_gap_bound"].max()) if scenario_count else None,
     }
 
 
 def _portfolio_performance(scenario_id: str | None) -> dict:
-    """组合配置：调用现有 Part B 求解器按场景实时求解。"""
+    """Part B 使用正式配置 CSV 和审计文件，不在看板请求中重新求解。"""
     if scenario_id is None:
         return {
             "status": "NOT_READY",
+            "data_source": "CSV",
             "scenario_id": None,
             "total_amount": None,
             "expected_return": None,
@@ -140,112 +296,147 @@ def _portfolio_performance(scenario_id: str | None) -> dict:
             "allocation_by_product_type": [],
             "allocation_items": [],
         }
-    from .algorithms.partb import (
-        RANDOM_STATE,
-        build_covariance_matrix,
-        build_masks,
-        load_correlation_matrix,
-        load_products,
-        load_scenarios,
-        solve_one_scenario,
-    )
-    import numpy as np
     import pandas as pd
 
-    raw = PROJECT_DIR / "src" / "data" / "raw"
-    products = load_products(raw)
-    product_info = pd.read_csv(raw / "t_product.csv", dtype={"product_id": str})
-    info_map = {
-        row.product_id: row for row in product_info.itertuples()
-    }
-    scenarios = {s.scenario_id: s for s in load_scenarios(raw)}
-    scenario = scenarios.get(scenario_id)
-    if scenario is None:
-        raise ValidationError("scenario not found")
-    correlation = load_correlation_matrix(raw, products.product_ids)
-    sigma = build_covariance_matrix(products.volatility, correlation)
-    high_risk_mask, non_liquid_mask = build_masks(products)
-    result = solve_one_scenario(
-        scenario=scenario,
-        products=products,
-        sigma=sigma,
-        high_risk_mask=high_risk_mask,
-        non_liquid_mask=non_liquid_mask,
-        rng=np.random.default_rng(RANDOM_STATE),
-    )
-    type_amounts: dict[str, float] = {}
-    for product_id, weight in zip(products.product_ids, result.weights):
-        if weight <= 0:
-            continue
-        info = info_map[product_id]
-        type_amounts[info.product_type] = (
-            type_amounts.get(info.product_type, 0.0) + float(weight)
+    required_files = (ALLOCATION_CSV, PARTB_AUDIT_CSV, PRODUCT_CSV, SCENARIO_CSV)
+    if not all(path.is_file() for path in required_files):
+        return {
+            "status": "NOT_READY",
+            "data_source": "CSV",
+            "scenario_id": scenario_id,
+            "total_amount": None,
+            "expected_return": None,
+            "volatility": None,
+            "utility": None,
+            "cash_weight": None,
+            "constraints_satisfied": None,
+            "allocation_by_product_type": [],
+            "allocation_items": [],
+        }
+    try:
+        allocations = pd.read_csv(
+            ALLOCATION_CSV, dtype={"scenario_id": str, "product_id": str}
         )
+        audit = pd.read_csv(PARTB_AUDIT_CSV, dtype={"scenario_id": str})
+        products = pd.read_csv(PRODUCT_CSV, dtype={"product_id": str})
+        scenarios = pd.read_csv(SCENARIO_CSV, dtype={"scenario_id": str})
+    except (OSError, ValueError) as exc:
+        raise ServiceError("unable to read Part B results") from exc
+
+    scenario_rows = scenarios[scenarios["scenario_id"] == scenario_id]
+    result_rows = allocations[allocations["scenario_id"] == scenario_id].copy()
+    audit_rows = audit[audit["scenario_id"] == scenario_id]
+    if scenario_rows.empty:
+        raise ValidationError("scenario not found")
+    if result_rows.empty or audit_rows.empty:
+        return {
+            "status": "NOT_READY",
+            "data_source": "CSV",
+            "scenario_id": scenario_id,
+            "total_amount": float(scenario_rows.iloc[0]["total_amount"]),
+            "expected_return": None,
+            "volatility": None,
+            "utility": None,
+            "cash_weight": None,
+            "constraints_satisfied": None,
+            "allocation_by_product_type": [],
+            "allocation_items": [],
+        }
+
+    result_rows["weight"] = pd.to_numeric(result_rows["weight"], errors="raise")
+    result_rows = result_rows.merge(
+        products[
+            ["product_id", "product_name", "product_type", "risk_level"]
+        ],
+        on="product_id",
+        how="left",
+        validate="many_to_one",
+    )
+    if result_rows["product_name"].isna().any():
+        raise ServiceError("Part B result contains unknown product")
+    scenario = scenario_rows.iloc[0]
+    audit_row = audit_rows.iloc[0]
+    weight_sum = float(result_rows["weight"].sum())
+    type_amounts = result_rows.groupby("product_type")["weight"].sum()
     allocation_by_type = [
         {"product_type": product_type, "weight": round(weight, 6)}
-        for product_type, weight in sorted(type_amounts.items())
+        for product_type, weight in sorted(type_amounts.to_dict().items())
     ]
     allocation_items = [
         {
-            "product_id": product_id,
-            "product_name": info_map[product_id].product_name,
-            "product_type": info_map[product_id].product_type,
-            "risk_level": info_map[product_id].risk_level,
-            "weight": round(float(weight), 6),
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "product_type": row.product_type,
+            "risk_level": row.risk_level,
+            "weight": round(float(row.weight), 12),
+            "allocation_amount": round(
+                float(row.weight) * float(scenario["total_amount"]), 2
+            ),
         }
-        for product_id, weight in zip(products.product_ids, result.weights)
-        if weight > 0
+        for row in result_rows.itertuples()
     ]
+    constraints_satisfied = bool(
+        float(audit_row["product_weight_sum"]) <= 1 + 1e-6
+        and float(audit_row["high_risk_weight"])
+        <= float(audit_row["high_risk_cap"]) + 1e-6
+        and float(audit_row["liquid_plus_cash"]) + 1e-6
+        >= float(audit_row["liquid_floor"])
+        and int(audit_row["holdings_count"])
+        >= int(audit_row["required_min_holdings"])
+        and float(audit_row["max_product_weight"])
+        <= float(audit_row["single_product_cap"]) + 1e-6
+    )
     return {
         "status": "READY",
+        "data_source": "CSV",
         "scenario_id": scenario_id,
-        "total_amount": float(scenario.total_amount),
-        "expected_return": round(result.expected_return, 8),
-        "volatility": round(result.portfolio_volatility, 8),
-        "utility": round(result.utility, 8),
-        "cash_weight": round(result.cash_weight, 8),
-        "constraints_satisfied": True,
-        "optimality_gap": result.absolute_gap,
+        "total_amount": float(scenario["total_amount"]),
+        "expected_return": round(float(audit_row["expected_return"]), 12),
+        "volatility": round(float(audit_row["portfolio_volatility"]), 12),
+        "utility": round(float(audit_row["utility"]), 12),
+        "cash_weight": round(max(0.0, 1.0 - weight_sum), 12),
+        "constraints_satisfied": constraints_satisfied,
+        "optimality_gap": float(audit_row["absolute_gap_bound"]),
         "allocation_by_product_type": allocation_by_type,
         "allocation_items": allocation_items,
     }
 
 
 def _marketing_funnel() -> dict:
-    """营销漏斗真实数据：全量客户 → Top3就绪 → 已触达 → 已响应。"""
-    generated_count = contacted_count = responded_count = 0
+    """营销闭环同时返回客户口径与 strategy_id 事件口径。"""
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT "
-                    "COUNT(DISTINCT CASE WHEN event_type = 'sent' THEN "
-                    "SUBSTRING_INDEX(strategy_id, ':', 1) END) AS contacted, "
-                    "COUNT(DISTINCT CASE WHEN event_type = 'responded' THEN "
-                    "SUBSTRING_INDEX(strategy_id, ':', 1) END) AS responded "
-                    "FROM app_campaign_event"
+                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
+                    "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
+                    "FROM app_campaign_event WHERE event_type = 'sent'"
                 )
-                events = cursor.fetchone() or {}
+                sent = cursor.fetchone() or {}
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT customer_id) AS live_customers "
-                    "FROM app_marketing_strategy"
+                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
+                    "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
+                    "FROM app_campaign_event WHERE event_type = 'responded'"
                 )
-                live = cursor.fetchone() or {}
+                responded = cursor.fetchone() or {}
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
-        pass
-    else:
-        generated_count = min(8000, 2000 + int(live.get("live_customers") or 0))
-        contacted_count = int(events.get("contacted") or 0)
-        responded_count = int(events.get("responded") or 0)
+        sent = {"strategies": 0, "customers": 0}
+        responded = {"strategies": 0, "customers": 0}
+    sent_strategy_count = int(sent["strategies"] or 0) if sent else 0
+    responded_strategy_count = int(responded["strategies"] or 0) if responded else 0
+    a2 = _a2_performance()
     return {
-        "status": "READY",
-        "target_customer_count": 8000,
-        "generated_customer_count": generated_count,
-        "contacted_customer_count": contacted_count,
-        "responded_customer_count": responded_count,
+        "status": "READY" if sent_strategy_count or responded_strategy_count else "NOT_STARTED",
+        "target_customer_count": a2["target_customer_count"],
+        "generated_customer_count": a2["generated_customer_count"],
+        "contacted_customer_count": int(sent["customers"] or 0) if sent else 0,
+        "responded_customer_count": int(responded["customers"] or 0) if responded else 0,
+        "generated_strategy_count": a2.get("result_row_count", 0),
+        "sent_strategy_count": sent_strategy_count,
+        "responded_strategy_count": responded_strategy_count,
     }
 
 
@@ -308,6 +499,7 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
         ),
         "a1_performance": _a1_performance(),
         "a2_performance": _a2_performance(),
+        "portfolio_summary": _portfolio_summary(),
         "portfolio": _portfolio_performance(scenario_id),
         "marketing_funnel": _marketing_funnel(),
     }

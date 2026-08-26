@@ -1,12 +1,16 @@
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from src.app import app
 from src.customer_api import (
     ValidationError,
+    _deepseek_analysis,
     assess_risk,
+    parse_cached_analysis,
+    parse_model_analysis,
     risk_label,
     validate_customer_create,
 )
@@ -20,6 +24,25 @@ VALID_PAYLOAD = {
     "aum": 650000,
     "vip_level": "金卡",
     "has_app": True,
+}
+
+PROFILE = {
+    "basic_info": {
+        "customer_id": "C000001",
+        "risk_appetite": "R5",
+        "risk_label": "进取型",
+        "aum": 500000.0,
+        "vip_level": "金卡",
+    },
+    "asset_profile": {
+        "holding_amount": 200000.0,
+        "holding_product_count": 2,
+        "holdings": [{"product_id": "P001"}],
+    },
+    "behavior_profile": {
+        "recent_30d_counts": {"login": 2, "consult": 1, "complaint": 0},
+        "tags": ["数字渠道客户"],
+    },
 }
 
 
@@ -78,6 +101,72 @@ class CustomerValidationTestCase(unittest.TestCase):
     def test_has_app_must_be_boolean(self):
         with self.assertRaises(ValidationError):
             validate_customer_create({**VALID_PAYLOAD, "has_app": 1})
+
+
+class AiAnalysisTestCase(unittest.TestCase):
+    def test_parses_fixed_text_format(self):
+        analysis = parse_model_analysis(
+            "画像概述：客户具有进取型风险偏好。\n"
+            "需求洞察：当前配置体现资金灵活性。\n"
+            "服务建议：建议通过线上渠道持续沟通。\n"
+            "高亮关键词：进取型风险偏好｜资金灵活性｜线上渠道"
+        )
+        self.assertEqual(analysis["overview"], "客户具有进取型风险偏好。")
+        self.assertEqual(
+            analysis["highlights"],
+            ["进取型风险偏好", "资金灵活性", "线上渠道"],
+        )
+
+    def test_labeled_legacy_cache_is_split_without_line_breaks(self):
+        analysis = parse_cached_analysis(
+            "画像概述：客户偏好流动性。需求洞察：客户兼顾收益弹性。"
+            "服务建议：建议持续线上沟通。"
+        )
+        self.assertEqual(analysis["overview"], "客户偏好流动性。")
+        self.assertEqual(analysis["insight"], "客户兼顾收益弹性。")
+        self.assertEqual(analysis["suggestion"], "建议持续线上沟通。")
+
+    def test_plain_legacy_cache_remains_readable(self):
+        analysis = parse_cached_analysis("这是一段历史纯文本总结。")
+        self.assertEqual(analysis["overview"], "这是一段历史纯文本总结。")
+        self.assertEqual(analysis["highlights"], [])
+
+    @patch.dict(
+        "os.environ",
+        {
+            "DEEPSEEK_API_KEY": "test-key",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_MODEL": "deepseek-v4-pro",
+            "DEEPSEEK_TIMEOUT_SECONDS": "60",
+        },
+        clear=False,
+    )
+    @patch("openai.OpenAI")
+    def test_deepseek_uses_prompt_format_instead_of_json_output(self, openai_client):
+        completion = MagicMock()
+        completion.choices = [
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=(
+                        "画像概述：客户具有进取型风险偏好。\n"
+                        "需求洞察：当前配置体现资金灵活性。\n"
+                        "服务建议：建议通过线上渠道持续沟通。\n"
+                        "高亮关键词：进取型风险偏好｜资金灵活性｜线上渠道"
+                    )
+                )
+            )
+        ]
+        openai_client.return_value.chat.completions.create.return_value = completion
+
+        analysis, model = _deepseek_analysis(PROFILE)
+
+        self.assertEqual(model, "deepseek-v4-pro")
+        self.assertEqual(analysis["suggestion"], "建议通过线上渠道持续沟通。")
+        kwargs = openai_client.return_value.chat.completions.create.call_args.kwargs
+        self.assertNotIn("response_format", kwargs)
+        self.assertIn("四行固定格式", kwargs["messages"][0]["content"])
+        self.assertIn("不要返回JSON", kwargs["messages"][0]["content"])
+        self.assertNotIn("C000001", kwargs["messages"][1]["content"])
 
 
 class CustomerApiRouteTestCase(unittest.TestCase):
