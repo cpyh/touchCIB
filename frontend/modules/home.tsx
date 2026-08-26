@@ -103,19 +103,21 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
           <p>{goalText}</p>
         </div>
         <div className="home-hero-side">
-          <span className="home-advice">
-            {conversion && conversion.gap > 0
-              ? `今日建议：优先跟进已触达未响应的客户，转化进度往上推一格。`
-              : "今日建议：目标已达成，把精力转到到期资金再配置上。"}
-          </span>
-          <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台 →</button>
+          <div className="home-side-top">
+            <div className="home-snapshot">
+              {business && <span><small>客户</small><b>{business.customer_count.toLocaleString()}</b></span>}
+              {business && <span><small>AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
+            </div>
+            <span className="home-advice">
+              {conversion && conversion.gap > 0
+                ? `今日建议：优先跟进已触达未响应的客户，转化进度往上推一格。`
+                : "今日建议：目标已达成，把精力转到到期资金再配置上。"}
+            </span>
+            <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台 →</button>
+          </div>
           <div className="home-mascot">
             <i>兴</i>
             <span><em>{fortune.emoji}</em><b>{fortune.text}</b></span>
-          </div>
-          <div className="home-snapshot">
-            {business && <span><small>客户</small><b>{business.customer_count.toLocaleString()}</b></span>}
-            {business && <span><small>AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
           </div>
         </div>
       </section>

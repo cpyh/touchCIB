@@ -71,3 +71,9 @@
 .home-mascot span{display:flex;align-items:center;gap:6px}
 .home-mascot em{font-style:normal;font-size:13px}
 .home-mascot b{color:#f0d9a8;font-size:10px;font-weight:500}
+
+/* 横幅右侧：上方业务数字行，下方吉祥物签语 */
+.home-hero-side{flex-direction:column;align-items:flex-end;gap:9px}
+.home-side-top{display:flex;align-items:center;gap:14px}
+.home-side-top .home-snapshot{display:flex;gap:14px;padding-right:14px;border-right:1px solid #ffffff2e}
+@media(max-width:1100px){.home-hero-side{align-items:flex-start}.home-side-top{flex-wrap:wrap}.home-side-top .home-snapshot{border-right:0}}
