@@ -211,10 +211,37 @@ def initialize_schema(database: str) -> None:
                 cursor.execute(statement)
             _migrate_ai_summary_columns(cursor)
             _migrate_campaign_event_response_dedupe(cursor)
+            _migrate_a2_ltr_column(cursor)
         finally:
             cursor.close()
     finally:
         connection.close()
+
+
+def _migrate_a2_ltr_column(cursor) -> None:
+    """幂等迁移：app_marketing_strategy 的协同过滤列改名为 LTR 学习排序列。
+
+    A2 产品排序主信号由协同过滤升级为 LTR 模型后，
+    CREATE TABLE IF NOT EXISTS 不会改旧表，这里做受检改名。
+    """
+    cursor.execute(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_marketing_strategy' "
+        "AND COLUMN_NAME = 'cf_score'"
+    )
+    if int(cursor.fetchone()[0]) == 0:
+        return
+    cursor.execute(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_marketing_strategy' "
+        "AND COLUMN_NAME = 'ltr_score'"
+    )
+    if int(cursor.fetchone()[0]) == 0:
+        cursor.execute(
+            "ALTER TABLE app_marketing_strategy "
+            "CHANGE COLUMN cf_score ltr_score DECIMAL(16, 12) NOT NULL "
+            "COMMENT 'LTR学习排序信号'"
+        )
 
 
 def _migrate_ai_summary_columns(cursor) -> None:

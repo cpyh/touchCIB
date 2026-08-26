@@ -91,12 +91,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="A2 manager 配额（缺省用 pipeline 默认值）",
     )
     parser.add_argument(
-        "--w-cf",
-        type=float,
-        default=None,
-        help="A2 协同过滤权重（缺省用 pipeline 默认值）",
-    )
-    parser.add_argument(
         "--with-demo",
         action="store_true",
         help="追加演示准备：重建日批缓存 + 重置并预置演示事件（22/30）",
@@ -129,8 +123,6 @@ def main(argv: list[str] | None = None) -> int:
     a2_args: list[str] = []
     if args.manager_quota is not None:
         a2_args += ["--manager-quota", str(args.manager_quota)]
-    if args.w_cf is not None:
-        a2_args += ["--w-cf", str(args.w_cf)]
     for name, module, stage_args in STAGES[2:]:
         if name.startswith("A2"):
             stage_args = a2_args

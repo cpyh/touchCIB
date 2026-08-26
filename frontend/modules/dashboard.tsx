@@ -752,7 +752,7 @@ export function DashboardPage({
                 <div className="strategy-flow">
                   <span>A1响应概率</span>
                   <i>＋</i>
-                  <span>协同过滤</span>
+                  <span>LTR学习排序</span>
                   <b>→</b>
                   <span>规则引擎</span>
                   <b>→</b>

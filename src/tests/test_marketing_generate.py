@@ -12,11 +12,13 @@ class MarketingGenerateTestCase(unittest.TestCase):
         result = generate_customer_strategy("C000010")
         self.assertEqual(len(result["items"]), 3)
         self.assertEqual([item["rank"] for item in result["items"]], [1, 2, 3])
-        self.assertEqual(result["parameters"]["w_cf"], 0.3)
+        self.assertEqual(
+            result["parameters"]["ranking_source"], "ltr"
+        )
         for item in result["items"]:
             self.assertIn("score", item)
             self.assertIn("model_prob", item)
-            self.assertIn("cf_score", item)
+            self.assertIn("ltr_score", item)
             self.assertIn("rule_trace", item)
             self.assertGreater(len(item["rule_trace"]), 0)
             self.assertTrue(10 <= len(item["marketing_script"]) <= 300)
@@ -29,10 +31,6 @@ class MarketingGenerateTestCase(unittest.TestCase):
     def test_unknown_customer_rejected(self):
         with self.assertRaises(StrategyGenerationError):
             generate_customer_strategy("C999999")
-
-    def test_invalid_w_cf_raises(self):
-        with self.assertRaises(ValueError):
-            generate_customer_strategy("C000010", w_cf=2.0)
 
     def test_live_predictor_scores_complete_product_pool(self):
         class FakePredictor:

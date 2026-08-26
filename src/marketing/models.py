@@ -123,7 +123,7 @@ class StrategyItem:
     marketing_script: str
     score: float
     model_prob: float
-    cf_score: float
+    ltr_score: float
     overshoot: bool
     rule_trace: tuple[RuleOutcome, ...] = ()
 
@@ -163,7 +163,7 @@ class StrategyResult:
                     **item.to_row(self.customer_id),
                     "score": item.score,
                     "model_prob": item.model_prob,
-                    "cf_score": item.cf_score,
+                    "ltr_score": item.ltr_score,
                     "overshoot": item.overshoot,
                     "rule_trace": [
                         {"rule_id": o.rule_id, "passed": o.passed, "reason": o.reason}

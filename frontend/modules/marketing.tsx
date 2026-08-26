@@ -97,7 +97,7 @@ interface StrategyItem {
   script_adjusted?: boolean;
   score?: number | null;
   model_prob?: number | null;
-  cf_score?: number | null;
+  ltr_score?: number | null;
   execution_enabled?: boolean;
   status: "待执行" | "已触达" | "已响应";
   rule_trace: RuleTrace[];
@@ -140,15 +140,16 @@ interface GeneratedItem {
   product_id: string;
   product_name: string;
   model_prob: number;
+  ltr_score?: number | null;
 }
 
 interface GeneratedResult {
   customer_id: string;
   strategy_date: string;
   parameters: {
-    w_cf: number;
     manager_quota: number;
     top_n: number;
+    ranking_source?: string;
     a1_source?: string;
   };
   items: GeneratedItem[];
@@ -276,7 +277,6 @@ export function MarketingPage({
     channel: "",
   });
 
-  const [wcf, setWcf] = useState(0.3);
   const [quota, setQuota] = useState(600);
   const [generated, setGenerated] = useState<GeneratedResult | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -651,7 +651,6 @@ export function MarketingPage({
         method: "POST",
         body: JSON.stringify({
           customer_id: strategyCustomerId,
-          w_cf: wcf,
           manager_quota: quota,
         }),
       });
@@ -1111,21 +1110,20 @@ export function MarketingPage({
             {drawer === "lab" && (
               <div className="lab-drawer-body">
                 <div className="lab-controls">
-                  <label>协同过滤权重 <b>{wcf.toFixed(1)}</b><input type="range" min="0" max="1" step="0.1" value={wcf} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setWcf(Number(event.target.value)); }} /></label>
                   <label>客户经理配额 <b>{quota}</b><input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setQuota(Number(event.target.value)); }} /></label>
                   <button disabled={generating || !strategyCustomerId} onClick={() => void regenerate()}>{generating ? "模型计算中…" : "运行实时策略"}</button>
                 </div>
                 {generated ? (
                   <div className="lab-compare">
-                    <header><b>当前 Top3 vs 参数试算</b><Status>{generated.parameters.a1_source === "mysql_serving" ? "MySQL实时特征" : "模型快照"}</Status></header>
+                    <header><b>当前 Top3 vs 参数试算</b><Status>{generated.parameters.ranking_source === "ltr" ? "LTR排序" : "A1概率回退"}</Status></header>
                     {[1, 2, 3].map((rank) => {
                       const before = strategies.find((item) => item.rank === rank);
                       const after = generated.items.find((item) => item.rank === rank);
                       if (!after) return null;
                       const changed = before?.product_id !== after.product_id;
-                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{percent(after.model_prob)}<small>A1概率</small></em></article>;
+                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{after.ltr_score != null ? after.ltr_score.toFixed(3) : percent(after.model_prob)}<small>{after.ltr_score != null ? "LTR分" : "A1概率"}</small></em></article>;
                     })}
-                    <p>综合分 = A1响应概率 + w_cf × 持仓协同过滤信号；渠道、时段和话术再由规则引擎回验。</p>
+                    <p>产品排序 = LTR 学习排序模型分（回退 A1 概率）；渠道、时段和话术再由规则引擎回验。</p>
                   </div>
                 ) : <div className="lab-waiting"><b>等待运行策略试算</b><p>该能力用于现场展示运营参数变化如何驱动策略结果变化。</p></div>}
               </div>

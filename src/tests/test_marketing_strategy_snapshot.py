@@ -26,7 +26,7 @@ def frozen_rows() -> list[dict]:
             "marketing_script": f"策略{rank}",
             "score": 0.8 - rank / 10,
             "model_prob": 0.7 - rank / 10,
-            "cf_score": 0.1,
+            "ltr_score": 0.1,
             "overshoot": 0,
         }
         for rank in (1, 2, 3)

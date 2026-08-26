@@ -138,6 +138,7 @@ def _layer_counts() -> dict:
         "dws": ["dws_customer_360"],
         "ads": [
             "ads_marketing_response_score",
+            "ads_a2_strategy_score",
             "app_marketing_strategy",
             "app_portfolio_scenario",
             "app_campaign_event",

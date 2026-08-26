@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS app_marketing_strategy (
     marketing_script    VARCHAR(300)    NOT NULL COMMENT '冻结的执行话术',
     score               DECIMAL(16, 12) NOT NULL COMMENT '综合策略分',
     model_prob          DECIMAL(16, 12) NOT NULL COMMENT 'A1模型响应概率',
-    cf_score            DECIMAL(16, 12) NOT NULL COMMENT '协同过滤信号',
+    cf_score            DECIMAL(16, 12) NOT NULL COMMENT 'LTR学习排序信号（兼容旧名，迁移时改名 ltr_score）',
     overshoot           TINYINT(1)      NOT NULL DEFAULT 0 COMMENT '是否使用风险溢出候选',
     created_at          TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次生成时间；生成后不更新',
     PRIMARY KEY (strategy_id),
@@ -262,3 +262,19 @@ CREATE TABLE IF NOT EXISTS ads_marketing_response_score (
     CONSTRAINT chk_ads_response_prob CHECK (response_prob BETWEEN 0 AND 1),
     CONSTRAINT chk_ads_response_channel CHECK (channel IN ('sms', 'call', 'app_push', 'manager'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ADS 营销响应预测结果';
+
+CREATE TABLE IF NOT EXISTS ads_a2_strategy_score (
+    a2_score_id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '评分记录标识',
+    customer_id        VARCHAR(64)     NOT NULL COMMENT '目标客户标识',
+    strategy_rank      TINYINT UNSIGNED NOT NULL COMMENT '推荐顺序 1~3',
+    product_id         VARCHAR(16)     NOT NULL COMMENT 'LTR 排序推荐产品',
+    model_score        DECIMAL(16, 12) NULL COMMENT 'LTR 学习排序模型原始分',
+    combined_score     DECIMAL(16, 12) NULL COMMENT '含轻规则的策略分',
+    model_version      VARCHAR(64)     NOT NULL COMMENT 'LTR 模型版本',
+    as_of_date         DATE            NOT NULL COMMENT '特征截止日（策略日，不含当日）',
+    generated_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '生成/更新时间',
+    PRIMARY KEY (a2_score_id),
+    UNIQUE KEY uk_ads_a2_customer_rank (customer_id, strategy_rank),
+    KEY idx_ads_a2_product (product_id),
+    CONSTRAINT chk_ads_a2_rank CHECK (strategy_rank BETWEEN 1 AND 3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ADS A2 LTR 学习排序 Top3 评分（产品排序主信号，取代协同过滤）';

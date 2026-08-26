@@ -153,7 +153,7 @@ def _stored_live_strategy_rows(customer_id: str) -> list[dict]:
                 cursor.execute(
                     "SELECT strategy_id, customer_id, strategy_rank AS `rank`, strategy_date, "
                     "product_id, recommended_channel, recommended_time, "
-                    "marketing_script, score, model_prob, cf_score, overshoot, "
+                    "marketing_script, score, model_prob, ltr_score, overshoot, "
                     "created_at FROM app_marketing_strategy "
                     "WHERE customer_id = %s ORDER BY strategy_rank",
                     (customer_id,),
@@ -198,7 +198,7 @@ def _ensure_live_strategy_rows(customer_id: str) -> list[dict]:
             item["marketing_script"],
             item["score"],
             item["model_prob"],
-            item["cf_score"],
+            item["ltr_score"],
             int(bool(item.get("overshoot", False))),
         )
         for item in items
@@ -212,7 +212,7 @@ def _ensure_live_strategy_rows(customer_id: str) -> list[dict]:
                 "INSERT INTO app_marketing_strategy "
                 "(strategy_id, customer_id, strategy_rank, strategy_date, product_id, "
                 "recommended_channel, recommended_time, marketing_script, "
-                "score, model_prob, cf_score, overshoot) "
+                "score, model_prob, ltr_score, overshoot) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 values,
             )
@@ -715,7 +715,7 @@ def customer_strategies(customer_id: str) -> dict:
                 "marketing_script": row.marketing_script,
                 "score": None,
                 "model_prob": None,
-                "cf_score": None,
+                "ltr_score": None,
                 "overshoot": False,
             }
             for row in official_rows.itertuples()
@@ -771,7 +771,7 @@ def customer_strategies(customer_id: str) -> dict:
                 "script_adjusted": script_adjusted,
                 "score": _json_value(row.get("score")),
                 "model_prob": _json_value(row.get("model_prob")),
-                "cf_score": _json_value(row.get("cf_score")),
+                "ltr_score": _json_value(row.get("ltr_score")),
                 "status": _derive_status(strategy_id, events),
                 "execution_enabled": all(outcome.passed for outcome in trace),
                 "rule_trace": [

@@ -20,7 +20,6 @@ from .marketing.generate import (
 from .marketing.models import (
     DEFAULT_MANAGER_QUOTA,
     DEFAULT_TOP_N,
-    DEFAULT_W_CF,
 )
 from .marketing.roster import query_roster
 from .marketing.rules import build_default_engine
@@ -307,14 +306,11 @@ def marketing_response_predict():
 
 @app.post("/marketing/strategy/generate")
 def marketing_strategy_generate():
-    """运营干预：调 w_cf / manager 配额后现场重跑单客户 Top3（不落库）。"""
+    """运营干预：调 manager 配额后现场重跑单客户 Top3（LTR 排序，不落库）。"""
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify(error="request body must be a JSON object"), 400
     try:
-        w_cf = float(payload.get("w_cf", DEFAULT_W_CF))
-        if not 0.0 <= w_cf <= 1.0:
-            raise ValueError("w_cf must be in [0, 1]")
         manager_quota = int(payload.get("manager_quota", DEFAULT_MANAGER_QUOTA))
         if manager_quota < 0:
             raise ValueError("manager_quota must be >= 0")
@@ -325,7 +321,6 @@ def marketing_strategy_generate():
         return jsonify(
             generate_customer_strategy(
                 customer_id,
-                w_cf=w_cf,
                 manager_quota=manager_quota,
                 top_n=top_n,
                 response_predictor=get_mysql_predictor(),

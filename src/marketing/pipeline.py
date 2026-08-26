@@ -1,7 +1,7 @@
 """A2 两阶段策略生成流水线（设计定稿 v2，详见 docs/sdd-marketing.md）。
 
 阶段一（全局批次）：
-    产品排序 = A1 模型概率 + w_cf × 持有产品协同过滤相似度（模型管产品）；
+    产品排序 = LTR 学习排序模型分（模型管产品，回退 A1 概率）；
     合规顺位过滤（风险偏好内优先，不足 3 个时自动溢出 1 级）；
     manager 渠道配额分配（资格 + 全局配额，按客户价值排序）。
 阶段二（逐客户）：
@@ -19,7 +19,6 @@ from datetime import date
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .collaborative import build_co_holding_similarity, customer_cf_scores
 from .engine import RuleEngine
 from .io import (
     build_behaviors,
@@ -28,10 +27,10 @@ from .io import (
     load_products,
     load_strategy_customers,
 )
+from .ltr import ltr_score_map, persist_ltr_top3
 from .models import (
     DEFAULT_MANAGER_QUOTA,
     DEFAULT_TOP_N,
-    DEFAULT_W_CF,
     MANAGER_ELIGIBLE_AUM,
     MANAGER_ELIGIBLE_VIP,
     RISK_RANK,
@@ -141,16 +140,17 @@ def _rank_score(
     customer_id: str,
     product: Product,
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
+    ltr_scores: Mapping[tuple[str, str], float],
 ) -> tuple[float, float, float]:
     model_prob = float(model_scores.get((customer_id, product.product_id), 0.0))
     if not 0.0 <= model_prob <= 1.0:
         raise ValueError(
             f"model score out of [0,1] for {customer_id}/{product.product_id}"
         )
-    cf_score = float(cf_scores.get((customer_id, product.product_id), 0.0))
-    return model_prob + w_cf * cf_score, model_prob, cf_score
+    ltr_score = float(ltr_scores.get((customer_id, product.product_id), 0.0))
+    # 产品排序主信号 = LTR 学习排序分；LTR 不可用时回退 A1 概率
+    score = ltr_score if ltr_scores else model_prob
+    return score, model_prob, ltr_score
 
 
 def _compliance_evaluate(
@@ -187,12 +187,11 @@ def _select_top(
     overshoot_pool: Sequence[Product],
     top_n: int,
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
+    ltr_scores: Mapping[tuple[str, str], float],
 ) -> list[tuple[Product, float, float, float, bool]]:
     def score_sort(pool: Sequence[Product]) -> list[tuple[Product, float, float, float]]:
         scored = [
-            (p, *_rank_score(customer_id, p, model_scores, cf_scores, w_cf))
+            (p, *_rank_score(customer_id, p, model_scores, ltr_scores))
             for p in pool
         ]
         scored.sort(key=lambda entry: (-entry[1], entry[0].product_id))
@@ -303,8 +302,7 @@ def _plan_customer(
     engine: RuleEngine,
     manager_ranks: Sequence[int],
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
+    ltr_scores: Mapping[tuple[str, str], float],
 ) -> StrategyResult:
     customer = request.customer
     behavior = request.effective_behavior()
@@ -349,16 +347,17 @@ def _plan_customer(
     # ---- Step 3/4 打分排序选 Top N ----
     selected = _select_top(
         customer.customer_id, compliant, overshoot_pool, request.top_n,
-        model_scores, cf_scores, w_cf,
+        model_scores, ltr_scores,
     )
+    ranking_source = "LTR 学习排序分" if ltr_scores else "A1 概率（LTR 回退）"
     steps.append(
         StepRecord(
             "ranking",
-            f"Top{len(selected)} 排序完成（A1 概率 + {w_cf}×协同过滤相似度）",
+            f"Top{len(selected)} 排序完成（{ranking_source}）",
             tuple(
                 f"{p.product_id}: score={score:.6f} "
-                f"(model={model_prob:.4f}, cf={cf_score:.4f})"
-                for p, score, model_prob, cf_score, _ in selected
+                f"(model={model_prob:.4f}, ltr={ltr_score:.4f})"
+                for p, score, model_prob, ltr_score, _ in selected
             ),
         )
     )
@@ -369,7 +368,7 @@ def _plan_customer(
     channel_details: list[str] = []
     slot_details: list[str] = []
     non_manager_pos = 0
-    for position, (product, score, model_prob, cf_score, is_overshoot) in enumerate(
+    for position, (product, score, model_prob, ltr_score, is_overshoot) in enumerate(
         selected, start=1
     ):
         rank = position
@@ -430,7 +429,7 @@ def _plan_customer(
                 marketing_script=script,
                 score=score,
                 model_prob=model_prob,
-                cf_score=cf_score,
+                ltr_score=ltr_score,
                 overshoot=is_overshoot,
                 rule_trace=tuple(trace),
             )
@@ -473,12 +472,14 @@ def generate_strategies(
     products: Sequence[Product],
     *,
     model_scores: Mapping[tuple[str, str], float] | None = None,
-    cf_scores: Mapping[tuple[str, str], float] | None = None,
-    w_cf: float = DEFAULT_W_CF,
+    ltr_scores: Mapping[tuple[str, str], float] | None = None,
     manager_quota: int = DEFAULT_MANAGER_QUOTA,
     engine: RuleEngine | None = None,
 ) -> list[StrategyResult]:
-    """批量生成全部客户的 Top N 策略（两阶段，含 manager 全局配额）。"""
+    """批量生成全部客户的 Top N 策略（两阶段，含 manager 全局配额）。
+
+    产品排序主信号为 LTR 学习排序分（ltr_scores）；未提供时回退 A1 概率。
+    """
     if not requests or not products:
         raise ValueError("requests and products must not be empty")
     product_ids = [p.product_id for p in products]
@@ -489,7 +490,7 @@ def generate_strategies(
 
     engine = engine or build_default_engine()
     model_scores = model_scores or {}
-    cf_scores = cf_scores or {}
+    ltr_scores = ltr_scores or {}
     manager_plan = _allocate_manager(requests, manager_quota)
 
     results: list[StrategyResult] = []
@@ -501,8 +502,7 @@ def generate_strategies(
                 engine,
                 manager_plan.get(request.customer.customer_id, ()),
                 model_scores,
-                cf_scores,
-                w_cf,
+                ltr_scores,
             )
         )
     return results
@@ -536,13 +536,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=PROJECT_DIR / "src" / "data" / "outputs" / "a2_strategy_audit.csv",
     )
-    parser.add_argument(
-        "--cf-audit",
-        type=Path,
-        default=PROJECT_DIR / "src" / "data" / "outputs" / "a2_cf_similarity.csv",
-    )
     parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
-    parser.add_argument("--w-cf", type=float, default=DEFAULT_W_CF)
     return parser.parse_args(argv)
 
 
@@ -562,7 +556,7 @@ def write_strategy_audit(output_path: Path, results: Sequence[StrategyResult]) -
         writer.writerow(
             [
                 "customer_id", "rank", "product_id", "score", "model_prob",
-                "cf_score", "overshoot", "recommended_channel",
+                "ltr_score", "overshoot", "recommended_channel",
                 "recommended_time", "script_length",
             ]
         )
@@ -572,7 +566,7 @@ def write_strategy_audit(output_path: Path, results: Sequence[StrategyResult]) -
                     [
                         result.customer_id, item.rank, item.product_id,
                         f"{item.score:.8f}", f"{item.model_prob:.8f}",
-                        f"{item.cf_score:.8f}", int(item.overshoot),
+                        f"{item.ltr_score:.8f}", int(item.overshoot),
                         item.recommended_channel, item.recommended_time,
                         len(item.marketing_script),
                     ]
@@ -602,18 +596,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     model_scores = load_model_scores(args.test_contacts, args.predictions)
 
-    similarity = build_co_holding_similarity(
-        holdings, as_of=max(strategy_dates.values())
-    )
-    cf_scores = customer_cf_scores(
-        similarity,
-        {
-            cid: behavior.holding_product_ids
-            for cid, behavior in behaviors.items()
-        },
-        [p.product_id for p in products],
-    )
-    similarity.to_csv(args.cf_audit, index=False)
+    # 产品排序主信号：LTR 学习排序模型（模型不可用时回退 A1 概率）
+    target_ids = list(strategy_dates)
+    ltr_scores = ltr_score_map(target_ids)
+    ltr_status = "LTR" if ltr_scores else "A1概率回退"
+    print(f"ranking_source={ltr_status} customers={len(target_ids)}")
 
     requests = [
         StrategyRequest(
@@ -629,8 +616,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         requests,
         products,
         model_scores=model_scores,
-        cf_scores=cf_scores,
-        w_cf=args.w_cf,
+        ltr_scores=ltr_scores,
         manager_quota=args.manager_quota,
     )
 
@@ -639,6 +625,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     errors = validate_strategy_file(
         args.output, expected_customers=set(strategy_dates)
     )
+
+    # ADS 落库：LTR Top3 评分（与提交 CSV 同口径的算法产物）
+    ads_rows = persist_ltr_top3(target_ids, max(strategy_dates.values()).isoformat())
 
     manager_rows = sum(
         1
@@ -654,12 +643,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"customers={len(results)} rows={total_rows}")
     print(f"manager_rows={manager_rows} overshoot_rows={overshoot_rows}")
     print(f"validation_errors={len(errors)}")
+    print(f"ads_a2_rows={ads_rows}")
     if errors:
         for error in errors[:10]:
             print(f"  - {error}")
     print(f"strategy={args.output}")
     print(f"audit={args.audit_output}")
-    print(f"cf_similarity={args.cf_audit}")
     return 1 if errors else 0
 
 
