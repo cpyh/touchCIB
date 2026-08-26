@@ -43,6 +43,14 @@ STAGES: list[tuple[str, str, list[str]]] = [
         ],
     ),
     (
+        "Part B 业务可执行",
+        "src.algorithms.solve_partB_business_pipeline_fullswap",
+        [
+            "--data-dir", "src/data/raw",
+            "--output-dir", "src/data/outputs/business",
+        ],
+    ),
+    (
         "三 CSV 红线校验",
         "src.scripts.check_submission",
         [],

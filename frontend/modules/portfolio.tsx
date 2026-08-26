@@ -41,6 +41,24 @@ interface PortfolioResult {
     optimality_gap: number;
   };
   allocations: Allocation[];
+  business?: {
+    utility: number;
+    retention_ratio: number | null;
+    expected_return: number;
+    portfolio_volatility: number;
+    cash_weight: number;
+    cash_amount: number;
+    holdings_count: number;
+    high_risk_weight: number;
+    liquid_plus_cash: number;
+    allocations: Array<{
+      product_id: string;
+      product_name: string;
+      min_invest: number;
+      weight: number;
+      amount: number;
+    }>;
+  };
 }
 
 interface CustomerProfile {
@@ -501,6 +519,7 @@ export function PortfolioPage({
                 <div><h2>组合驾驶舱</h2><p>{activeScenarioLabel} · 配置金额¥{money(totalAmount).replace("¥ ", "")}</p></div>
                 <div className="result-tabs">
                   <button className={resultView === "overview" ? "on" : ""} onClick={() => setResultView("overview")}>组合概览</button>
+                  <button className={resultView === "business" ? "on" : ""} onClick={() => setResultView("business")}>业务落地</button>
                   <button className={resultView === "detail" ? "on" : ""} onClick={() => setResultView("detail")}>产品明细</button>
                   <button className={resultView === "guards" ? "on" : ""} onClick={() => setResultView("guards")}>约束检查</button>
                   <button className={resultView === "ai" ? "on" : ""} onClick={() => setResultView("ai")}>AI能力</button>
@@ -579,6 +598,43 @@ export function PortfolioPage({
                     <span><b>解释输入</b> 客户画像 · 场景参数 · 组合指标 · 约束校验</span>
                     <p>AI解读用于辅助客户经理理解方案，不替代客户适当性、产品准入和起投金额校验。</p>
                   </div>
+                </div>
+              )}
+
+              {resultView === "business" && (
+                <div className="result-view business-view">
+                  {result?.business ? (
+                    <>
+                      <div className="business-metrics">
+                        <Metric label="业务保真率" value={result.business.retention_ratio != null ? `${(result.business.retention_ratio * 100).toFixed(1)}%` : "—"} note="业务效用 ÷ 理论效用" gold />
+                        <Metric label="业务预期收益" value={`${(result.business.expected_return * 100).toFixed(2)}%`} note={`理论 ${(summary.expected_return * 100).toFixed(2)}%`} />
+                        <Metric label="业务组合波动" value={`${(result.business.portfolio_volatility * 100).toFixed(2)}%`} note={`理论 ${(summary.portfolio_volatility * 100).toFixed(2)}%`} />
+                        <Metric label="业务持仓数" value={`${result.business.holdings_count} 款`} note={`理论 ${summary.holdings_count} 款 · 现金 ${(result.business.cash_weight * 100).toFixed(1)}%`} />
+                      </div>
+                      <div className="business-note"><b>理论最优 → 业务可执行</b><span>起投金额校正后，保真率量化了落地成本；低于起投门槛的产品被剔除或提升，剩余资金以现金持有。</span></div>
+                      <div className="table allocation-table">
+                        <table>
+                          <thead><tr>{["产品", "最低起投", "业务权重", "业务金额", "理论权重"].map((header) => <th key={header}>{header}</th>)}</tr></thead>
+                          <tbody>
+                            {result.business.allocations.map((item) => {
+                              const theory = result.allocations.find((allocation) => allocation.product_id === item.product_id);
+                              return (
+                                <tr key={item.product_id}>
+                                  <td><b>{item.product_id}</b><small>{item.product_name}</small></td>
+                                  <td>¥{item.min_invest.toLocaleString("zh-CN")}</td>
+                                  <td>{(item.weight * 100).toFixed(2)}%</td>
+                                  <td>¥{item.amount.toLocaleString("zh-CN")}</td>
+                                  <td>{theory ? `${(theory.weight * 100).toFixed(2)}%` : "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="inline-empty">业务可执行层暂不可用，理论最优方案不受影响。</div>
+                  )}
                 </div>
               )}
 

@@ -276,6 +276,8 @@ export function MarketingPage({
 
   useEffect(() => {
     if (initialCohort && initialCohort !== taskCohort) {
+      // Prop 驱动的跨页面跳转筛选需要在进入营销页时同步一次。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTaskCohort(initialCohort);
       void loadTasks(1, taskStatus, taskQuery, initialCohort);
     }
@@ -707,19 +709,19 @@ export function MarketingPage({
     <section className="manager-marketing-shell">
       <header className="manager-marketing-head">
         <div className="manager-title">
-          <small>4月财富营销活动 · 客户经理 MGR001</small>
-          <h1>营销运营工作台</h1>
-          <p>从客户机会、个性化策略到联系跟进和转化归因，全部在同一任务中完成。</p>
+          <small>今日客户运营 · 客户经理 MGR001</small>
+          <h1>今日营销工作台</h1>
+          <p>优先处理高机会客户，完成策略选择、客户触达与转化追踪。</p>
         </div>
         <div className="manager-kpis">
-          <div><small>全量客户</small><strong>{taskPopulation.toLocaleString()}</strong><span>A2正式目标 {officialTargetCount.toLocaleString()} 人</span></div>
-          <div><small>A1机会覆盖</small><strong>{modelCoveredCustomers.toLocaleString()}</strong><span>有离线触达评分的客户</span></div>
-          <div><small>已转化客户</small><strong>{eventServiceAvailable ? summary?.events.responded_customers ?? summary?.events.responded : "—"}</strong><span>{eventServiceAvailable ? "自动归因客户数" : "事件服务暂不可用"}</span></div>
-          <div className="target"><small>我的本月目标</small><strong>{eventServiceAvailable ? managerKpi?.actual ?? "—" : "—"}<i>/ {managerKpi?.target ?? 30}</i></strong><span>客户经理转化数</span></div>
+          <div><small>客户池</small><strong>{taskPopulation.toLocaleString()}</strong><span>覆盖全部可运营客户</span></div>
+          <div><small>高机会覆盖</small><strong>{modelCoveredCustomers.toLocaleString()}</strong><span>A1 已完成机会评分</span></div>
+          <div><small>已转化</small><strong>{eventServiceAvailable ? summary?.events.responded_customers ?? summary?.events.responded : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
+          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? managerKpi?.actual ?? "—" : "—"}<i>/ {managerKpi?.target ?? 30}</i></strong><span>A2正式目标 {officialTargetCount.toLocaleString()} 人</span></div>
         </div>
         <div className="manager-head-actions">
-          <button onClick={openOpportunityPool}>A1 模型机会池</button>
-          <button onClick={() => setDrawer("model")}>模型与数据证据</button>
+          <button onClick={openOpportunityPool}><span><b>机会客户池</b><small>查看 A1 排序</small></span><i>›</i></button>
+          <button onClick={() => setDrawer("model")}><span><b>模型证据</b><small>口径与数据链路</small></span><i>›</i></button>
         </div>
       </header>
 
@@ -783,11 +785,20 @@ export function MarketingPage({
                       <em className={task.status}>{taskStatusNames[task.status]}</em>
                     </span>
                   </span>
-                  <strong>{task.opportunity_product_name ? `机会产品 · ${task.opportunity_product_name}` : "暂无离线机会分"}</strong>
-                  <small>{task.vip_level} · {task.risk_appetite} · {opportunityChannel}</small>
+                  <span className="task-card-opportunity">
+                    <span>
+                      <small>首选机会</small>
+                      <strong>{task.opportunity_product_name ?? "可实时生成策略"}</strong>
+                    </span>
+                    <em className={task.opportunity_score == null ? "live" : ""}>
+                      <b>{task.opportunity_score == null ? "实时" : percent(task.opportunity_score)}</b>
+                      <small>{task.opportunity_score == null ? "计算" : "机会分"}</small>
+                    </em>
+                  </span>
+                  <small className="task-card-meta">{task.vip_level} · {task.risk_appetite} · {opportunityChannel}</small>
                   <span className="task-signal">
                     <i><b style={{ width: `${(task.opportunity_score ?? 0) * 100}%` }} /></i>
-                    <em>{task.opportunity_score == null ? "未进入A1测试触达 · 可实时生成" : `${percent(task.opportunity_score)} 客户最高机会`}</em>
+                    <em>{task.opportunity_score == null ? "点击客户后生成 Top3" : "A1 客户最高机会"}</em>
                   </span>
                 </button>
               );

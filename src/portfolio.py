@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pymysql
@@ -20,6 +21,8 @@ from .algorithms.partb import (
 )
 
 from .database import database_connection
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 class PortfolioInputError(ValueError):
@@ -213,6 +216,61 @@ def optimize_portfolio(payload: dict) -> dict:
         )
     allocations.sort(key=lambda item: item["weight"], reverse=True)
 
+    # ---- 业务可执行层：理论最优 → 起投金额二次校正（失败不阻断理论路径）----
+    business = None
+    try:
+        from .algorithms.solve_partB_business_pipeline_fullswap import (
+            load_business_products,
+            solve_business_scenario,
+        )
+
+        business_products = load_business_products(
+            PROJECT_DIR / "src" / "data" / "raw",
+            products.product_ids,
+        )
+        business_result = solve_business_scenario(
+            scenario,
+            result,
+            products,
+            business_products,
+            covariance,
+            high_risk_mask,
+            non_liquid_mask,
+        )
+        business_allocations = []
+        for index, weight in enumerate(business_result.weights):
+            if weight < SCORER_TOL:
+                continue
+            product_id = products.product_ids[index]
+            business_allocations.append(
+                {
+                    "product_id": product_id,
+                    "product_name": business_products[index].product_name,
+                    "min_invest": business_products[index].min_invest,
+                    "weight": round(float(weight), 12),
+                    "amount": round(total_amount * float(weight), 2),
+                }
+            )
+        business_allocations.sort(key=lambda item: item["weight"], reverse=True)
+        business = {
+            "utility": round(business_result.utility, 12),
+            "retention_ratio": round(
+                business_result.utility / result.utility, 6
+            ) if result.utility else None,
+            "expected_return": round(business_result.expected_return, 12),
+            "portfolio_volatility": round(
+                business_result.portfolio_volatility, 12
+            ),
+            "cash_weight": round(business_result.cash_weight, 12),
+            "cash_amount": round(total_amount * business_result.cash_weight, 2),
+            "holdings_count": business_result.holdings_count,
+            "high_risk_weight": round(business_result.high_risk_weight, 12),
+            "liquid_plus_cash": round(business_result.liquid_plus_cash, 12),
+            "allocations": business_allocations,
+        }
+    except Exception:  # noqa: BLE001 - 业务层失败不影响理论最优结果
+        business = None
+
     invested_weight = float(result.weights.sum())
     return {
         "scenario": {
@@ -237,6 +295,7 @@ def optimize_portfolio(payload: dict) -> dict:
             "optimality_gap": result.absolute_gap,
         },
         "allocations": allocations,
+        "business": business,
     }
 
 
