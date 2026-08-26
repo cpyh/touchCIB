@@ -30,7 +30,7 @@
 | A2 营销策略生成 | 5 分自动 + D 验收 | 规则/流程引擎（`src/marketing/`）+ 策略契约 + CSV 生成 | ✅（CSV 导入落库 🟡） |
 | B 投资组合优化 | 15 分自动 | `src/algorithms/partb.py`（核心）、`src/pipelines/solve_partB.py`（CLI）、`src/portfolio.py` | ✅ |
 | C 系统架构与工程 | 人工 | 数据分层（ODS→DWD→DWS→ADS）、Flask 服务、质量检查、测试、规则/流程引擎 | ✅ |
-| D 平台演示与看板 | 人工 | 前端三工作台（营销策略 / 智能投顾 / 客户画像） | ⬜ |
+| D 平台演示与看板 | 人工 | 官方四 Tab 看板（进件评估 / 智能投顾 / 营销运营 / 可视化） | ⬜ |
 | 加分创新 | 人工 | 全局最优性证书、局部解释审计、规则轨迹、特征/模型版本管理 | ✅ 部分 |
 
 ---
@@ -39,10 +39,11 @@
 
 ```mermaid
 flowchart TB
-    subgraph APP["应用层（运营人员）"]
-        W1["营销策略工作台<br/>预测概率 · Top3 策略 · 规则轨迹"]
-        W2["智能投顾工作台<br/>场景配置 · 权重方案 · 约束达标"]
-        W3["客户画像看板<br/>360 画像 · 行为聚合"]
+    subgraph APP["应用层（运营人员，官方四 Tab）"]
+        T1["Tab1 客户进件与风险评估"]
+        T2["Tab2 智能投顾推荐"]
+        T3["Tab3 营销运营工作台<br/>概率 · Top3 · 规则轨迹"]
+        T4["Tab4 可视化看板<br/>KPI · 分布 · 漏斗"]
     end
 
     subgraph SVC["服务层（Flask, 0.0.0.0:5001）"]
@@ -102,7 +103,7 @@ flowchart LR
     P -->|"response_prob 按 (customer, product) 注入"| ENG["A2 规则/流程引擎<br/>✅ 已实现"]
     DWD --> ENG
     ENG --> S["partA_strategy.csv<br/>每客户 Top3"]
-    S --> W["营销策略工作台"]
+    S --> T["Tab3 营销运营工作台"]
     EXP --> W
     P --> W
 ```
@@ -158,7 +159,7 @@ flowchart LR
 | `src/tests/` | 55 个单元测试 | ✅ |
 | `src/marketing/` | A2 规则/流程引擎：13 条规则、两阶段流水线、协同过滤、话术、校验 | ✅ |
 | `src/scripts/import_strategy.py`（规划） | 导入队友 `partA_strategy.csv` 落库 | 🟡 |
-| `frontend/`（规划） | 三工作台看板 | ⬜ |
+| `frontend/`（规划） | 官方四 Tab 看板（规格 sdd-platform §4） | ⬜ |
 
 ---
 
@@ -229,7 +230,7 @@ flowchart TB
 | B 效用分数 | 凸优化 + 证书 | ✅ |
 | C 架构与工程 | 分层数据架构、质量检查、测试、双源算法层 | ✅ |
 | C 规则/流程引擎 | `src/marketing/`（两阶段流水线 + 13 规则 + 配额） | ✅ |
-| D 运营看板与联动 | 三工作台 + 规则轨迹/开关 | ⬜ |
+| D 运营看板与联动 | 官方四 Tab + 规则轨迹/干预重跑 | ⬜ |
 | 加分 | 最优性证书、解释审计、版本管理、规则轨迹 | ✅ 部分 |
 
 > 差距与分工详见 `roadmap.md`。

@@ -12,6 +12,7 @@
 | [sdd-portfolio.md](sdd-portfolio.md) | B 链路规格：Part B 优化求解、约束校验、提交文件口径 | Part B 复现与答辩解释 |
 | [sdd-platform.md](sdd-platform.md) | C/D 平台规格：数据分层、API、前端看板交互草案 | 平台工程实现与明天前端讨论的底稿 |
 | [presentation.md](presentation.md) | 答辩 PPT 大纲、每页要点、演示脚本、追问预案 | 答辩材料 |
+| [demo-design.md](demo-design.md) | 平台演示闭环设计讨论稿：触达事件化、响应归因、KPI 目标管理、2 天 demo 范围与待讨论问题 | 小组评审会材料 |
 | [roadmap.md](roadmap.md) | 与评分标准的差距清单、分工建议、里程碑 | 排期与分工 |
 
 ## 建议阅读顺序

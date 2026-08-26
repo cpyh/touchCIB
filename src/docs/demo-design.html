@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>数据闭环 · 平台演示设计讨论稿</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f6f9; color: #333; }
+
+  .header { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 20px 0 16px; text-align: center; }
+  .header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: 1px; }
+  .header p { margin-top: 4px; font-size: 0.85rem; opacity: 0.85; }
+
+  .menu-btn { position: fixed; top: 14px; left: 14px; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.5); color: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; z-index: 20; }
+  .menu { position: fixed; top: 52px; left: 14px; background: #fff; border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 10px 0; z-index: 20; display: none; max-height: 70vh; overflow: auto; }
+  .menu.open { display: block; }
+  .menu div { padding: 8px 20px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+  .menu div:hover { background: #f0edfb; color: #764ba2; }
+  .menu div .idx { color: #aaa; margin-right: 8px; font-size: 0.75rem; }
+
+  .stage { max-width: 1020px; margin: 0 auto; padding: 18px 16px 10px; min-height: 72vh; }
+  .slide { display: none; }
+  .slide.active { display: block; animation: fade .25s; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .part { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.72rem; color: #fff; letter-spacing: 1px; margin-bottom: 10px; }
+  .p-dw { background: #2e7d5b; }
+  .p-alg { background: #3a6ea5; }
+  .p-ops { background: #c77700; }
+  .p-tab { background: #c0392b; }
+  .p-story { background: #764ba2; }
+  .p-extra { background: #777; }
+
+  .slide h2 { font-size: 1.32rem; color: #4a3880; margin-bottom: 6px; }
+  .sub { font-size: 0.9rem; color: #666; margin-bottom: 16px; line-height: 1.7; }
+
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.07); padding: 16px 20px; margin-bottom: 12px; }
+  .card h3 { font-size: 0.98rem; color: #4a3880; margin-bottom: 8px; }
+  .card p, .card li { font-size: 0.87rem; line-height: 1.75; color: #444; }
+  .card ul { padding-left: 20px; }
+
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; margin-right: 6px; vertical-align: 1px; }
+  .b-ok { background: #e6f7ee; color: #1e8e4e; }
+  .b-new { background: #fff3e0; color: #c77700; }
+  .b-cut { background: #fdecec; color: #c0392b; }
+  .b-star { background: #efe9ff; color: #764ba2; }
+
+  .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+  .step { background: #f0edfb; border: 1px solid #c9bdf0; border-radius: 8px; padding: 9px 12px; font-size: 0.8rem; text-align: center; min-width: 92px; }
+  .step b { display: block; color: #4a3880; font-size: 0.87rem; }
+  .step .sub { color: #777; font-size: 0.73rem; margin: 2px 0 0; }
+  .arrow { color: #764ba2; font-size: 1.1rem; font-weight: 700; }
+  .loopnote { text-align: center; font-size: 0.8rem; color: #2e7d5b; margin-top: 6px; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 6px 0; }
+  th { background: #f0edfb; color: #4a3880; text-align: left; padding: 7px 10px; }
+  td { padding: 7px 10px; border-bottom: 1px solid #eee; vertical-align: top; line-height: 1.6; }
+
+  .quote { border-left: 4px solid #764ba2; background: #f7f5fd; padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 0.88rem; color: #4a3880; line-height: 1.8; margin: 8px 0; }
+
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+
+  .kpi-demo { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .gauge { width: 110px; height: 110px; border-radius: 50%; background: conic-gradient(#764ba2 0 73%, #e8e4f5 73% 100%); display: flex; align-items: center; justify-content: center; flex: none; }
+  .gauge span { width: 80px; height: 80px; border-radius: 50%; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .gauge b { font-size: 1.1rem; color: #4a3880; }
+  .gauge i { font-style: normal; font-size: 0.66rem; color: #888; }
+
+  .qa { background: #fff; border: 1px solid #eee; border-left: 4px solid #764ba2; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; cursor: pointer; }
+  .qa .q { font-weight: 700; font-size: 0.87rem; display: flex; align-items: center; gap: 10px; }
+  .qa .a { font-size: 0.82rem; color: #666; margin-top: 5px; line-height: 1.7; display: none; }
+  .qa.open .a { display: block; }
+  .qa .box { width: 16px; height: 16px; border: 2px solid #764ba2; border-radius: 4px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; }
+  .qa.done { opacity: .55; }
+  .qa.done .box { background: #764ba2; }
+  .qa.done .box::after { content: "✓"; }
+
+  .cover { text-align: center; padding-top: 8vh; }
+  .cover h2 { font-size: 1.7rem; }
+  .cover .coverline { margin-top: 12px; font-size: 0.98rem; color: #4a3880; line-height: 1.8; }
+  .cover .parts { display: flex; gap: 10px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+  .cover .parts div { background: #fff; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.08); padding: 12px 16px; width: 172px; }
+  .cover .parts b { display: block; color: #4a3880; font-size: 0.92rem; margin-bottom: 4px; }
+  .cover .parts span { font-size: 0.73rem; color: #777; }
+
+  .nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #eee; padding: 10px 16px; display: flex; align-items: center; justify-content: center; gap: 14px; z-index: 15; }
+  .nav button { border: 2px solid #764ba2; background: #fff; color: #764ba2; border-radius: 6px; padding: 6px 18px; cursor: pointer; font-size: 0.85rem; }
+  .nav button:disabled { opacity: .3; cursor: default; }
+  .nav .counter { font-size: 0.8rem; color: #888; min-width: 56px; text-align: center; }
+  .dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
+  .dots span { width: 8px; height: 8px; border-radius: 50%; background: #d9d2ef; cursor: pointer; }
+  .dots span.on { background: #764ba2; transform: scale(1.3); }
+  .nav .hint { position: absolute; right: 16px; font-size: 0.72rem; color: #bbb; }
+
+  .muted { color: #999; font-size: 0.75rem; }
+  .foot { text-align: center; color: #999; font-size: 0.78rem; padding: 14px 0 64px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>数据闭环 · 平台演示设计讨论稿</h1>
+  <p>数仓 pipeline → 算法层 → 运营闭环 → 四 Tab 平台 ｜ v3（数据闭环主线）</p>
+</div>
+
+<button class="menu-btn" onclick="document.getElementById('menu').classList.toggle('open')">☰ 目录</button>
+<div class="menu" id="menu"></div>
+
+<div class="stage">
+
+  <!-- S1 封面 -->
+  <div class="slide active">
+    <div class="cover">
+      <span class="part p-story">MAINLINE</span>
+      <h2>数据如何变成运营动作<br/>运营动作如何回到数据</h2>
+      <p class="coverline">官方四 Tab 是功能骨架，数据闭环是我们讲述一切的主线</p>
+      <div class="parts">
+        <div><b>环一 · 数仓 pipeline</b><span>进数 → 分层 → 质量门禁 → 一键复现</span></div>
+        <div><b>环二 · 算法层</b><span>A1 模型 / A2 规则引擎 / Part B 优化</span></div>
+        <div><b>环三 · 运营闭环</b><span>事件化 → 归因 → KPI</span></div>
+        <div><b>环四 · 四 Tab 平台</b><span>需求底线 → 验收载体</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S2 全景图 -->
+  <div class="slide">
+    <span class="part p-story">全景图</span>
+    <h2>一条主线：数据闭环</h2>
+    <p class="sub">评委听完记住的不是五个模块，而是一个圈。</p>
+    <div class="flow">
+      <div class="step"><b>① 数仓进数</b><span class="sub">5 张官方主表<br/>批次导入 ODS</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>② 离线加工</b><span class="sub">DWD/DWS/ADS<br/>41 项质量门禁</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>③ 模型与规则</b><span class="sub">A1 概率 / A2 引擎<br/>Part B 优化</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>④ 策略与触达</b><span class="sub">Top3 策略<br/>sent 事件</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>⑤ 事件回流</b><span class="sub">归因<br/>responded 事件</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>⑥ 指标看板</b><span class="sub">KPI / 漏斗<br/>四 Tab 呈现</span></div>
+    </div>
+    <div class="loopnote">↺ 事件回流进数仓 → 下一轮策略更准 —— 闭环成立</div>
+    <div class="grid3" style="margin-top:14px">
+      <div class="card"><h3>评分对应</h3><p>环一②=工程分｜环二=A1/A2/B 自动分｜环三四=D 人工分｜门禁/证书/归因=创新分</p></div>
+      <div class="card"><h3>演示对应</h3><p>Tab1/2 消费 ①②③；Tab3 演示 ④⑤；Tab4 呈现 ⑥ 与全程指标</p></div>
+      <div class="card"><h3>叙事对应</h3><p>每环一个数字锚点：41 项全绿 / AUC 0.86 / gap≈0 / KPI 22→23/30</p></div>
+    </div>
+  </div>
+
+  <!-- S3 环一 -->
+  <div class="slide">
+    <span class="part p-dw">环一 · 数仓与离线 pipeline</span>
+    <h2>数据底座：分层 + 批次 + 质量门禁 + 一键复现</h2>
+    <div class="card">
+      <h3>已有：14 张分层表 <span class="badge b-ok">✅</span></h3>
+      <table>
+        <tr><th>层</th><th>表</th><th>职责</th></tr>
+        <tr><td>ODS</td><td>5 业务主表 + 相关系数</td><td>贴源、批次溯源 etl_batch_id</td></tr>
+        <tr><td>DWD</td><td>维度/事实 ×5（CHECK 约束下沉）</td><td>标准化明细</td></tr>
+        <tr><td>DWS</td><td>dws_customer_360</td><td>客户全景画像</td></tr>
+        <tr><td>ADS</td><td>评分表（含解释 JSON）+ 场景配置</td><td>应用结果快照</td></tr>
+      </table>
+      <p>工程三件套：<b>批次溯源</b>（etl_batch_id 全链路可追溯）· <b>幂等重跑</b>（upsert 批处理）· <b>质量门禁</b>（41 项 SQL 检查，当前全绿）</p>
+    </div>
+    <div class="card" style="border:2px solid #2e7d5b;">
+      <h3><span class="badge b-new">新增（约 150 行）</span> 离线 pipeline 编排：run_all</h3>
+      <div class="flow">
+        <div class="step"><b>进数建层</b><span class="sub">init_db</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>质量门禁</b><span class="sub">41 项全绿才继续</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>A1 训练+推理</b><span class="sub">模型 + 预测</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>A2 生成</b><span class="sub">6000 策略</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>Part B 求解</b><span class="sub">20 场景</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>三 CSV 校验</b><span class="sub">check_submission</span></div>
+      </div>
+      <p><b>演示动作：</b>现场改一个源文件 → 一条命令重跑 → 全链路产物更新 + 门禁全绿。<span class="muted">这是工程分最硬的证据。</span></p>
+    </div>
+  </div>
+
+  <!-- S4 环二 -->
+  <div class="slide">
+    <span class="part p-alg">环二 · 算法层</span>
+    <h2>模型与规则：三条算法线的数字锚点</h2>
+    <div class="grid3">
+      <div class="card">
+        <h3>A1 响应预测 <span class="badge b-ok">✅</span></h3>
+        <p><b>AUC 0.8619 ｜ F1 0.595 ｜ Lift 3.738</b></p>
+        <p>48 特征 · as-of 三道防线 · 时间留出验证</p>
+        <p class="muted">局部解释 top±5 因子 → 个性化载体</p>
+      </div>
+      <div class="card">
+        <h3>A2 规则引擎 <span class="badge b-ok">✅</span></h3>
+        <p><b>13 规则 · 两阶段流水线 · 6000 条策略</b></p>
+        <p>模型管产品、规则管其余；manager 配额 600</p>
+        <p class="muted">规则轨迹逐条可查 → 合规性载体</p>
+      </div>
+      <div class="card">
+        <h3>Part B 优化 <span class="badge b-ok">✅</span></h3>
+        <p><b>gap ≈ 1e-18 ｜ total_U ≈ 0.6112</b></p>
+        <p>凸化 + 多起点 + KKT 精修 + 切平面上界证书</p>
+        <p class="muted">全局最优性证书 → 创新栏素材</p>
+      </div>
+    </div>
+    <div class="quote">协同过滤信号：推荐与持仓相似的产品，历史数据验证响应率 +47%（16.5%→24.3%）——算法与数据互相成就。</div>
+  </div>
+
+  <!-- S5 环三 事件化 -->
+  <div class="slide">
+    <span class="part p-ops">环三 · 运营闭环 1/3</span>
+    <h2>触达执行的事件化</h2>
+    <p class="sub">运营动作不是"改个状态字段"，而是一次埋点事件，append-only 落库。跟随题目自身 t_campaign（运营触达事件流）建模，官方表零改动。</p>
+    <div class="card">
+      <h3>事件表（仅新增 1 张）</h3>
+      <table>
+        <tr><th>字段</th><th>说明</th></tr>
+        <tr><td>campaign_event_id</td><td>主键</td></tr>
+        <tr><td>strategy_id</td><td>关联策略（约定 <code>{customer_id}:{rank}</code>）</td></tr>
+        <tr><td>event_type</td><td>'sent' ｜ 'responded'</td></tr>
+        <tr><td>occurred_at / created_at</td><td>发生时间 / 落库时间</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>状态推导：<b style="color:#c0392b">"未触达"零存储</b></h3>
+      <div class="flow">
+        <div class="step"><b>策略已生成</b><span class="sub">CSV 有行</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>待执行</b><span class="sub">无事件</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>已触达</b><span class="sub">有 sent</span></div>
+        <div class="arrow">→</div>
+        <div class="step"><b>已响应</b><span class="sub">有 responded</span></div>
+      </div>
+      <p class="muted">永不 UPDATE、永不 DELETE；漏斗 = 一次 GROUP BY event_type。</p>
+    </div>
+  </div>
+
+  <!-- S6 环三 归因 -->
+  <div class="slide">
+    <span class="part p-ops">环三 · 运营闭环 2/3</span>
+    <h2>响应归因：间隔多天认购，算谁的？</h2>
+    <div class="quote">题目 A2 判分本身就是归因口径：<b>"下一周期实际购买产品 ∈ 客户 Top3 → 该客户命中"</b>。平台归因与之同构。</div>
+    <div class="flow">
+      <div class="step"><b>窗口</b><span class="sub">strategy_date ≤ buy_date<br/>≤ +30 天（可调参数）</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>匹配</b><span class="sub">新购产品 ∈ Top3</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>写事件</b><span class="sub">responded 挂对应策略</span></div>
+    </div>
+    <div class="card">
+      <h3>边界规则（现场演示"窗口外购买"被拒）</h3>
+      <table>
+        <tr><th>情况</th><th>规则</th></tr>
+        <tr><td>窗口外购买</td><td>不归因</td></tr>
+        <tr><td>触达前已持有/购买</td><td>不算（as-of 排除）</td></tr>
+        <tr><td>买 Top3 中 2 个</td><td>各记一条；客户级命中 = 1</td></tr>
+        <tr><td>同产品重复购买</td><td>只记首次</td></tr>
+        <tr><td>买 Top3 之外</td><td>不归因</td></tr>
+      </table>
+    </div>
+    <div class="card"><h3>诚实处理</h3><p>生产：T+1 扫描 t_holding 增量自动归因；<b>演示：</b>2026-04-15 后购买数据在评委手里 → 预置数据展示链路 + 手动埋点（过归因校验）。</p></div>
+  </div>
+
+  <!-- S7 环三 KPI -->
+  <div class="slide">
+    <span class="part p-ops">环三 · 运营闭环 3/3</span>
+    <h2>KPI 目标管理：事件表的事实底座之上</h2>
+    <div class="flow">
+      <div class="step"><b>事实层</b><span class="sub">事件表</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>目标层</b><span class="sub">KPI 配置（JSON，零新表）</span></div>
+      <div class="arrow">→</div>
+      <div class="step"><b>展示层</b><span class="sub">完成率进度</span></div>
+    </div>
+    <div class="card">
+      <h3>三个管理视角 = 投放系统的三面镜子</h3>
+      <table>
+        <tr><th>维度</th><th>投放对应</th><th>示例</th></tr>
+        <tr><td><b class="b-star">经理级（主角）</b></td><td>销售团队业绩</td><td>MGR001 4 月转化 ≥ 30 个</td></tr>
+        <tr><td>渠道级</td><td>媒体渠道效果</td><td>manager 渠道响应率 ≥ 25%</td></tr>
+        <tr><td>活动级</td><td>投放计划整体</td><td>活动命中率 ≥ 55%（呼应 HitRate）</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>演示动作：固定经理 MGR001</h3>
+      <div class="kpi-demo">
+        <div class="gauge"><span><b>22/30</b><i>完成率 73%</i></span></div>
+        <div>
+          <p><b>口径：</b>responded 事件中策略渠道 = manager 的条数。</p>
+          <p><b>演示：</b>标记一条已响应（过归因校验）→ <b>23/30</b>。</p>
+          <p class="muted">答辩：demo 固定单经理；生产 GROUP BY manager_id 即扩展。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S8 环四 -->
+  <div class="slide">
+    <span class="part p-tab">环四 · 四 Tab 平台</span>
+    <h2>官方四 Tab：需求底线 → 验收载体</h2>
+    <table>
+      <tr><th>Tab</th><th>官方功能要求（摘要）</th><th>载体落点</th></tr>
+      <tr><td><b>Tab1 进件与风险评估</b></td><td>录入基本信息，自动风险偏好评估，生成画像</td><td>画像 API + 评估逻辑（可静态化）</td></tr>
+      <tr><td><b>Tab2 智能投顾推荐</b></td><td>按风险偏好与场景参数调用 Part B，输出组合方案</td><td>/portfolio/* API + gap 证书</td></tr>
+      <tr><td><b>Tab3 营销运营工作台</b></td><td>A1 概率 + A2 Top3，策略下钻与执行追踪</td><td>名单 + 策略卡 + 轨迹 + 埋点</td></tr>
+      <tr><td><b>Tab4 可视化看板</b></td><td>模型效果、资产配置分布、营销转化漏斗</td><td>dashboard 聚合 + 漏斗 + KPI</td></tr>
+    </table>
+    <div class="card" style="border:2px solid #764ba2;">
+      <h3>三个现场验收维度 → 载体</h3>
+      <ul>
+        <li><b>个性化</b> → Tab3 策略卡 + A1 解释因子（top±5）</li>
+        <li><b>合规性</b> → Tab3 规则轨迹（13 条规则命中/拦截）</li>
+        <li><b>平台联动</b> → Tab2 改约束重算 + Tab3 调参重跑 + 埋点/KPI 实时变化</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- S9 叙事分层 -->
+  <div class="slide">
+    <span class="part p-story">答辩叙事</span>
+    <h2>一句话叙事 + 叙事分层</h2>
+    <div class="quote"><b>"营销运营平台本质是银行版的投放系统——渠道选择靠规则引擎，活动目标对齐 HitRate 口径，效果归因走事件流，KPI 复盘分经理/渠道/活动三个管理视角。"</b></div>
+    <div class="card">
+      <h3>分层：底线 / 深度 / 支撑</h3>
+      <table>
+        <tr><th>层</th><th>内容</th><th>来源</th></tr>
+        <tr><td><span class="badge b-cut">底线</span></td><td>官方四 Tab 功能骨架</td><td>赛会 index.html</td></tr>
+        <tr><td><span class="badge b-star">深度</span></td><td>数据闭环：数仓 pipeline / 事件化 / 归因 / KPI</td><td>我们的思考</td></tr>
+        <tr><td><span class="badge b-ok">支撑</span></td><td>规则引擎、gap 证书、解释审计、41 项质量门禁</td><td>已实现</td></tr>
+      </table>
+      <p class="muted">给评委的定位：官方四 Tab 是功能骨架，数据闭环是骨架上的业务深度。</p>
+    </div>
+    <div class="card">
+      <h3>创新栏素材盘点（答辩加分栏）</h3>
+      <ul>
+        <li><span class="badge b-ok">✅</span> Part B 全局最优性证书（gap≈1e-18）</li>
+        <li><span class="badge b-ok">✅</span> 规则引擎 + 轨迹可解释（合规验收载体）</li>
+        <li><span class="badge b-ok">✅</span> 协同过滤信号（+47% 响应率数据证据）</li>
+        <li><span class="badge b-ok">✅</span> 特征/模型版本管理 + 局部解释审计</li>
+        <li><span class="badge b-new">新增</span> 归因事件化 + KPI 目标管理（本稿三层设计）</li>
+        <li><span class="badge b-new">新增</span> 离线 pipeline 一键复现 + 质量门禁</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- S10 Demo 范围 -->
+  <div class="slide">
+    <span class="part p-extra">落地 1/2</span>
+    <h2>2 天 Demo 范围</h2>
+    <div class="grid3">
+      <div class="card"><h3>及格档</h3><p>四 Tab 静态展示。<br/><span class="muted">只能看不能动。</span></p></div>
+      <div class="card" style="border:2px solid #764ba2;"><h3>良好档 <span class="badge b-star">2 天目标</span></h3><p>+ 数据闭环可演示：改参数→结果变；点埋点→KPI 动；一键复跑→门禁全绿。</p></div>
+      <div class="card"><h3>优秀档</h3><p>+ Tab1 进件落库全流程、规则开关面板。<br/><span class="muted">有余力再做。</span></p></div>
+    </div>
+    <div class="card">
+      <h3>演示动作清单（4 + 1）</h3>
+      <ul>
+        <li><b>①</b> Tab2 改约束 → 秒级重算（API 已就绪）</li>
+        <li><b>②</b> Tab3 调 w_cf / manager 配额 → Top3 变化（引擎现成）</li>
+        <li><b>③</b> Tab3 标记已触达/已响应 → 状态流转（事件表 + 埋点 API）</li>
+        <li><b>④</b> Tab4 KPI 进度 +1、漏斗数字变化（dashboard 聚合）</li>
+        <li><b>⑤</b> 改源文件 → run_all 一键复跑 → 产物更新 + 41 项门禁全绿（工程分）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="badge b-cut">砍掉</span> 2 天不碰</h3>
+      <p>Tab1 完整进件落库（静态 + 口头讲）｜ Kafka、多经理、declined、鉴权审计｜ 策略落库表（CSV/内存 + 轨迹快照 JSON）｜ <b>AI/LLM 接入（讲而不做</b>：话术模板可升级 LLM 生成，规则引擎保合规底线<span class="b-cut">）</span></p>
+    </div>
+  </div>
+
+  <!-- S11 排期与风险 -->
+  <div class="slide">
+    <span class="part p-extra">落地 2/2</span>
+    <h2>两天排期与风险预案</h2>
+    <table>
+      <tr><th>时段</th><th>Day 1（后端）</th><th>Day 2（联调 + 打磨）</th></tr>
+      <tr><td>上午</td><td>事件表 DDL + 归因模块 + 单元测试</td><td>预置演示数据 + 前端联调</td></tr>
+      <tr><td>下午</td><td>埋点 API + 状态查询 + generate + dashboard summary</td><td>演示脚本走查 + 全量复跑</td></tr>
+      <tr><td>晚上</td><td><b>run_all 编排</b> + 测试全绿 + 发 JSON 样例给前端</td><td>失败预案 + 提交包确认</td></tr>
+    </table>
+    <div class="card" style="margin-top:12px">
+      <h3>风险预案</h3>
+      <p>演示翻车从来不是功能不够，而是交互挂了回不去：每个联动动作旁保留<b>静态回退</b>；服务一键启动脚本化；演示前完整走查 2 遍。</p>
+    </div>
+  </div>
+
+  <!-- S12 待讨论 -->
+  <div class="slide">
+    <span class="part p-extra">待讨论</span>
+    <h2>待小组讨论的 6 个问题</h2>
+    <p class="sub">点击问题展开背景说明；点击左侧方框标记"已达成一致"。</p>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>1. 数据闭环作为主线叙事是否认可？每环数字锚点（41 全绿 / AUC 0.86 / gap≈0 / KPI 22→23）是否要调？</div>
+      <div class="a">闭环主线同时服务讨论与答辩：队友对"我们在讲一个圈"有共识后，各自模块的定位自然清晰。</div>
+    </div>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>2. 事件化 + 归因方案是否认可？窗口 30 天固定还是现场可调？</div>
+      <div class="a">窗口做成现场可调参数，评委问"窗口多长"可直接演示调整后归因结果变化——多一个演示点，成本约 10 行代码。</div>
+    </div>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>3. KPI 维度：固定经理 MGR001 + 渠道/活动陪衬，是否认可？</div>
+      <div class="a">经理级是主角（演示动作 +1），渠道/活动级数据现成零造数，证明"目标管理是配置化的"。</div>
+    </div>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>4. run_all 一键复现（演示动作 ⑤）加入 2 天范围？预置演示数据谁准备谁验收？</div>
+      <div class="a">run_all 约 150 行，Day 1 晚上完成。预置口径 = "截至 4 月中旬的执行进度"，后端生成、前端联调验收。</div>
+    </div>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>5. 前端分工：四 Tab + 5 个动作给前端；后端出 API 契约 JSON 样例？</div>
+      <div class="a">后端 Day 1 晚上必须把接口的请求/响应 JSON 样例发给前端才能并行开工。骨架 index.html 在 src/docs/。</div>
+    </div>
+    <div class="qa" onclick="toggleQ(this)">
+      <div class="q"><span class="box"></span>6. Tab1 的度：静态展示可以接受，进件表单延后？AI/LLM 维持"讲而不做"？</div>
+      <div class="a">2 天档建议 Tab1 静态 + 口头讲流程；AI 不做实现，答辩留一句"话术模板可升级 LLM、规则引擎保合规底线"。</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="nav">
+  <button id="prev" onclick="go(-1)">← 上一页</button>
+  <span class="counter" id="counter">1 / 12</span>
+  <button id="next" onclick="go(1)">下一页 →</button>
+  <div class="dots" id="dots"></div>
+  <span class="hint">键盘 ← → 翻页</span>
+</div>
+
+<div class="foot">数据闭环设计讨论稿 v3 ｜ 详细文档：src/docs/demo-design.md ｜ 官方骨架：src/docs/index.html</div>
+
+<script>
+  var slides = document.querySelectorAll('.slide');
+  var total = slides.length;
+  var current = 0;
+  var titles = [
+    '封面：数据闭环', '全景图：一条主线六个环节', '环一 · 数仓与离线 pipeline',
+    '环二 · 算法层（A1/A2/B）', '环三 · 触达事件化', '环三 · 响应归因',
+    '环三 · KPI 目标管理', '环四 · 官方四 Tab', '叙事：一句话与分层',
+    '落地 · Demo 范围', '落地 · 排期与风险', '待讨论问题'
+  ];
+  var dotsBox = document.getElementById('dots');
+  var dots = [];
+  for (var i = 0; i < total; i++) {
+    var d = document.createElement('span');
+    (function (idx) { d.onclick = function () { go(idx - current); }; })(i);
+    dotsBox.appendChild(d);
+    dots.push(d);
+  }
+  var menu = document.getElementById('menu');
+  titles.forEach(function (t, i) {
+    var item = document.createElement('div');
+    item.innerHTML = '<span class="idx">' + (i + 1) + '</span>' + t;
+    item.onclick = function () { go(i - current); menu.classList.remove('open'); };
+    menu.appendChild(item);
+  });
+  function render() {
+    slides.forEach(function (s, i) { s.classList.toggle('active', i === current); });
+    dots.forEach(function (d, i) { d.classList.toggle('on', i === current); });
+    document.getElementById('counter').textContent = (current + 1) + ' / ' + total;
+    document.getElementById('prev').disabled = current === 0;
+    document.getElementById('next').disabled = current === total - 1;
+    window.scrollTo(0, 0);
+  }
+  function go(delta) {
+    var next = Math.max(0, Math.min(total - 1, current + delta));
+    if (next !== current) { current = next; render(); }
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') go(1);
+    if (e.key === 'ArrowLeft') go(-1);
+  });
+  function toggleQ(el) { el.classList.toggle('open'); }
+  document.querySelectorAll('.qa .box').forEach(function (box) {
+    box.addEventListener('click', function (e) {
+      e.stopPropagation();
+      box.parentElement.parentElement.classList.toggle('done');
+    });
+  });
+  render();
+</script>
+</body>
+</html>
