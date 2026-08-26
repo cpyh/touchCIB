@@ -269,3 +269,25 @@
 
 /* 配置缺口移到页面级（工作台下方整宽条） */
 .portfolio-closure-bar{margin-top:14px}
+
+/* 落地执行：配置调整指令 */
+.portfolio-execution{margin-top:14px;padding:14px 16px;border:1px solid #dde6ed;border-radius:11px;background:#fff;box-shadow:0 4px 12px #112d4b0a}
+.execution-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:11px}
+.execution-head small{color:var(--gold);font-size:8px;font-weight:700;letter-spacing:.14em}
+.execution-head h3{margin:2px 0 0;color:var(--navy);font-size:14px}
+.execution-head p{margin:0;color:#7b8d9b;font-size:10px}
+.execution-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:start}
+.execution-col{min-width:0}
+.execution-col>b{color:var(--navy2);font-size:11px}
+.execution-col.buy>b{color:#1d7a5c}
+.execution-col.sell>b{color:#b34837}
+.execution-col ul{margin:7px 0 0;padding:0;list-style:none;display:grid;gap:5px}
+.execution-col li{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fbfcfd;font-size:10px}
+.execution-col li span{color:#254b6d}
+.execution-col li em{color:#6c8293;font-style:normal}
+.execution-summary{display:grid;justify-items:end;gap:6px;padding-left:14px;border-left:1px solid #e6eaf0;text-align:right}
+.execution-summary>b{color:#8b99a4;font-size:10px}
+.execution-summary strong{color:var(--navy);font:700 20px Georgia}
+.execution-summary .secondary{min-height:32px;padding:6px 12px;font-size:10px}
+.execution-summary small{color:#94a2ad;font-size:9px}
+@media(max-width:850px){.execution-grid{grid-template-columns:1fr}.execution-summary{justify-items:start;padding-left:0;border-left:0;text-align:left}}

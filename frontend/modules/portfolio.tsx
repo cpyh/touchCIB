@@ -145,12 +145,16 @@ export function PortfolioPage({
   const [minLiquidWeight, setMinLiquidWeight] = useState(0.2);
   const [minHoldings, setMinHoldings] = useState(4);
   const [result, setResult] = useState<PortfolioResult | null>(null);
-  const [resultView, setResultView] = useState<"overview" | "detail" | "guards" | "ai">("overview");
+  const [resultView, setResultView] = useState<"overview" | "business" | "detail" | "guards" | "ai">("overview");
   const [busy, setBusy] = useState(false);
   const [customerQuery, setCustomerQuery] = useState(initialCustomerId || "C000001");
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [customerBusy, setCustomerBusy] = useState(false);
   const [parameterSource, setParameterSource] = useState<"scenario" | "customer" | "manual">("scenario");
+  const [rebalance, setRebalance] = useState<{
+    buys: Array<{ product_id: string; product_name: string; amount: number }>;
+    sells: Array<{ product_id: string; product_name: string; amount: number }>;
+  } | null>(null);
 
   useEffect(() => {
     api<{ scenarios: Scenario[] }>("/portfolio/scenarios")
@@ -173,6 +177,59 @@ export function PortfolioPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCustomerId]);
 
+  useEffect(() => {
+    if (!customer || !result?.business) {
+      setRebalance(null);
+      return;
+    }
+    let cancelled = false;
+    api<{
+      code: number;
+      data: {
+        asset_profile?: {
+          holdings?: Array<{
+            product_id: string;
+            product_name: string;
+            amount: number;
+          }>;
+        };
+      } | null;
+    }>(`/api/v1/customers/${customer.customer_id}/profile`)
+      .then((envelope) => {
+        if (cancelled) return;
+        const holdings = envelope.data?.asset_profile?.holdings ?? [];
+        const held = new Map(holdings.map((item) => [item.product_id, item]));
+        const buys = result.business!.allocations
+          .filter((item) => !held.has(item.product_id))
+          .slice(0, 3)
+          .map((item) => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            amount: item.amount,
+          }));
+        const sells = holdings
+          .filter(
+            (item) =>
+              !result.business!.allocations.some(
+                (allocation) => allocation.product_id === item.product_id
+              )
+          )
+          .sort((left, right) => right.amount - left.amount)
+          .slice(0, 3)
+          .map((item) => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            amount: item.amount,
+          }));
+        if (!cancelled) setRebalance({ buys, sells });
+      })
+      .catch(() => {
+        if (!cancelled) setRebalance(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customer, result]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
@@ -279,6 +336,32 @@ export function PortfolioPage({
     }
   }
 
+  async function saveScenario() {
+    if (!customer) return;
+    setBusy(true);
+    try {
+      const created = await api<{ scenario_id: string; scenario_name: string }>(
+        "/portfolio/scenarios",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            scenario_name: `${customer.customer_id} 专属方案`,
+            total_amount: totalAmount,
+            risk_aversion: riskAversion,
+            max_single_weight: maxSingleWeight,
+            max_high_risk_weight: maxHighRiskWeight,
+            min_liquid_weight: minLiquidWeight,
+            min_holdings: minHoldings,
+          }),
+        }
+      );
+      notify(`方案已保存为「${created.scenario_name}」，可在场景列表中复用`);
+    } catch (error) {
+      notify(`方案保存失败：${(error as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
   const summary = result?.summary;
   const allocations = result?.allocations ?? [];
   const maxWeight = allocations.reduce((current, item) => Math.max(current, item.weight), 0);
@@ -399,11 +482,12 @@ export function PortfolioPage({
           ["客户画像", customer != null],
           ["理论最优", !!summary],
           ["业务可执行", !!result?.business],
+          ["落地执行", !!rebalance],
         ].map(([label, done], index) => (
           <span key={label as string} className={done ? "on" : ""}>
             <i>{index + 1}</i>
             <b>{label as string}</b>
-            {index < 2 && <em>→</em>}
+            {index < 3 && <em>→</em>}
           </span>
         ))}
       </nav>
@@ -631,6 +715,35 @@ export function PortfolioPage({
           )}
         </main>
       </div>
+
+      {customer && result?.business && rebalance && (
+        <section className="portfolio-execution">
+          <div className="execution-head">
+            <span><small>STEP 4 · 落地执行</small><h3>配置调整指令</h3></span>
+            <p>业务方案已满足起投约束，可直接执行；以下为相对当前持仓的调仓清单。</p>
+          </div>
+          <div className="execution-grid">
+            <div className="execution-col buy">
+              <b>建议买入</b>
+              {rebalance.buys.length ? (
+                <ul>{rebalance.buys.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>+ ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
+              ) : <div className="inline-empty">持仓已覆盖方案</div>}
+            </div>
+            <div className="execution-col sell">
+              <b>建议卖出</b>
+              {rebalance.sells.length ? (
+                <ul>{rebalance.sells.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>- ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
+              ) : <div className="inline-empty">无需卖出</div>}
+            </div>
+            <div className="execution-summary">
+              <b>净调仓</b>
+              <strong>¥{money(Math.max(0, rebalance.buys.reduce((sum, item) => sum + item.amount, 0) - rebalance.sells.reduce((sum, item) => sum + item.amount, 0))).replace("¥ ", "")}</strong>
+              <button className="secondary" disabled={busy} onClick={() => void saveScenario()}>保存方案</button>
+              <small>保存后可复用 · 不影响官方提交文件</small>
+            </div>
+          </div>
+        </section>
+      )}
     </>
   );
 }
