@@ -59,3 +59,6 @@ b,strong{font-weight:600}
 
 /* 客户列表数字分页 */
 .customer-pagination nav{display:flex;align-items:center;gap:4px}.customer-pagination nav button{padding:0 8px;cursor:pointer}.customer-pagination nav button:hover:not(:disabled):not(.on){border-color:#8faec5;background:#f3f7fa;color:#245f8e}.customer-pagination nav button:disabled{cursor:not-allowed}.pagination-ellipsis{min-width:20px;text-align:center;color:#8293a0;font-style:normal}
+
+/* AI 客户画像结构化输出与安全关键词高亮 */
+.ai-analysis{display:grid;gap:10px;min-height:118px;margin:11px 0;padding:13px 0;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c}.ai-analysis section{display:grid;gap:4px}.ai-analysis section>b{color:#e2c47e;font-size:10px;letter-spacing:.04em}.ai-analysis p{margin:0;color:#d5e0e8;font-size:11px;line-height:1.75}.ai-highlight{padding:0 2px;border-radius:3px;background:#d7aa4b24;color:#f1d18b;font-weight:700}.ai-empty{min-height:118px;display:grid;place-items:center;margin:11px 0;padding:13px 4px;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c;color:#adc0cf;font-size:11px;line-height:1.8;text-align:center}

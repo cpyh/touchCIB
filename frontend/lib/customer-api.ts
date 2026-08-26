@@ -47,6 +47,13 @@ export interface DistributionItem {
   ratio: number | null;
 }
 
+export interface AiAnalysis {
+  overview: string;
+  insight: string;
+  suggestion: string;
+  highlights: string[];
+}
+
 export interface CustomerProfile {
   as_of_date: string;
   basic_info: CustomerListItem;
@@ -67,7 +74,7 @@ export interface CustomerProfile {
     latest_event_date: string | null;
     tags: string[];
   };
-  ai_summary: string | null;
+  ai_summary: AiAnalysis | null;
   ai_summary_generated_at: string | null;
 }
 
@@ -84,9 +91,10 @@ export interface CustomerCreatePayload {
 
 export interface AiSummaryData {
   customer_id: string;
-  ai_summary: string;
+  analysis: AiAnalysis;
   generated_at: string;
-  mode: "template" | "remote";
+  provider: "deepseek";
+  model: string;
 }
 
 export class CustomerApiError extends Error {

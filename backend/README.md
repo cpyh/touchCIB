@@ -1,6 +1,6 @@
-# 客户画像与风险评估后端
+# 智能财富管理运营平台后端
 
-第一阶段后端使用 Flask + PyMySQL + MySQL 8.0，实现客户列表、新建客户、客户画像和画像总结。
+后端使用 Flask + PyMySQL + MySQL 8.0。当前已实现客户画像与风险评估模块，以及可视化看板中基于现有四张业务表的汇总功能。
 
 ## 目录
 
@@ -78,7 +78,11 @@ GET  /api/v1/customers
 POST /api/v1/customers
 GET  /api/v1/customers/{customer_id}/profile
 POST /api/v1/customers/{customer_id}/ai-summary
+GET  /api/v1/dashboard/overview
+GET  /api/v1/dashboard/portfolio?scenario_id=S01
 ```
+
+看板总览目前返回真实的客户数、AUM、产品数、持仓金额、客户风险分布和产品类型持仓分布。A1、A2、Part B 和营销漏斗尚未接入的部分返回 `status: NOT_READY` 及空值，不使用模拟业务结果。
 
 新建客户示例：
 
@@ -97,19 +101,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/customers \
   }'
 ```
 
-## 5. 画像总结模式
+## 5. DeepSeek 画像总结
 
-默认 `AI_SUMMARY_MODE=template`，无需外部密钥即可生成本地演示总结。
-
-需要接入远程模型时，将其改为 `remote`，并配置：
+画像总结会真实调用 DeepSeek Chat Completions。请在 `.env` 中配置：
 
 ```text
-AI_API_URL=兼容 Chat Completions 的完整接口地址
-AI_API_KEY=密钥
-AI_MODEL=模型名称
+DEEPSEEK_API_KEY=你的密钥
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_TIMEOUT_SECONDS=60
 ```
 
-远程接口失败时会返回 502，但客户基础画像仍可正常查询。
+后端通过 OpenAI Python SDK 的兼容客户端调用 DeepSeek，并启用 thinking、`reasoning_effort=high`、JSON Output 和非流式响应。返回内容拆分为画像概述、需求洞察、服务建议和高亮关键词；未配置密钥或调用失败时返回 502，但客户基础画像仍可正常查询。
 
 ## 6. 测试
 

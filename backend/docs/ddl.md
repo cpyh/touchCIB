@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS t_customer (
     risk_appetite            CHAR(2)      NOT NULL COMMENT '风险等级 R1-R5',
     vip_level                VARCHAR(16)  NOT NULL COMMENT '普通/银卡/金卡/钻石',
     has_app                  TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否安装 App',
-    ai_summary               TEXT         NULL COMMENT '最近一次 AI 画像总结',
+    ai_summary               TEXT         NULL COMMENT '最近一次 AI 结构化画像 JSON',
     ai_summary_generated_at  DATETIME(3)  NULL COMMENT 'AI 总结生成时间',
     created_at               DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at               DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)

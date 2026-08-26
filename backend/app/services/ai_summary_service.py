@@ -2,53 +2,27 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 import pymysql
+from openai import OpenAI, OpenAIError
 
+from ..ai_analysis import normalize_analysis
 from ..config import settings
 from ..db import transaction
 from ..errors import ServiceError, UpstreamError
 from .profile_service import get_customer_profile
 
 
-def _preferred_type(profile: dict) -> str | None:
-    items = profile["asset_profile"]["product_type_distribution"]
-    return max(items, key=lambda item: item["amount"])["name"] if items else None
+def _deepseek_summary(profile: dict) -> dict:
+    if not settings.deepseek_api_key:
+        raise UpstreamError("DEEPSEEK_API_KEY is not configured")
 
-
-def _template_summary(profile: dict) -> str:
-    basic = profile["basic_info"]
-    assets = profile["asset_profile"]
-    behavior = profile["behavior_profile"]
-    preferred_type = _preferred_type(profile)
-    event_total = sum(behavior["recent_30d_counts"].values())
-    asset_text = (
-        f"当前可识别产品持仓{assets['holding_amount']:,.2f}元，共"
-        f"{assets['holding_product_count']}类产品"
-        if assets["holding_product_count"]
-        else "当前暂无可识别产品持仓"
-    )
-    preference_text = f"，持仓以{preferred_type}类产品为主" if preferred_type else ""
-    behavior_text = (
-        f"近30天记录到{event_total}次行为，近期互动较为活跃"
-        if event_total >= 5
-        else f"近30天记录到{event_total}次行为"
-    )
-    tags = "、".join(behavior["tags"][:3]) or "暂无明显行为标签"
-    return (
-        f"该客户为{basic['vip_level']}客户，资产管理规模{basic['aum']:,.2f}元，"
-        f"风险偏好为{basic['risk_label']}。{asset_text}{preference_text}；"
-        f"{behavior_text}。当前画像标签为{tags}。本总结仅用于客户画像展示，不构成投资建议。"
-    )
-
-
-def _remote_summary(profile: dict) -> str:
-    if not settings.ai_api_url or not settings.ai_api_key or not settings.ai_model:
-        raise UpstreamError("AI remote mode is not fully configured")
     compact_profile = {
-        "basic_info": profile["basic_info"],
+        "basic_info": {
+            key: value
+            for key, value in profile["basic_info"].items()
+            if key != "customer_id"
+        },
         "asset_profile": {
             key: value
             for key, value in profile["asset_profile"].items()
@@ -56,50 +30,71 @@ def _remote_summary(profile: dict) -> str:
         },
         "behavior_profile": profile["behavior_profile"],
     }
-    prompt = (
-        "请根据以下结构化客户画像生成100至200个中文字符的客观总结。"
-        "不得虚构事实，不得承诺收益，不得给出具体投资指令；数据不足时明确说明。\n"
-        + json.dumps(compact_profile, ensure_ascii=False)
-    )
-    body = json.dumps(
-        {
-            "model": settings.ai_model,
-            "messages": [
-                {"role": "system", "content": "你是银行客户画像摘要助手。"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-        },
-        ensure_ascii=False,
-    ).encode("utf-8")
-    request = Request(
-        settings.ai_api_url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {settings.ai_api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
+    client = OpenAI(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+        timeout=settings.deepseek_timeout_seconds,
     )
     try:
-        with urlopen(request, timeout=settings.ai_timeout_seconds) as response:
-            result = json.loads(response.read().decode("utf-8"))
-        summary = result["choices"][0]["message"]["content"].strip()
-    except (HTTPError, URLError, TimeoutError, KeyError, IndexError, json.JSONDecodeError) as exc:
-        raise UpstreamError("AI summary service is unavailable") from exc
-    if not summary:
-        raise UpstreamError("AI summary service returned empty content")
-    return summary
+        response = client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是一名银行财富管理运营分析助手。你的任务不是复述字段，而是从客户数据中"
+                        "提炼对客户经理有用的画像。overview、insight和suggestion三段正文合计控制"
+                        "在160至240个中文字符。"
+                        "画像概述应概括客户最显著的资产配置、风险偏好和行为特征；需求洞察应把不同"
+                        "特征理解为客户可能同时存在的复合需求，例如进取型风险偏好与高流动性持仓可"
+                        "表述为兼顾收益弹性和资金灵活性，不得描述为矛盾、偏离或不符合常见逻辑。"
+                        "服务建议应给出1至2项适合客户经理执行的需求了解、沟通或持续服务动作，但不得"
+                        "直接推荐具体产品。请将输入字段视为当前有效事实，不得质疑数据正确性，不得"
+                        "建议核实产品等级、收益参数或数据录入，不得根据外部常识重新判断产品属性。"
+                        "全文最多引用3个关键数字，不得逐项罗列基础资料，不得评价无关的缺失字段。"
+                        "只能使用输入中的事实，不得虚构因果，不得承诺收益，不得给出投资指令。"
+                        "加权预期收益率并非画像重点，通常无需引用；如引用必须说明不代表未来收益。"
+                        "数据不足时，只说明可进一步了解客户需求，不评价数据质量。"
+                        "请只返回合法json对象，不要返回Markdown、代码块或额外说明。json必须包含"
+                        "overview、insight、suggestion和highlights四个字段。highlights选择3至5个"
+                        "最能代表客户特征的短语，每个短语不超过12个中文字符，必须原样出现在前三段"
+                        "正文中；不要选择城市、年龄和职业等普通基础信息。"
+                        "参考案例json：{\"overview\":\"客户风险偏好进取，当前配置以现金管理为主，"
+                        "整体重视资金灵活性。\",\"insight\":\"高流动性持仓与进取型风险偏好体现出"
+                        "兼顾资金灵活性和收益弹性的复合需求。\",\"suggestion\":\"建议围绕近期咨询"
+                        "了解资金使用周期和收益目标，并通过线上渠道持续提供配置沟通。\","
+                        "\"highlights\":[\"进取型风险偏好\",\"高流动性持仓\",\"近期咨询\","
+                        "\"线上渠道\"]}"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "请基于以下结构化数据生成客户画像，提炼客户的配置特点、潜在需求和适合的"
+                        "服务方式，不要检查数据异常，也不要逐项复述：\n"
+                        + json.dumps(compact_profile, ensure_ascii=False)
+                    ),
+                },
+            ],
+            stream=False,
+            reasoning_effort="high",
+            extra_body={"thinking": {"type": "enabled"}},
+            response_format={"type": "json_object"},
+            max_tokens=600,
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("empty content")
+        analysis = normalize_analysis(json.loads(content))
+    except (OpenAIError, IndexError, json.JSONDecodeError, ValueError) as exc:
+        raise UpstreamError("DeepSeek summary service is unavailable") from exc
+    return analysis
 
 
 def generate_ai_summary(customer_id: str) -> dict:
     profile = get_customer_profile(customer_id)
-    if settings.ai_summary_mode == "remote":
-        summary = _remote_summary(profile)
-        mode = "remote"
-    else:
-        summary = _template_summary(profile)
-        mode = "template"
+    analysis = _deepseek_summary(profile)
+    cached_value = json.dumps(analysis, ensure_ascii=False)
     generated_at = datetime.now()
     try:
         with transaction() as connection:
@@ -110,13 +105,14 @@ def generate_ai_summary(customer_id: str) -> dict:
                     SET ai_summary = %s, ai_summary_generated_at = %s
                     WHERE customer_id = %s
                     """,
-                    (summary, generated_at, customer_id),
+                    (cached_value, generated_at, customer_id),
                 )
     except (pymysql.MySQLError, OSError, ValueError) as exc:
         raise ServiceError("unable to save AI summary") from exc
     return {
         "customer_id": customer_id,
-        "ai_summary": summary,
+        "analysis": analysis,
         "generated_at": generated_at.isoformat(),
-        "mode": mode,
+        "provider": "deepseek",
+        "model": settings.deepseek_model,
     }

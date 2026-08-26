@@ -6,12 +6,14 @@ from pymysql import MySQLError
 from .config import settings
 from .errors import NotFoundError, ServiceError, UpstreamError, ValidationError
 from .routes.customers import customers_bp
+from .routes.dashboard import dashboard_bp
 
 
 def create_app(*, testing: bool = False) -> Flask:
     app = Flask(__name__)
     app.config.update(TESTING=testing, JSON_AS_ASCII=False)
     app.register_blueprint(customers_bp)
+    app.register_blueprint(dashboard_bp)
 
     @app.get("/health")
     def health():

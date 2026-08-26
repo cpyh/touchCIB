@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 import pymysql
 
+from ..ai_analysis import parse_cached_analysis
 from ..config import settings
 from ..db import get_connection
 from ..errors import NotFoundError, ServiceError
@@ -159,7 +160,7 @@ def get_customer_profile(customer_id: str) -> dict:
         "basic_info": basic,
         "asset_profile": asset_profile,
         "behavior_profile": behavior_profile,
-        "ai_summary": customer.get("ai_summary"),
+        "ai_summary": parse_cached_analysis(customer.get("ai_summary")),
         "ai_summary_generated_at": (
             customer["ai_summary_generated_at"].isoformat()
             if customer.get("ai_summary_generated_at")

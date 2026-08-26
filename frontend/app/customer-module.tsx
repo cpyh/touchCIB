@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   CUSTOMER_API_BASE_URL,
+  AiAnalysis,
   CustomerApiError,
   CustomerCreatePayload,
   CustomerListItem,
@@ -76,6 +77,32 @@ function activity(profile: CustomerProfile) {
   return "低活跃";
 }
 
+function HighlightedText({ text, highlights }: { text: string; highlights: string[] }) {
+  const terms = Array.from(new Set(highlights))
+    .filter(term => term && text.includes(term))
+    .sort((left, right) => right.length - left.length);
+  if (!terms.length) return <>{text}</>;
+
+  const escaped = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const parts = text.split(new RegExp(`(${escaped.join("|")})`, "g"));
+  const termSet = new Set(terms);
+  return <>{parts.map((part, index) => termSet.has(part)
+    ? <strong className="ai-highlight" key={`${part}-${index}`}>{part}</strong>
+    : <span key={`${part}-${index}`}>{part}</span>)}</>;
+}
+
+function AiAnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
+  const sections = [
+    ["画像概述", analysis.overview],
+    ["需求洞察", analysis.insight],
+    ["服务建议", analysis.suggestion],
+  ] as const;
+  return <div className="ai-analysis">{sections.map(([title, text]) => <section key={title}>
+    <b>{title}</b>
+    <p><HighlightedText text={text} highlights={analysis.highlights} /></p>
+  </section>)}</div>;
+}
+
 function paginationItems(current: number, total: number): Array<number | "ellipsis"> {
   if (total <= 7) return Array.from({ length: total }, (_, index) => index + 1);
 
@@ -113,7 +140,7 @@ export default function CustomerModule() {
 
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [summaryMode, setSummaryMode] = useState<"template" | "remote" | null>(null);
+  const [summaryProvider, setSummaryProvider] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<FormState>(initialForm);
@@ -245,10 +272,10 @@ export default function CustomerModule() {
       const result = await generateAiSummary(selectedId);
       setProfile({
         ...profile,
-        ai_summary: result.ai_summary,
+        ai_summary: result.analysis,
         ai_summary_generated_at: result.generated_at,
       });
-      setSummaryMode(result.mode);
+      setSummaryProvider(`${result.provider} · ${result.model}`);
     } catch (error) {
       setAiError(errorMessage(error));
     } finally {
@@ -309,7 +336,7 @@ export default function CustomerModule() {
               {customerTab === "holding" && <div className="table"><table><thead><tr>{["产品", "类型", "风险", "持仓金额", "流动性", "预期收益", "购买日期"].map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{asset.holdings.map(holding => <tr key={holding.holding_id}><td><b>{holding.product_id}</b><small>{holding.product_name}</small></td><td>{holding.product_type}</td><td><span className="risk-tag">{holding.risk_level}</span></td><td>{money(holding.amount)}</td><td>{holding.liquidity}</td><td>{percent(holding.expected_return)}</td><td>{holding.buy_date}</td></tr>)}</tbody></table>{asset.holdings.length === 0 && <div className="empty-result"><b>暂无持仓记录</b><span>该客户当前没有可识别的产品持仓。</span></div>}</div>}
               {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{item[1]}</strong><span>近30天 {item[2]} 次</span></article>)}</div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
             </div>
-            <aside className="ai-card"><div className="ai-title"><b>AI</b><span><strong>客户洞察</strong><small>基于结构化画像生成并保存</small></span></div>{aiBusy ? <div className="loading">正在调用画像总结服务…</div> : <p>{profile.ai_summary || "该客户尚未生成画像总结。点击下方按钮后，系统会根据当前资产与行为画像生成客观摘要。"}</p>}{aiError && <div className="ai-error">{aiError}</div>}<div className="evidence"><small>引用依据</small><span>风险偏好 {basic.risk_appetite} · {basic.risk_label}</span><span>持仓产品 {asset.holding_product_count} 款</span><span>高流动性比例 {percent(asset.high_liquidity_ratio)}</span>{profile.ai_summary_generated_at && <span>生成时间 {new Date(profile.ai_summary_generated_at).toLocaleString("zh-CN")}</span>}</div><button disabled={aiBusy} onClick={refreshAiSummary}>↻ {profile.ai_summary ? "重新生成总结" : "生成画像总结"}</button><em>{summaryMode ? `${summaryMode === "template" ? "本地模板" : "远程模型"}模式 · ` : ""}AI内容仅供辅助分析</em></aside>
+            <aside className="ai-card"><div className="ai-title"><b>AI</b><span><strong>客户洞察</strong><small>基于结构化画像生成并保存</small></span></div>{aiBusy ? <div className="loading">正在调用画像总结服务…</div> : profile.ai_summary ? <AiAnalysisPanel analysis={profile.ai_summary} /> : <div className="ai-empty">该客户尚未生成画像总结。点击下方按钮后，系统会形成画像概述、需求洞察和服务建议。</div>}{aiError && <div className="ai-error">{aiError}</div>}<div className="evidence"><small>引用依据</small><span>风险偏好 {basic.risk_appetite} · {basic.risk_label}</span><span>持仓产品 {asset.holding_product_count} 款</span><span>高流动性比例 {percent(asset.high_liquidity_ratio)}</span>{profile.ai_summary_generated_at && <span>生成时间 {new Date(profile.ai_summary_generated_at).toLocaleString("zh-CN")}</span>}</div><button disabled={aiBusy} onClick={refreshAiSummary}>↻ {profile.ai_summary ? "重新生成总结" : "生成画像总结"}</button><em>{summaryProvider ? `${summaryProvider} · ` : ""}AI内容仅供辅助分析</em></aside>
           </div>
         </>}
       </>}

@@ -32,11 +32,14 @@ class Settings:
         ).split(",")
         if value.strip()
     )
-    ai_summary_mode: str = os.getenv("AI_SUMMARY_MODE", "template").lower()
-    ai_api_url: str | None = os.getenv("AI_API_URL")
-    ai_api_key: str | None = os.getenv("AI_API_KEY")
-    ai_model: str = os.getenv("AI_MODEL", "")
-    ai_timeout_seconds: float = float(os.getenv("AI_TIMEOUT_SECONDS", "30"))
+    deepseek_api_key: str | None = os.getenv("DEEPSEEK_API_KEY")
+    deepseek_base_url: str = os.getenv(
+        "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
+    )
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    deepseek_timeout_seconds: float = float(
+        os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "60")
+    )
 
 
 settings = Settings()
