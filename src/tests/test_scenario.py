@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from src.app import app
-from src.scenario import ScenarioInputError, scenario_values
+from src.portfolio import ScenarioInputError, scenario_values
 
 
 VALID_SCENARIO = {

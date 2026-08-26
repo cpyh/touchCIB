@@ -149,8 +149,7 @@ flowchart LR
 | `src/a1_inference.py` | 批量推理、解释审计、提交文件与 ADS 落表、格式自校验 | ✅ |
 | `src/algorithms/partb.py` | Part B 凸优化求解核心 + 证书 + 独立验证（被服务层复用） | ✅ |
 | `src/pipelines/solve_partB.py` | Part B CLI 入口（编排，`python -m` 执行） | ✅ |
-| `src/portfolio.py` | 组合优化 API 适配（读 MySQL，参数校验） | ✅ |
-| `src/scenario.py` | 场景配置 CRUD | ✅ |
+| `src/portfolio.py` | 组合优化 API 适配（读 MySQL，参数校验）+ 场景配置 CRUD | ✅ |
 | `src/customer.py` | 客户画像查询（DWS） | ✅ |
 | `src/scripts/init_db.py` | 建库建表、批次导入、重建 DWD/DWS | ✅ |
 | `src/sql/schema.sql` | 13 张表结构 + CHECK 约束 | ✅ |

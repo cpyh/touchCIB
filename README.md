@@ -14,8 +14,7 @@ touchCIB/                        # 提交时改名此目录
 │   ├── partA1serving/           # A1特征、LR/LGBM训练、模型工件与在线推理
 │   ├── customer.py              # 客户画像查询
 │   ├── database.py              # MySQL 连接
-│   ├── portfolio.py             # 组合优化适配器
-│   ├── scenario.py              # 组合优化场景配置
+│   ├── portfolio.py             # 组合优化适配器（在线优化 + 场景配置存取）
 │   ├── marketing/               # A2 规则/流程引擎（13 规则 + 两阶段流水线 + 协同过滤）
 │   ├── algorithms/              # 离线算法核心库（Part B 凸优化求解器）
 │   ├── pipelines/               # CLI 批量入口（run_all 一键编排 / A1 训练 / Part B 求解）

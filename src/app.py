@@ -27,12 +27,13 @@ from .marketing.rules import build_default_engine
 from .marketing.tasks import MarketingTaskStoreError, query_marketing_tasks
 from .partA1serving.feature_service import FeatureAssemblyError
 from .partA1serving.runtime import get_mysql_predictor
-from .portfolio import PortfolioInputError, optimize_portfolio
-from .scenario import (
+from .portfolio import (
+    PortfolioInputError,
     ScenarioInputError,
     ScenarioStoreError,
     create_portfolio_scenario,
     list_portfolio_scenarios,
+    optimize_portfolio,
 )
 
 
