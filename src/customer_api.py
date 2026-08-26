@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
@@ -476,6 +477,11 @@ def get_customer_profile(customer_id: str) -> dict:
 # ----------------------------------------------------------------
 
 ANALYSIS_FIELDS = ("overview", "insight", "suggestion")
+SECTION_LABELS = {
+    "画像概述": "overview",
+    "需求洞察": "insight",
+    "服务建议": "suggestion",
+}
 
 
 def normalize_analysis(value: object) -> dict:
@@ -508,18 +514,51 @@ def normalize_analysis(value: object) -> dict:
     return analysis
 
 
+def parse_model_analysis(value: str) -> dict:
+    """解析模型按 Prompt 返回的固定栏目文本。"""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("AI analysis is empty")
+
+    content = value.strip().replace("\r\n", "\n")
+    section_pattern = re.compile(
+        r"(画像概述|需求洞察|服务建议)\s*[：:]\s*"
+        r"(.*?)(?=(?:(?:画像概述|需求洞察|服务建议|高亮关键词)\s*[：:])|\Z)",
+        re.S,
+    )
+    sections = {
+        SECTION_LABELS[label]: text.strip()
+        for label, text in section_pattern.findall(content)
+    }
+
+    highlight_match = re.search(
+        r"高亮关键词\s*[：:]\s*(.*?)(?=\n|\Z)", content, re.S
+    )
+    highlights = []
+    if highlight_match:
+        highlights = [
+            term.strip()
+            for term in re.split(r"[｜|、,，]", highlight_match.group(1))
+            if term.strip()
+        ]
+
+    return normalize_analysis({**sections, "highlights": highlights})
+
+
 def parse_cached_analysis(value: str | None) -> dict | None:
     if not value:
         return None
     try:
         return normalize_analysis(json.loads(value))
     except (json.JSONDecodeError, ValueError, TypeError):
-        return {
-            "overview": value.strip(),
-            "insight": "历史总结未包含结构化需求洞察。",
-            "suggestion": "可重新生成总结以获得完整的客户画像分析。",
-            "highlights": [],
-        }
+        try:
+            return parse_model_analysis(value)
+        except ValueError:
+            return {
+                "overview": value.strip(),
+                "insight": "历史总结未包含结构化需求洞察。",
+                "suggestion": "可重新生成总结以获得完整的客户画像分析。",
+                "highlights": [],
+            }
 
 
 # ----------------------------------------------------------------
@@ -572,7 +611,7 @@ def _template_analysis(profile: dict) -> dict:
     }
 
 
-def _deepseek_analysis(profile: dict) -> dict:
+def _deepseek_analysis(profile: dict) -> tuple[dict, str]:
     try:
         from openai import OpenAI, OpenAIError  # 延迟导入，未装 openai 时不影响其他端点
     except ImportError as exc:
@@ -619,16 +658,19 @@ def _deepseek_analysis(profile: dict) -> dict:
                         "只能使用输入中的事实，不得虚构因果，不得承诺收益，不得给出投资指令。"
                         "加权预期收益率并非画像重点，通常无需引用；如引用必须说明不代表未来收益。"
                         "数据不足时，只说明可进一步了解客户需求，不评价数据质量。"
-                        "请只返回合法json对象，不要返回Markdown、代码块或额外说明。json必须包含"
-                        "overview、insight、suggestion和highlights四个字段。highlights选择3至5个"
-                        "最能代表客户特征的短语，每个短语不超过12个中文字符，必须原样出现在前三段"
-                        "正文中；不要选择城市、年龄和职业等普通基础信息。"
-                        "参考案例json：{\"overview\":\"客户风险偏好进取，当前配置以现金管理为主，"
-                        "整体重视资金灵活性。\",\"insight\":\"高流动性持仓与进取型风险偏好体现出"
-                        "兼顾资金灵活性和收益弹性的复合需求。\",\"suggestion\":\"建议围绕近期咨询"
-                        "了解资金使用周期和收益目标，并通过线上渠道持续提供配置沟通。\","
-                        "\"highlights\":[\"进取型风险偏好\",\"高流动性持仓\",\"近期咨询\","
-                        "\"线上渠道\"]}"
+                        "请直接按下面四行固定格式返回，不要返回JSON、Markdown、代码块、序号或额外说明，"
+                        "也不要在正文中重复这些栏目名称：\n"
+                        "画像概述：一段正文\n"
+                        "需求洞察：一段正文\n"
+                        "服务建议：一段正文\n"
+                        "高亮关键词：短语1｜短语2｜短语3\n"
+                        "高亮关键词选择3至5个最能代表客户特征的短语，每个不超过12个中文字符，"
+                        "必须原样出现在前三段正文中；不要选择城市、年龄和职业等普通基础信息。\n"
+                        "参考案例：\n"
+                        "画像概述：客户风险偏好进取，当前配置以现金管理为主，整体重视资金灵活性。\n"
+                        "需求洞察：高流动性持仓与进取型风险偏好体现出兼顾资金灵活性和收益弹性的复合需求。\n"
+                        "服务建议：建议围绕近期咨询了解资金使用周期和收益目标，并通过线上渠道持续提供配置沟通。\n"
+                        "高亮关键词：进取型风险偏好｜高流动性持仓｜近期咨询｜线上渠道"
                     ),
                 },
                 {
@@ -643,14 +685,13 @@ def _deepseek_analysis(profile: dict) -> dict:
             stream=False,
             reasoning_effort="high",
             extra_body={"thinking": {"type": "enabled"}},
-            response_format={"type": "json_object"},
             max_tokens=600,
         )
         content = response.choices[0].message.content
         if not content:
             raise ValueError("empty content")
-        analysis = normalize_analysis(json.loads(content))
-    except (OpenAIError, IndexError, json.JSONDecodeError, ValueError) as exc:
+        analysis = parse_model_analysis(content)
+    except (OpenAIError, IndexError, ValueError) as exc:
         raise UpstreamError("DeepSeek summary service is unavailable") from exc
     return analysis, model
 

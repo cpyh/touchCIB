@@ -1,6 +1,6 @@
 # 前端接入契约（Frontend API Contract）
 
-> 给前端同学的对接文档：6 个接口 + 请求/响应样例。前端只通过 Flask API 取数，不直连 MySQL、不读 CSV。
+> 给前端同学的对接文档。前端只通过 Flask API 取数，不直连 MySQL、不读 CSV。
 > 服务地址：后端 `http://127.0.0.1:5001`（已开 CORS，前端 dev 端口 3000 可直接 fetch）。
 
 ## 接口总览
@@ -9,14 +9,16 @@
 |---|-----------|------------------------------|
 | 1 | `GET /customers/<id>/profile` | 客户档案详情抽屉 |
 | 2 | `GET /portfolio/scenarios` + `POST /portfolio/optimize` | 智能投顾：场景参数面板、配置结果、约束检查 |
-| 3 | `GET /marketing/roster` | 营销运营 A1：响应名单表 |
-| 4 | `GET /customers/<id>/strategies` | 营销运营 A2：Top3 策略卡 + 推荐依据 |
-| 5 | `POST /campaign/events` | 执行追踪：已触达 / 记录响应 / 标记购买 按钮 |
+| 3 | `GET /marketing/tasks` | 营销运营主工作台：8000位全量客户机会与执行状态（含A2标识） |
+| 3a | `GET /marketing/roster` | 营销运营次级抽屉：8000条 A1 响应机会 |
+| 4 | `GET /customers/<id>/strategies` | 任意客户Top3：A2正式版 / 非A2实时冻结版 + 推荐依据 |
+| 5 | `POST /campaign/events` + `POST /campaign/demo-holdings` | 执行追踪：已触达 / 模拟新增持仓与自动归因 |
 | 6 | `GET /dashboard/summary` | 经营看板：全部 KPI 与图表 |
 | 7 | `POST /marketing/strategy/generate` | 运营干预：调 w_cf / manager 配额 → 重跑 Top3（不落库） |
 | 8 | `GET /marketing/rules` | 规则引擎元数据（13 条规则清单） |
-| 9-12 | `/api/v1/customers*`（客户画像服务，已统一到 5001） | 列表/新建+风险评估/画像/AI 摘要，envelope 格式 `{code, message, data}` |
-| 13-14 | `/api/v1/dashboard/overview` + `/portfolio`（队友看板骨架，已用真实数据填满） | 业务指标/A1/A2/组合实时求解/营销漏斗 |
+| 9 | `POST /marketing/response/predict` | A1数据库在线推理：客户×产品×渠道概率与解释 |
+| 10-13 | `/api/v1/customers*`（客户画像服务，已统一到 5001） | 列表/新建+风险评估/画像/AI 摘要，envelope 格式 `{code, message, data}` |
+| 14-15 | `/api/v1/dashboard/overview` + `/portfolio`（队友看板骨架，已用真实数据填满） | 业务指标/A1/A2/组合实时求解/营销漏斗 |
 
 ---
 
@@ -63,7 +65,30 @@
 
 > 前端"流动性滑杆联动重算"目前是假算（`8 + (liquidity-20)/5`），改为调本接口：滑杆值 = `min_liquid_weight`（÷100），其余参数读场景。
 
-## 3. GET /marketing/roster?page=1&size=50&sort=prob_desc
+## 3. GET /marketing/tasks?page=1&size=12&status=all
+
+```json
+{ "total": 8000, "population_total": 8000, "page": 1, "size": 12,
+  "counts": { "all": 8000, "pending": 7968, "follow_up": 8, "converted": 24 },
+  "official_target_customers": 2000, "model_covered_customers": 5031,
+  "unscored_customers": 2969, "coverage_rate": 0.628875,
+  "tasks": [ { "customer_id": "C000116", "vip_level": "钻石",
+    "risk_appetite": "R4", "aum": 1530000,
+    "official_target": true, "strategy_ready": true,
+    "strategy_source": "official_submission",
+    "strategy_id": "C000116:1", "product_id": "P001",
+    "product_name": "混合001号", "recommended_channel": "manager",
+    "recommended_time": "工作日09:00-12:00", "status": "follow_up",
+    "opportunity_score": 0.9401, "opportunity_product_id": "P006",
+    "opportunity_channel": "call", "model_contact_id": "KT..." } ] }
+```
+
+- `status`：`pending`（待联系）/ `follow_up`（已联系、等待购买回流）/ `converted`（任一 Top3 已响应）
+- `opportunity_score` 是该客户在 A1 触达集中的最高机会分，不是Top3产品概率；产品级复核调用 `/marketing/response/predict`
+- 主队列固定覆盖 `t_customer` 的8000位客户；2000位A2客户用 `official_target=true` 标识，不再作为主队列过滤条件
+- A1的8000是触达记录，实际覆盖5031位客户。其余2969位客户保留空分并排在末尾，不伪造概率；仍可按需在线计算Top3
+
+## 3a. GET /marketing/roster?page=1&size=50&sort=prob_desc
 
 ```json
 { "total": 8000, "page": 1, "size": 50,
@@ -77,18 +102,23 @@
 ## 4. GET /customers/C000010/strategies
 
 ```json
-{ "customer_id": "C000010", "strategy_date": "2026-04-15", "risk_appetite": "R2",
+{ "customer_id": "C000010", "strategy_date": "2026-04-15",
+  "official_target": true, "strategy_source": "official_submission", "risk_appetite": "R2",
+  "vip_level": "金卡", "aum": 1234567.0,
   "items": [ { "strategy_id": "C000010:1", "rank": 1, "product_id": "P012",
     "product_name": "混合012号", "recommended_channel": "manager",
     "recommended_time": "工作日09:00-12:00",
     "marketing_script": "尊敬的普通客户，基于您的风险偏好R2……",
+    "script_adjusted": true,
     "status": "待执行",
     "rule_trace": [ { "rule_id": "risk_match", "passed": true,
       "reason": "产品风险等级在客户偏好范围内" }, ... ] } ] }
 ```
 
 - `status` ∈ 待执行 / 已触达 / 已响应（由事件表推导）
+- A2客户始终读取 `partA_strategy.csv`；其他客户首次请求时在线生成3行并写入 `app_marketing_strategy`，后续请求和服务重启均复用该快照
 - `rule_trace` 是"推荐依据"区块的数据源：9 条规则的命中/拦截原因，逐条展示即可（合规性验收点）
+- `script_adjusted=true` 表示平台执行出口补齐了标准风险提示；赛事提交 CSV 保持不变
 
 ## 5. POST /campaign/events
 
@@ -111,20 +141,39 @@
 { "error": "购买日期 2026-07-01 超出归因窗口（2026-04-15 +30 天= 2026-05-15），不归因" }
 ```
 
+### POST /campaign/demo-holdings（演示新增持仓 + 自动归因）
+
+```json
+// 请求：必须先存在对应策略的 sent 事件
+{ "customer_id": "C000010", "product_id": "P012",
+  "buy_date": "2026-04-20", "amount": 50000 }
+
+// 成功（201）：持仓写入 app_demo_holding，responded 写入 app_campaign_event
+{ "demo": true,
+  "holding": { "holding_id": "SIM...", "customer_id": "C000010",
+    "product_id": "P012", "amount": 50000.0, "buy_date": "2026-04-20",
+    "attributed_strategy_id": "C000010:1" },
+  "event": { "strategy_id": "C000010:1", "event_type": "responded",
+    "attribution": "命中 Top3 第 1 位，窗口内购买，归因成功" },
+  "kpi_delta": { "responded": 1, "manager_conversion": 1 } }
+```
+
+重复模拟同一策略不会重复增加 KPI；原始 `t_holding`、ODS 和 DWD 持仓均不修改。
+
 ## 6. GET /dashboard/summary
 
 ```json
-{ "model_metrics": { "auc": 0.8618686098, "best_f1": 0.5950288727,
-    "lift_at_10_percent": 3.7375647707 },
+{ "model_metrics": { "auc": 0.882809, "best_f1": 0.618497,
+    "lift_at_10_percent": 4.004738 },
   "prediction_stats": { "total": 8000, "mean_prob": 0.1957,
     "high_intent": 476, "mid_intent": 1398, "low_intent": 6126 },
   "strategy_stats": { "rows": 6000, "customers": 2000,
     "channel_distribution": { "manager": 5136, "app_push": 642, "sms": 222 },
     "time_distribution": { "工作日09:00-12:00": 1560, ... } },
   "partb_stats": { "scenarios": 20, "total_utility": 0.61122985667 },
-  "funnel": { "stages": [ { "stage": "策略生成", "count": 6000 },
-      { "stage": "已触达", "count": 0 }, { "stage": "已响应", "count": 0 } ],
-    "pending": 6000 },
+  "funnel": { "stages": [ { "stage": "全量客户", "count": 8000 },
+      { "stage": "已触达客户", "count": 0 }, { "stage": "已响应客户", "count": 0 } ],
+    "pending": 8000 },
   "kpis": [ { "kpi_id": "manager_conversion",
       "label": "客户经理 MGR001 4月转化数", "target": 30, "actual": 0,
       "completion_rate": 0.0, "unit": "个" },
@@ -165,9 +214,26 @@
   "hard": true }, ...13 条 ] }
 ```
 
+## 9. POST /marketing/response/predict
+
+请求中的 `contact_date` 是严格 as-of 边界；在线服务读取五张 DWD 表，但与
+离线训练共享同一特征工程。
+
+```json
+{ "customer_id": "C000001", "product_id": "P002",
+  "channel": "manager", "contact_date": "2026-04-15" }
+```
+
+```json
+{ "probability": 0.283575, "decision": "MEDIUM",
+  "decision_label": "可纳入触达名单", "profile": "full",
+  "model_name": "lgbm_onehot", "as_of": "2026-04-15",
+  "reasons": ["channel_manager：模型整体增益占比 28.47%（全局重要性）"] }
+```
+
 ---
 
-## 9. 客户画像服务（原 backend/ 8000，已统一到 5001）
+## 10. 客户画像服务（原 backend/ 8000，已统一到 5001）
 
 | 方法与路径 | 用途 |
 |-----------|------|
@@ -178,14 +244,14 @@
 
 响应统一为 `{ "code": 0, "message": "success", "data": {...} }`；业务错误 `code` 为 400/404/502/503。前端 `shared/customer-api.ts` 默认指向 `http://127.0.0.1:5001`，`VITE_API_BASE_URL` 可覆盖。
 
-## 13. 可视化看板（`/api/v1/dashboard/*`，与队友骨架契约一致、数据已真实化）
+## 14. 可视化看板（`/api/v1/dashboard/*`，与队友骨架契约一致、数据已真实化）
 
 | 方法与路径 | 用途 |
 |-----------|------|
 | `GET /api/v1/dashboard/overview?scenario_id=` | 看板总览：业务指标（客户/AUM/历史触达/响应率）、风险分布、持仓类型分布、A1 指标（AUC/F1/Lift + 概率分箱）、A2 指标（覆盖/渠道分布）、营销漏斗（事件表口径）、组合配置（给 scenario_id 时实时求解） |
 | `GET /api/v1/dashboard/portfolio?scenario_id=` | 单场景组合：效用/波动/现金/约束/gap + 按产品类型聚合 + 明细权重 |
 
-AI 摘要（结构化）：`POST /api/v1/customers/<id>/ai-summary` 返回 `{analysis: {overview, insight, suggestion, highlights}, provider, model}`；配置 `DEEPSEEK_API_KEY` 走 DeepSeek（openai SDK），未配置自动回退本地规则模板。
+AI 摘要（结构化）：`POST /api/v1/customers/<id>/ai-summary` 返回 `{analysis: {overview, insight, suggestion, highlights}, provider, model}`；配置 `DEEPSEEK_API_KEY` 走 DeepSeek（openai SDK），未配置自动回退本地规则模板。DeepSeek 根据 Prompt 直接返回“画像概述、需求洞察、服务建议、高亮关键词”四行固定文本，不依赖模型接口的 JSON Output 功能；后端解析并校验后再按上述接口结构返回。
 
 ---
 

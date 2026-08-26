@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from src.marketing.generate import (
     StrategyGenerationError,
@@ -32,6 +33,33 @@ class MarketingGenerateTestCase(unittest.TestCase):
     def test_invalid_w_cf_raises(self):
         with self.assertRaises(ValueError):
             generate_customer_strategy("C000010", w_cf=2.0)
+
+    def test_live_predictor_scores_complete_product_pool(self):
+        class FakePredictor:
+            requests = []
+
+            def predict_batch(self, requests):
+                self.requests.extend(requests)
+                return [
+                    SimpleNamespace(
+                        product_id=request.product_id,
+                        probability=int(request.product_id[1:]) / 100,
+                    )
+                    for request in requests
+                ]
+
+        predictor = FakePredictor()
+        result = generate_customer_strategy(
+            "C000010",
+            response_predictor=predictor,
+        )
+
+        self.assertEqual(result["parameters"]["a1_source"], "mysql_serving")
+        self.assertEqual(
+            {request.product_id for request in predictor.requests},
+            {f"P{index:03d}" for index in range(1, 31)},
+        )
+        self.assertTrue(all(item["model_prob"] > 0 for item in result["items"]))
 
 
 if __name__ == "__main__":

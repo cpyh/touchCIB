@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from . import model_store
+from .data_source import A1DataSource
 from .feature_service import (
     FeatureAssemblyError,
     FeatureService,
@@ -80,6 +81,7 @@ class ResponsePredictor:
         profile: str = model_store.DEFAULT_PROFILE,
         model: str = "lr",
         models_root: str | None = None,
+        data_source: A1DataSource | None = None,
     ) -> None:
         """加载指定 profile 的模型。
 
@@ -99,6 +101,7 @@ class ResponsePredictor:
             prior=self.meta.prior,
             default_as_of=self.meta.as_of_date,
             history_cutoff=self.meta.history_cutoff,
+            data_source=data_source,
         )
 
     # ------------------------------------------------------------ 单条

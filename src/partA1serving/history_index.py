@@ -83,9 +83,14 @@ class HistoryIndex:
         events: pd.DataFrame,
         prior: float,
         label: str = "responded",
+        product_types: pd.Series | None = None,
     ) -> None:
         self.prior = float(prior)
-        self.ptype_map = H.load_product_types()
+        # 在线平台由数据源注入产品类型，避免 HistoryIndex 隐式回读 CSV。
+        # 保留默认加载仅用于兼容队友原有的独立调用方式。
+        self.ptype_map = (
+            product_types.copy() if product_types is not None else H.load_product_types()
+        )
 
         src = contacts.copy()
         src["_ptype"] = src["product_id"].map(self.ptype_map)

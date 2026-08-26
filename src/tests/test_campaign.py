@@ -4,9 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from src.campaign import (
     CampaignInputError,
+    _execution_script,
     create_responded_event,
     create_sent_event,
+    simulate_holding_purchase,
 )
+from src.marketing.templates import COMPLIANCE_NOTE
 
 
 class FakeCursor:
@@ -45,6 +48,25 @@ class CampaignEventTestCase(unittest.TestCase):
 
     def _top3_of_first_customer(self):
         return self.top3[self.customer_id]
+
+    def test_execution_script_adds_compliance_note_once(self):
+        script, adjusted = _execution_script(
+            "为您推荐稳健产品。理财非存款、产品有风险。"
+        )
+        self.assertTrue(adjusted)
+        self.assertTrue(script.endswith(COMPLIANCE_NOTE))
+        self.assertNotIn("理财非存款、产品有风险。", script)
+        self.assertLessEqual(len(script), 300)
+
+        unchanged, adjusted = _execution_script(script)
+        self.assertFalse(adjusted)
+        self.assertEqual(unchanged, script)
+
+    def test_execution_script_preserves_note_when_truncated(self):
+        script, adjusted = _execution_script("推荐说明" * 100)
+        self.assertTrue(adjusted)
+        self.assertLessEqual(len(script), 300)
+        self.assertTrue(script.endswith(COMPLIANCE_NOTE))
 
     @patch("src.campaign.database_connection")
     def test_sent_event_recorded(self, mock_db):
@@ -123,6 +145,80 @@ class CampaignEventTestCase(unittest.TestCase):
         self.assertEqual(event["event_type"], "responded")
         self.assertIn("attribution", event)
         self.assertIn("命中 Top3", event["attribution"])
+
+    @patch("src.campaign.database_connection")
+    def test_simulated_holding_drives_response_kpi(self, mock_db):
+        product_id = self._top3_of_first_customer()[0]
+        connection, cursor = fake_connection(
+            [
+                {"sent_count": 1, "responded_count": 0},
+                {"campaign_event_id": 3, "strategy_id": self.strategy_id,
+                 "event_type": "responded",
+                 "occurred_at": datetime(2026, 4, 20, 10, 0),
+                 "product_id": product_id, "amount": 50000.0,
+                 "created_at": datetime(2026, 4, 20, 10, 0)},
+                {"holding_id": "SIM1", "customer_id": self.customer_id,
+                 "product_id": product_id, "amount": 50000.0,
+                 "buy_date": date(2026, 4, 20),
+                 "attributed_strategy_id": self.strategy_id,
+                 "created_at": datetime(2026, 4, 20, 10, 0)},
+            ]
+        )
+        mock_db.return_value = connection
+
+        result = simulate_holding_purchase(
+            customer_id=self.customer_id,
+            product_id=product_id,
+            buy_date=date(2026, 4, 20),
+            amount=50000.0,
+        )
+
+        self.assertTrue(result["demo"])
+        self.assertEqual(result["kpi_delta"]["responded"], 1)
+        self.assertEqual(result["event"]["event_type"], "responded")
+        self.assertEqual(result["holding"]["customer_id"], self.customer_id)
+        self.assertTrue(
+            any("INSERT INTO app_demo_holding" in sql for sql in cursor.statements)
+        )
+        self.assertTrue(connection.commit.called)
+
+    @patch("src.campaign.database_connection")
+    def test_simulated_holding_requires_sent_event(self, mock_db):
+        connection, cursor = fake_connection(
+            [{"sent_count": 0, "responded_count": 0}]
+        )
+        mock_db.return_value = connection
+
+        with self.assertRaisesRegex(CampaignInputError, "先标记已触达"):
+            simulate_holding_purchase(
+                customer_id=self.customer_id,
+                product_id=self._top3_of_first_customer()[0],
+                buy_date=date(2026, 4, 20),
+            )
+
+        self.assertFalse(
+            any("INSERT INTO app_demo_holding" in sql for sql in cursor.statements)
+        )
+        self.assertTrue(connection.rollback.called)
+
+    @patch("src.campaign.database_connection")
+    def test_simulated_holding_does_not_increment_twice(self, mock_db):
+        connection, cursor = fake_connection(
+            [{"sent_count": 1, "responded_count": 1}]
+        )
+        mock_db.return_value = connection
+
+        with self.assertRaisesRegex(CampaignInputError, "不会再次增加 KPI"):
+            simulate_holding_purchase(
+                customer_id=self.customer_id,
+                product_id=self._top3_of_first_customer()[0],
+                buy_date=date(2026, 4, 20),
+            )
+
+        self.assertFalse(
+            any("INSERT INTO app_demo_holding" in sql for sql in cursor.statements)
+        )
+        self.assertTrue(connection.rollback.called)
 
 
 if __name__ == "__main__":

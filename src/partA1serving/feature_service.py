@@ -28,6 +28,7 @@ import pandas as pd
 from . import config
 from . import features_a1 as F
 from . import features_history as H
+from .data_source import A1DataSource, CsvDataSource
 from .history_index import HistoryIndex
 
 # 新客进件时必须由调用方提供的客户画像字段
@@ -95,31 +96,37 @@ class FeatureService:
         prior: float,
         default_as_of: str,
         history_cutoff: str | None = None,
+        data_source: A1DataSource | None = None,
     ) -> None:
         self.prior = float(prior)
         self.default_as_of = pd.Timestamp(default_as_of)
         self.history_cutoff = pd.Timestamp(history_cutoff) if history_cutoff else None
 
-        # 参考数据一次性载入内存
-        self.customer, self.product = F.load_base_tables()
-        all_contacts = F.load_train_contacts()
-        self.holding = H.load_holding()
-        self.events = H.load_events()
-
-        # 历史触达按 cutoff 截断（严格小于），避免演示时看到未来标签
-        if self.history_cutoff is not None:
-            self.contacts = all_contacts.loc[
-                all_contacts["contact_date"] < self.history_cutoff
-            ].reset_index(drop=True)
-        else:
-            self.contacts = all_contacts
+        # 参考数据一次性载入内存。默认保留 CSV 行为，Flask 平台显式注入 DWD 数据源。
+        self.data_source = data_source or CsvDataSource()
+        bundle = self.data_source.load(history_cutoff=history_cutoff)
+        self.customer = bundle.customers
+        self.product = bundle.products
+        self.contacts = bundle.campaigns
+        self.holding = bundle.holdings
+        self.events = bundle.events
 
         self._customer_index = self.customer.set_index("customer_id")
         self._product_ids = set(self.product["product_id"])
         self._known_customers = set(self.customer["customer_id"])
 
         # 历史特征索引：启动时预建，把单条查询从 O(全表) 降到 O(log n)
-        self.history = HistoryIndex(self.contacts, self.holding, self.events, prior=self.prior)
+        product_types = pd.Series(
+            self.product["product_type"].to_numpy(),
+            index=self.product["product_id"],
+        )
+        self.history = HistoryIndex(
+            self.contacts,
+            self.holding,
+            self.events,
+            prior=self.prior,
+            product_types=product_types,
+        )
         self._history_columns = H.get_history_columns()
 
     # ------------------------------------------------------------ 校验

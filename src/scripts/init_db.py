@@ -210,6 +210,7 @@ def initialize_schema(database: str) -> None:
             for statement in sql_statements(SCHEMA_FILE.read_text(encoding="utf-8")):
                 cursor.execute(statement)
             _migrate_ai_summary_columns(cursor)
+            _migrate_campaign_event_response_dedupe(cursor)
         finally:
             cursor.close()
     finally:
@@ -239,6 +240,43 @@ def _migrate_ai_summary_columns(cursor) -> None:
         )
         if int(cursor.fetchone()[0]) == 0:
             cursor.execute(statement)
+
+
+def _migrate_campaign_event_response_dedupe(cursor) -> None:
+    """幂等迁移：数据库级保证同一策略只归因一次，sent事件仍可追加。"""
+    cursor.execute(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_campaign_event' "
+        "AND COLUMN_NAME = 'responded_strategy_id'"
+    )
+    if int(cursor.fetchone()[0]) == 0:
+        cursor.execute(
+            "ALTER TABLE app_campaign_event ADD COLUMN responded_strategy_id "
+            "VARCHAR(64) GENERATED ALWAYS AS (CASE WHEN event_type = 'responded' "
+            "THEN strategy_id ELSE NULL END) STORED "
+            "COMMENT '仅响应事件参与唯一约束，sent仍保持append-only' AFTER amount"
+        )
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_campaign_event' "
+        "AND INDEX_NAME = 'uk_campaign_event_responded_strategy'"
+    )
+    if int(cursor.fetchone()[0]) == 0:
+        cursor.execute(
+            "SELECT strategy_id FROM app_campaign_event "
+            "WHERE event_type = 'responded' GROUP BY strategy_id "
+            "HAVING COUNT(*) > 1 LIMIT 1"
+        )
+        duplicate = cursor.fetchone()
+        if duplicate is not None:
+            raise RuntimeError(
+                "app_campaign_event已有重复responded事件，请先清理后再创建唯一约束"
+            )
+        cursor.execute(
+            "ALTER TABLE app_campaign_event ADD UNIQUE KEY "
+            "uk_campaign_event_responded_strategy (responded_strategy_id)"
+        )
 
 
 def rebuild_customer_360(database: str) -> None:

@@ -11,18 +11,17 @@ touchCIB/                        # 提交时改名此目录
 ├── partB_allocation.csv         # Part B 配置方案（scenario_id, product_id, weight）
 ├── src/                         # 全部开发代码
 │   ├── app.py                   # Flask 服务入口
-│   ├── a1_features.py           # A1 训练/推理共用 as-of 特征
-│   ├── a1_inference.py          # A1 批量推理、解释与提交文件
+│   ├── partA1serving/           # A1特征、LR/LGBM训练、模型工件与在线推理
 │   ├── customer.py              # 客户画像查询
 │   ├── database.py              # MySQL 连接
 │   ├── portfolio.py             # 组合优化适配器
 │   ├── scenario.py              # 组合优化场景配置
 │   ├── marketing/               # A2 规则/流程引擎（13 规则 + 两阶段流水线 + 协同过滤）
 │   ├── algorithms/              # 离线算法核心库（Part B 凸优化求解器）
-│   ├── pipelines/               # CLI 批量入口（A1 训练 / Part B 求解）
+│   ├── pipelines/               # CLI 批量入口（run_all 一键编排 / A1 训练 / Part B 求解）
 │   ├── scripts/                 # 数据库初始化、提交前校验
 │   ├── sql/                     # ODS/DWD/DWS/ADS 建表与质量检查 SQL
-│   ├── tests/                   # 单元测试（55 个）
+│   ├── tests/                   # 单元测试（持续随功能补充）
 │   ├── data/raw/                # 官方输入数据（5 主表 + Part A/B 任务输入）
 │   └── docs/                    # 架构与设计文档
 ├── frontend/                    # 前端源码
@@ -63,23 +62,24 @@ partB_scenarios.csv  partB_corr_matrix.csv
 
 ## 复现 A1 营销响应预测
 
-训练 Logistic Regression 基线并执行时间留出验证（cutoff 2026-01-14）：
+训练队友提供的 demo/full 两套 LightGBM 模型；demo 用于时间留出验证，full
+使用全部历史训练数据：
 
 ```bash
-python -m src.pipelines.train_a1_baseline
+python -m src.partA1serving.training.train_and_save \
+  --profile all --model lgbm_onehot
 ```
 
-使用 CSV 数据源推理并重新生成正式文件：
+使用同一套特征工程重新训练全量模型并生成正式文件：
 
 ```bash
-python -m src.a1_inference \
-  --source csv \
-  --output partA_prediction.csv \
-  --audit-output src/data/outputs/a1_prediction_audit.csv
+python -m src.partA1serving.training.predict \
+  --model lgbm_onehot --out partA_prediction.csv
 ```
 
 A1 特征严格使用早于对应 `contact_date` 的持仓、行为和历史触达数据
-（不含同日）。
+（不含同日）。离线训练读取官方 CSV；Flask 在线预测读取 MySQL DWD，二者
+共享同一特征装配与历史索引，避免训练/服务口径漂移。
 
 ## 复现 A2 营销策略生成
 
@@ -109,9 +109,21 @@ python -m src.pipelines.solve_partB \
 求解器（凸化 + SLSQP 多起点 + KKT 精修 + 切平面上界证书）在写出后
 重新读取正式 CSV，校验 20 个场景的全部硬约束，并输出最优性审计。
 
+## 一键复现（run_all）
+
+进数 → 质量门禁（90 个单元测试）→ A1 → A2 → Part B → 三 CSV 红线校验，
+任何一步失败立即中止：
+
+```bash
+python -m src.pipelines.run_all                        # A1 默认使用LGBM重训
+python -m src.pipelines.run_all \
+  --model src/data/outputs/a1_final.joblib             # A1 用提交模型 artifact
+python -m src.pipelines.run_all --with-demo            # 追加：日批缓存 + 演示事件预置
+```
+
 ## 提交前校验
 
-一键校验三份正式 CSV 与题目红线的一致性：
+单跑三份正式 CSV 的红线校验：
 
 ```bash
 python -m src.scripts.check_submission
@@ -124,8 +136,8 @@ python -m src.scripts.check_submission
 ```bash
 cp .env.example .env
 python -m src.scripts.init_db
-python -m src.a1_inference --source mysql --persist-db \
-  --output partA_prediction.csv
+python -m src.scripts.build_daily_roster          # 历史回放日批缓存
+python -m src.scripts.seed_demo_events --reset    # 演示事件：30 触达 / 22 响应
 python -m src.app
 ```
 
@@ -134,6 +146,35 @@ python -m src.app
 ```bash
 curl http://127.0.0.1:5001/health
 ```
+
+已有数据库升级代码后只需补建新表与幂等约束，不会重导ODS：
+
+```bash
+python -m src.scripts.init_db --schema-only
+```
+
+营销工作台以8000位客户为全量机会池，按A1最高机会分排序。赛事指定的
+2000位A2客户直接读取正式 `partA_strategy.csv`；其他客户首次打开时在线
+生成Top3并冻结到 `app_marketing_strategy`，随后执行、归因和服务重启均复用
+同一快照。A2标识只区分正式提交范围，不限制客户经理选择客户。
+
+A1数据库在线推理：
+
+```bash
+curl -X POST http://127.0.0.1:5001/marketing/response/predict \
+  -H 'Content-Type: application/json' \
+  -d '{"customer_id":"C000001","product_id":"P002","channel":"manager","contact_date":"2026-04-15"}'
+```
+
+前端（Next.js，开发端口 3000）：
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+演示动作（docs/demo-design.md §5.2）：
+改参数重算（Tab2/Tab3）、标记已触达/已响应看状态与 KPI 变化
+（经理转化 22/30 → 23/30）、Tab3 切换历史回放日期看日批排名变动。
 
 ## 测试
 
