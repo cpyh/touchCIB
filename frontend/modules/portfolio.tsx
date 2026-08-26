@@ -132,9 +132,11 @@ const allocationColors = ["#123f6b", "#286b9f", "#5a91b8", "#d39b36", "#7b8fa3",
 export function PortfolioPage({
   initialCustomerId,
   notify,
+  onOpenMarketing,
 }: {
   initialCustomerId?: string;
   notify: (message: string) => void;
+  onOpenMarketing?: (customerId: string) => void;
 }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [scenarioId, setScenarioId] = useState("S01");
@@ -730,6 +732,13 @@ export function PortfolioPage({
                     </>
                   ) : (
                     <div className="inline-empty">业务可执行层暂不可用，理论最优方案不受影响。</div>
+                  )}
+
+                  {customer && onOpenMarketing && (
+                    <div className="portfolio-handoff">
+                      <span><b>投后衔接</b>方案可执行后，营销工作台负责把推荐落地为触达动作。</span>
+                      <button className="secondary" onClick={() => onOpenMarketing(customer.customer_id)}>查看该客户营销策略 →</button>
+                    </div>
                   )}
                 </div>
               )}

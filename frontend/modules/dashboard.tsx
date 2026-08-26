@@ -331,23 +331,23 @@ export function DashboardPage({
 
         <div className="funnel-panel">
           <div className="funnel-stage s1" style={{ width: "100%" }}>
-            <span>全量客户</span><b>8,000</b>
+            <span>全量客户</span><b>{formatNumber(dashboard.marketing_funnel?.target_customer_count)}</b>
           </div>
           <em className="funnel-rate">↓ 触达率 {(() => {
             const target = dashboard.marketing_funnel?.target_customer_count ?? 0;
             const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
-            return target ? `${(contacted / target * 100).toFixed(1)}%` : "—";
+            return target ? percent(contacted / target) : "—";
           })()}</em>
           <div className="funnel-stage s2" style={{ width: "26%" }}>
-            <span>已触达客户</span><b>{dashboard.marketing_funnel?.contacted_customer_count ?? "—"}</b>
+            <span>已触达客户</span><b>{formatNumber(dashboard.marketing_funnel?.contacted_customer_count)}</b>
           </div>
           <em className="funnel-rate">↓ 响应率 {(() => {
             const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
             const responded = dashboard.marketing_funnel?.responded_customer_count ?? 0;
-            return contacted ? `${(responded / contacted * 100).toFixed(1)}%` : "—";
+            return contacted ? percent(responded / contacted) : "—";
           })()}</em>
           <div className="funnel-stage s3" style={{ width: "20%" }}>
-            <span>已响应客户</span><b>{dashboard.marketing_funnel?.responded_customer_count ?? "—"}</b>
+            <span>已响应客户</span><b>{formatNumber(dashboard.marketing_funnel?.responded_customer_count)}</b>
           </div>
         </div>
       </section>
@@ -546,7 +546,7 @@ export function DashboardPage({
             <div className="reference-fact">
               <span>历史渠道平均响应率</span>
               <strong>{percent(business.historical_response_rate)}</strong>
-              <small>来自 5 万条历史触达训练样本</small>
+              <small>来自 {formatNumber(business.historical_contact_count)} 条历史触达训练样本</small>
             </div>
             <span className="action-hint">经理渠道明显领先，后续批次建议继续倾斜</span>
           </article>
@@ -560,8 +560,8 @@ export function DashboardPage({
             </div>
             <div className="reference-fact">
               <span>Part B 组合优化</span>
-              <strong>{portfolioSummary?.constraints_passed_count ?? "—"}/{portfolioSummary?.scenario_count ?? "—"} 场景约束通过</strong>
-              <small>最优性 gap ≈ 1e-18（切平面上界证书）</small>
+              <strong>{formatNumber(portfolioSummary?.constraints_passed_count)} / {formatNumber(portfolioSummary?.scenario_count)} 场景约束通过</strong>
+              <small>最大最优性 gap {portfolioSummary?.max_optimality_gap == null ? "—" : portfolioSummary.max_optimality_gap.toExponential(1)}（切平面上界证书）</small>
             </div>
             <button className="secondary" onClick={() => onOpenPortfolio?.("")}>去投顾演示最优性证书 →</button>
           </article>

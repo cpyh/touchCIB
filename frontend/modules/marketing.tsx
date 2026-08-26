@@ -194,6 +194,7 @@ interface MarketingPageProps {
   initialCustomerId: string;
   initialCohort?: "all" | "expiry";
   onOpenCustomer: (customerId: string) => void;
+  onOpenDashboard?: () => void;
   notify: (message: string) => void;
 }
 
@@ -201,6 +202,7 @@ export function MarketingPage({
   initialCustomerId,
   initialCohort,
   onOpenCustomer,
+  onOpenDashboard,
   notify,
 }: MarketingPageProps) {
   const [tasks, setTasks] = useState<MarketingTask[]>([]);
@@ -722,6 +724,9 @@ export function MarketingPage({
         <div className="manager-head-actions">
           <button onClick={openOpportunityPool}><span><b>机会客户池</b><small>查看 A1 排序</small></span><i>›</i></button>
           <button onClick={() => setDrawer("model")}><span><b>模型证据</b><small>口径与数据链路</small></span><i>›</i></button>
+          {onOpenDashboard && (
+            <button onClick={onOpenDashboard}><span><b>去看板复盘</b><small>目标与机会全貌</small></span><i>›</i></button>
+          )}
         </div>
       </header>
 
@@ -1140,7 +1145,7 @@ export function MarketingPage({
             {drawer === "lab" && (
               <div className="lab-drawer-body">
                 <div className="lab-controls">
-                  <label>客户经理配额 <b>{quota}</b><input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setQuota(Number(event.target.value)); }} /></label>
+                  <label>客户经理配额 <b>{formatNumber(quota)}</b><input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setQuota(Number(event.target.value)); }} /></label>
                   <button disabled={generating || !strategyCustomerId} onClick={() => void regenerate()}>{generating ? "模型计算中…" : "运行实时策略"}</button>
                 </div>
                 {generated ? (

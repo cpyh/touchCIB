@@ -342,3 +342,9 @@
 .chat-foot{display:flex;gap:8px;padding:10px 0 8px;border-top:1px solid #e5eaee}
 .chat-foot input{flex:1;height:36px;padding:0 11px;border:1px solid #ccd9e2;border-radius:7px;background:#fbfcfd;color:#20394d;font-size:12px}
 .chat-foot .primary{min-height:36px;padding:0 14px;font-size:11px}
+
+/* 投后衔接条（投顾→营销） */
+.portfolio-handoff{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:11px 13px;border:1px solid #dce7f0;border-left-width:4px;border-left-color:var(--blue);border-radius:8px;background:#f5f9fc}
+.portfolio-handoff span{color:#5d7181;font-size:10px}
+.portfolio-handoff b{color:var(--navy2);margin-right:6px}
+.portfolio-handoff .secondary{min-height:30px;padding:5px 11px;font-size:9px;white-space:nowrap}

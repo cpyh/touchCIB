@@ -53,11 +53,11 @@ const occupations = ["专业技术", "个体经营", "企业职员", "公务员"
 const incomeLevels = ["10万以下", "10-30万", "30-50万", "50万以上"];
 
 const dataSources = [
-  ["客", "客户数据", "8,000"],
-  ["产", "产品数据", "30"],
-  ["持", "持仓数据", "8,579"],
-  ["行", "行为数据", "13,142"],
-  ["营", "营销数据", "50,000"],
+  ["客", "客户数据", 8_000],
+  ["产", "产品数据", 30],
+  ["持", "持仓数据", 8_579],
+  ["行", "行为数据", 13_142],
+  ["营", "营销数据", 50_000],
 ] as const;
 
 type CustomerTab = "overview" | "holding" | "behavior";
@@ -276,7 +276,7 @@ export function CustomerPage(props: CustomerPageProps) {
   const asset = profile?.asset_profile;
   const behavior = profile?.behavior_profile;
   const sourceCounts = useMemo(
-    () => dataSources.map((source, index) => index === 0 && total > 0 ? [source[0], source[1], formatNumber(total)] : source),
+    () => dataSources.map((source, index) => index === 0 && total > 0 ? [source[0], source[1], total] : source),
     [total],
   );
 
@@ -358,7 +358,7 @@ export function CustomerPage(props: CustomerPageProps) {
 
     <section className="card block">
       <div className="section-head"><div><h2>数据总览</h2><p>客户模块已切换为 Flask API 实时读取，其他数据源展示数据库导入规模。</p></div>{listError ? <StatusPill warn>接口连接失败</StatusPill> : <StatusPill>{listLoading ? "正在连接接口" : "实时接口已连接"}</StatusPill>}</div>
-      <div className="source-grid">{sourceCounts.map((source, index) => <article className="source" key={source[1]}><b className={`s${index}`}>{source[0]}</b><span><strong>{source[1]}</strong><em>{source[2]} <small>条记录</small></em><StatusPill warn={index > 0}>{index === 0 ? "API实时读取" : "数据库已导入"}</StatusPill></span></article>)}</div>
+      <div className="source-grid">{sourceCounts.map((source, index) => <article className="source" key={source[1]}><b className={`s${index}`}>{source[0]}</b><span><strong>{source[1]}</strong><em>{formatNumber(source[2])} <small>条记录</small></em><StatusPill warn={index > 0}>{index === 0 ? "API实时读取" : "数据库已导入"}</StatusPill></span></article>)}</div>
     </section>
 
     <section className="card block customer-records">
@@ -379,7 +379,7 @@ export function CustomerPage(props: CustomerPageProps) {
           {listLoading && <div className="table-loading">正在从客户画像服务读取数据…</div>}
           {!listLoading && items.length === 0 && <div className="empty-result"><b>未找到匹配客户</b><span>请缩短关键词或重置筛选条件。</span></div>}
         </div>}
-        {!listError && <div className="customer-pagination"><span>每页 {PAGE_SIZE} 条 · 共 {totalPages} 页</span><nav aria-label="客户列表分页"><button aria-label="上一页" disabled={page <= 1 || listLoading} onClick={() => goToPage(page - 1)}>‹</button>{visiblePages.map((item, index) => item === "ellipsis" ? <i className="pagination-ellipsis" key={`ellipsis-${index}`}>…</i> : <button key={item} className={page === item ? "on" : ""} aria-current={page === item ? "page" : undefined} disabled={listLoading} onClick={() => goToPage(item)}>{item}</button>)}<button aria-label="下一页" disabled={page >= totalPages || listLoading} onClick={() => goToPage(page + 1)}>›</button></nav></div>}
+        {!listError && <div className="customer-pagination"><span>每页 {formatNumber(PAGE_SIZE)} 条 · 共 {formatNumber(totalPages)} 页</span><nav aria-label="客户列表分页"><button aria-label="上一页" disabled={page <= 1 || listLoading} onClick={() => goToPage(page - 1)}>‹</button>{visiblePages.map((item, index) => item === "ellipsis" ? <i className="pagination-ellipsis" key={`ellipsis-${index}`}>…</i> : <button key={item} className={page === item ? "on" : ""} aria-current={page === item ? "page" : undefined} disabled={listLoading} onClick={() => goToPage(item)}>{formatNumber(item)}</button>)}<button aria-label="下一页" disabled={page >= totalPages || listLoading} onClick={() => goToPage(page + 1)}>›</button></nav></div>}
       </>}
 
       {selectedId && <>

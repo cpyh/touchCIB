@@ -134,7 +134,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
                 <small className="home-action-kicker">03 · 到期经营</small>
                 <header><b>资金到期跟进</b><span>再配置机会</span></header>
                 <strong>{formatNumber(expiry.holding_count)}<i>笔</i><em>{formatNumber(expiry.customer_count)} 位客户</em></strong>
-                <p>{expiry.window_days} 天内 {compactMoney(expiry.amount)} 到期，建议提前完成再配置沟通</p>
+                <p>{formatNumber(expiry.window_days)} 天内 {compactMoney(expiry.amount)} 到期，建议提前完成再配置沟通</p>
                 <button className="primary" onClick={() => onOpenExpiry(expiry.items[0]?.customer_id ?? "")}>进入到期名单 <i>→</i></button>
               </article>
             )}
