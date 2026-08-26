@@ -1,4 +1,4 @@
-const API_BASE =
+export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:5001";
 
 /** 调用 Flask 接口，并把后端 error 字段转换成页面可读错误。 */

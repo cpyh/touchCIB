@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../shared/api";
+import { api, API_BASE } from "../shared/api";
 import { money } from "../shared/format";
 import { Metric, Status, riskNames } from "../shared/ui";
 
@@ -349,9 +349,11 @@ export function PortfolioPage({
   async function loadAiAnalysis() {
     if (!result || aiLoading) return;
     setAiLoading(true);
+    setAiText("");
     try {
-      const data = await api<{ text: string }>("/portfolio/ai-analysis", {
+      const response = await fetch(`${API_BASE}/portfolio/ai-analysis/stream`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customer: customer ? { risk_appetite: customer.risk_appetite, aum: customer.aum } : null,
           summary: result.summary,
@@ -361,9 +363,28 @@ export function PortfolioPage({
           marketing_prob: null,
         }),
       });
-      setAiText(data.text);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("浏览器不支持流式读取");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let split;
+        while ((split = buffer.indexOf("\n\n")) >= 0) {
+          const raw = buffer.slice(0, split);
+          buffer = buffer.slice(split + 2);
+          for (const line of raw.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            const data = JSON.parse(line.slice(6));
+            if (data.delta) setAiText((prev) => (prev ?? "") + data.delta);
+            else if (data.error) notify(`AI 解读失败：${data.error}`);
+          }
+        }
+      }
     } catch (error) {
-      setAiText(null);
+      if (!aiText) setAiText(null);
       notify(`AI 解读生成失败：${(error as Error).message}`);
     } finally {
       setAiLoading(false);
@@ -660,7 +681,7 @@ export function PortfolioPage({
                     <div>
                       <small>AI ANALYSIS</small>
                       <h3>AI 组合解读</h3>
-                      <p>{aiLoading ? "AI 正在分析组合方案…" : (aiText || explanation)}</p>
+                      <p>{aiLoading ? (aiText ? `${aiText}▍` : "AI 正在分析组合方案…") : (aiText || explanation)}</p>
                     </div>
                     <Status>{aiLoading ? "生成中" : "DeepSeek 实时解读"}</Status>
                   </section>

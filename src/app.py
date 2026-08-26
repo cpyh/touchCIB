@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 from .campaign import (
     CampaignInputError,
@@ -34,6 +34,7 @@ from .portfolio import (
     generate_ai_analysis,
     list_portfolio_scenarios,
     optimize_portfolio,
+    stream_ai_analysis,
 )
 
 
@@ -100,6 +101,29 @@ def portfolio_ai_analysis():
         return jsonify(text=generate_ai_analysis(payload))
     except (RuntimeError, ValueError) as exc:
         return jsonify(error=f"portfolio AI analysis failed: {exc}"), 503
+
+
+@app.post("/portfolio/ai-analysis/stream")
+def portfolio_ai_analysis_stream():
+    """组合方案 AI 解读（SSE 流式输出）。"""
+    import json as _json
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="request body must be a JSON object"), 400
+
+    def generate():
+        try:
+            for delta in stream_ai_analysis(payload):
+                yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+        except (RuntimeError, ValueError) as exc:
+            yield f"data: {_json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/portfolio/scenarios")
