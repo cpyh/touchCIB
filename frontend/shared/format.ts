@@ -27,7 +27,9 @@ export function percent(
   value: number | null | undefined,
   digits = 1
 ): string {
-  return value == null ? "—" : `${(value * 100).toFixed(digits)}%`;
+  return value == null
+    ? "—"
+    : `${formatNumber(value * 100, digits, digits)}%`;
 }
 
 export function compactMoney(value: number | null | undefined): string {
@@ -57,7 +59,7 @@ export function metric(
   value: number | null | undefined,
   digits = 3
 ): string {
-  return value == null ? "—" : value.toFixed(digits);
+  return formatNumber(value, digits, digits);
 }
 
 export function formatTime(value: string | null | undefined): string {

@@ -454,7 +454,7 @@ export function PortfolioPage({
         const gapText = summary.optimality_gap <= 1e-8
           ? "接近0"
           : `为${summary.optimality_gap.toExponential(1)}`;
-        return `${clientText}λ=${metric(result.scenario.risk_aversion, 2)}，${riskTone}；${leadText}高风险仓位仍有${percent(highRiskRoom)}个百分点余量，流动性高于下限${percent(liquidRoom)}个百分点，最优性gap${gapText}。`;
+        return `${clientText}λ=${metric(result.scenario.risk_aversion, 2)}，${riskTone}；${leadText}高风险仓位仍有 ${formatNumber(highRiskRoom * 100, 1, 1)} 个百分点余量，流动性高于下限 ${formatNumber(liquidRoom * 100, 1, 1)} 个百分点，最优性 gap ${gapText}。`;
       })()
     : "";
   const parameterStatus = parameterSource === "customer" && customer

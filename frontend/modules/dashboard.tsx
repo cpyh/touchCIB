@@ -302,32 +302,53 @@ export function DashboardPage({
           description="本批营销活动的规模、触达、转化与机会，一屏总览。"
         />
         <div className="campaign-kpis">
-          <article className="gold"><small>策略规模</small><strong>{(
-            dashboard.action_items?.touch?.total_strategies ?? 0
-          ).toLocaleString()}</strong><span>策略单元</span></article>
+          <article className="gold"><small>策略规模</small><strong>{formatNumber(
+            dashboard.action_items?.touch?.total_strategies
+          )}</strong><span>条策略</span></article>
           <article><small>已触达客户</small><strong>{
-            dashboard.marketing_funnel?.contacted_customer_count?.toLocaleString() ?? "—"
-          }</strong><span>全量 8,000 位</span></article>
+            formatNumber(dashboard.marketing_funnel?.contacted_customer_count)
+          }</strong><span>全量 {formatNumber(business.customer_count)} 位</span></article>
           <article><small>已响应客户</small><strong>{
-            dashboard.marketing_funnel?.responded_customer_count?.toLocaleString() ?? "—"
+            formatNumber(dashboard.marketing_funnel?.responded_customer_count)
           }</strong><span>归因口径</span></article>
           <article><small>触达后响应率</small><strong>{
             dashboard.marketing_funnel?.contacted_customer_count
-              ? `${(
+              ? percent(
                   (dashboard.marketing_funnel.responded_customer_count ?? 0)
                   / dashboard.marketing_funnel.contacted_customer_count
-                  * 100
-                ).toFixed(1)}%`
+                )
               : "—"
           }</strong><span>客户口径</span></article>
           <article><small>高意向潜力</small><strong>{
-            dashboard.opportunity?.golden.expected_responses?.toLocaleString() ?? "—"
+            formatNumber(dashboard.opportunity?.golden.expected_responses)
           }</strong><span>潜在响应客户</span></article>
           <article><small>到期资金</small><strong>{
             dashboard.expiry_warning?.available
               ? compactMoney(dashboard.expiry_warning.amount)
               : "—"
           }</strong><span>30 天内到期</span></article>
+        </div>
+
+        <div className="funnel-panel">
+          <div className="funnel-stage s1" style={{ width: "100%" }}>
+            <span>全量客户</span><b>8,000</b>
+          </div>
+          <em className="funnel-rate">↓ 触达率 {(() => {
+            const target = dashboard.marketing_funnel?.target_customer_count ?? 0;
+            const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
+            return target ? `${(contacted / target * 100).toFixed(1)}%` : "—";
+          })()}</em>
+          <div className="funnel-stage s2" style={{ width: "26%" }}>
+            <span>已触达客户</span><b>{dashboard.marketing_funnel?.contacted_customer_count ?? "—"}</b>
+          </div>
+          <em className="funnel-rate">↓ 响应率 {(() => {
+            const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
+            const responded = dashboard.marketing_funnel?.responded_customer_count ?? 0;
+            return contacted ? `${(responded / contacted * 100).toFixed(1)}%` : "—";
+          })()}</em>
+          <div className="funnel-stage s3" style={{ width: "20%" }}>
+            <span>已响应客户</span><b>{dashboard.marketing_funnel?.responded_customer_count ?? "—"}</b>
+          </div>
         </div>
       </section>
 

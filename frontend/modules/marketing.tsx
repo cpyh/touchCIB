@@ -1061,7 +1061,7 @@ export function MarketingPage({
               </div>
 
               <div className={lastSimulation?.kpi_delta.manager_conversion ? "personal-kpi changed" : "personal-kpi"}>
-                <span><small>我的本月转化</small><strong>{eventServiceAvailable ? managerKpi?.actual ?? "—" : "—"} / {managerKpi?.target ?? 30}</strong></span>
+                <span><small>我的本月转化</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"} / {formatNumber(managerKpi?.target ?? 30)}</strong></span>
                 <i><b style={{ width: `${eventServiceAvailable ? Math.min(100, ((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30)) * 100) : 0}%` }} /></i>
                 <em>{lastSimulation?.kpi_delta.manager_conversion ? "本次归因 +1" : eventServiceAvailable ? `完成率 ${percent((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30), 0)}` : "事件服务暂不可用"}</em>
               </div>
@@ -1128,8 +1128,8 @@ export function MarketingPage({
                   {[
                     ["ODS/DWD业务数据", "客户、产品、持仓、行为、历史触达"],
                     ["严格时间截断", "所有特征严格早于 contact_date / strategy_date"],
-                    ["A1响应预测", "8000条触达记录生成认购概率"],
-                    ["统一策略服务", "A2 2000人读取正式Top3，其余客户按需生成并冻结"],
+                    ["A1 响应预测", "8,000 条触达记录生成认购概率"],
+                    ["统一策略服务", "A2 2,000 人读取正式 Top3，其余客户按需生成并冻结"],
                     ["客户经理任务", "策略下钻、联系执行、自动归因与KPI"],
                   ].map((item, index) => <article key={item[0]}><b>{index + 1}</b><span><strong>{item[0]}</strong><small>{item[1]}</small></span>{index < 4 && <i>→</i>}</article>)}
                 </div>
@@ -1151,7 +1151,7 @@ export function MarketingPage({
                       const after = generated.items.find((item) => item.rank === rank);
                       if (!after) return null;
                       const changed = before?.product_id !== after.product_id;
-                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{after.ltr_score != null ? after.ltr_score.toFixed(3) : percent(after.model_prob)}<small>{after.ltr_score != null ? "LTR分" : "A1概率"}</small></em></article>;
+                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{after.ltr_score != null ? metric(after.ltr_score, 3) : percent(after.model_prob)}<small>{after.ltr_score != null ? "LTR 分" : "A1 概率"}</small></em></article>;
                     })}
                     <p>产品排序 = LTR 学习排序模型分（回退 A1 概率）；渠道、时段和话术再由规则引擎回验。</p>
                   </div>
@@ -1169,7 +1169,7 @@ export function MarketingPage({
             <div className="simulation-product"><b>TOP {selectedStrategy.rank}</b><span><strong>{selectedStrategy.product_name}</strong><small>{selectedStrategy.product_id} · 将进入自动归因规则</small></span></div>
             <label>购买日期<input type="date" value={simulationDate} onChange={(event) => setSimulationDate(event.target.value)} /></label>
             <label>购买金额<input type="number" min="1" step="1000" value={simulationAmount} onChange={(event) => setSimulationAmount(Number(event.target.value))} /></label>
-            <p>模拟记录只写入演示持仓表，不修改赛事原始持仓数据。命中Top3且处于30天窗口内时，客户经理KPI才会增加。</p>
+            <p>模拟记录只写入演示持仓表，不修改赛事原始持仓数据。命中 Top3 且处于 30 天窗口内时，客户经理 KPI 才会增加。</p>
             <footer><button onClick={() => setShowSimulation(false)}>取消</button><button className="primary" disabled={busy} onClick={() => void simulateHolding()}>{busy ? "正在归因…" : "确认回传并自动归因"}</button></footer>
           </section>
         </div>
