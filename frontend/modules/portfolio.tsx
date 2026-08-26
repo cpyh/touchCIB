@@ -672,8 +672,10 @@ export function PortfolioPage({
                   </div>
                   <div className="chat-body">
                     {chatMessages.map((message, index) => (
-                      <div key={index} className={`chat-bubble ${message.role}`}>
-                        <p>{message.content}{chatBusy && index === chatMessages.length - 1 && message.role === "assistant" ? "▍" : ""}</p>
+                      <div key={index} className={`chat-row ${message.role}`}>
+                        <div className="chat-bubble">
+                          {message.content}{chatBusy && index === chatMessages.length - 1 && message.role === "assistant" ? "▍" : ""}
+                        </div>
                       </div>
                     ))}
                     {chatMessages.length === 0 && !chatBusy && (
