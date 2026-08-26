@@ -326,7 +326,7 @@
 .portfolio-ai-marketing .secondary{min-height:30px;padding:5px 11px;font-size:9px}
 
 /* AI 投顾助手聊天框 */
-.portfolio-chat{flex-direction:column;display:flex;gap:0}
+.portfolio-chat{display:flex;flex-direction:column;justify-content:flex-start;gap:0;height:100%;min-height:0}
 .chat-head{display:flex;align-items:center;gap:9px;padding:0 0 10px;border-bottom:1px solid #e5eaee}
 .chat-head small{color:var(--gold);font-size:8px;font-weight:700;letter-spacing:.12em}
 .chat-head h3{margin:2px 0 0;color:var(--navy);font-size:13px}
