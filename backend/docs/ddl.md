@@ -1,6 +1,6 @@
-# 客户画像与风险评估模块 DDL（MySQL 8.0）
+# 智能财富管理运营平台 DDL（MySQL 8.0）
 
-> 本模块只使用客户、产品、持仓、行为事件四张表。已有客户直接使用数据集中的 `risk_appetite`；通过新建接口创建的客户由后端计算该字段。
+> 当前包含客户画像与风险评估、营销运营工作台两个模块。营销模块仅为 A1、A2 各设置一张“导入数据 + 预测结果”表。
 
 ```sql
 CREATE DATABASE IF NOT EXISTS touch_cib
@@ -91,10 +91,72 @@ CREATE TABLE IF NOT EXISTS t_event (
         REFERENCES t_customer (customer_id),
     CONSTRAINT chk_event_type CHECK (event_type IN ('login','consult','complaint'))
 ) ENGINE=InnoDB COMMENT='客户行为事件';
+
+-- 5. A1 导入及响应预测表：一条记录对应一条待预测触达
+CREATE TABLE IF NOT EXISTS t_a1_prediction (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    batch_no          VARCHAR(40)  NOT NULL COMMENT '导入批次号',
+    source_file_name  VARCHAR(255) NOT NULL COMMENT '原始导入文件名',
+    contact_id        VARCHAR(64)  NOT NULL COMMENT '待预测触达编号',
+    customer_id       VARCHAR(32)  NOT NULL COMMENT '客户 ID',
+    product_id        VARCHAR(32)  NOT NULL COMMENT '本次触达产品 ID',
+    channel           VARCHAR(20)  NOT NULL COMMENT 'sms/call/app_push/manager',
+    contact_date      DATE         NOT NULL COMMENT '计划触达日期',
+    response_prob     DECIMAL(12,10) NULL COMMENT 'A1 响应概率，预测前为空',
+    status            VARCHAR(16)  NOT NULL DEFAULT 'PENDING'
+                                     COMMENT 'PENDING/PROCESSING/SUCCESS/FAILED',
+    error_message     VARCHAR(500) NULL COMMENT '预测失败原因',
+    created_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    predicted_at      DATETIME(3)  NULL COMMENT '预测完成时间',
+    updated_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                     ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_a1_batch_contact (batch_no, contact_id),
+    INDEX idx_a1_batch_status (batch_no, status),
+    INDEX idx_a1_batch_customer_prob (batch_no, customer_id, response_prob),
+    INDEX idx_a1_customer_predicted (customer_id, predicted_at),
+    CONSTRAINT fk_a1_customer FOREIGN KEY (customer_id)
+        REFERENCES t_customer (customer_id),
+    CONSTRAINT fk_a1_product FOREIGN KEY (product_id)
+        REFERENCES t_product (product_id),
+    CONSTRAINT chk_a1_channel CHECK (channel IN ('sms','call','app_push','manager')),
+    CONSTRAINT chk_a1_probability CHECK (response_prob IS NULL OR response_prob BETWEEN 0 AND 1),
+    CONSTRAINT chk_a1_status CHECK (status IN ('PENDING','PROCESSING','SUCCESS','FAILED'))
+) ENGINE=InnoDB COMMENT='A1 待预测触达及响应概率结果';
+
+-- 6. A2 导入及 Top 3 策略表：一条记录对应一位客户的一组 Top 3
+CREATE TABLE IF NOT EXISTS t_a2_prediction (
+    id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    batch_no          VARCHAR(40)  NOT NULL COMMENT '导入或单客生成批次号',
+    source_file_name  VARCHAR(255) NULL COMMENT '批量导入文件名，单客生成为空',
+    customer_id       VARCHAR(32)  NOT NULL COMMENT '客户 ID',
+    strategy_date     DATE         NOT NULL COMMENT '策略日期',
+    source_type       VARCHAR(16)  NOT NULL DEFAULT 'IMPORT' COMMENT 'IMPORT/MANUAL',
+    top3_result       JSON         NULL COMMENT '固定包含 rank 1/2/3 的策略数组',
+    status            VARCHAR(16)  NOT NULL DEFAULT 'PENDING'
+                                     COMMENT 'PENDING/PROCESSING/SUCCESS/FAILED',
+    error_message     VARCHAR(500) NULL COMMENT '生成失败原因',
+    created_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    predicted_at      DATETIME(3)  NULL COMMENT '策略生成完成时间',
+    updated_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                     ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_a2_batch_customer (batch_no, customer_id),
+    INDEX idx_a2_batch_status (batch_no, status),
+    INDEX idx_a2_batch_source (batch_no, source_type),
+    INDEX idx_a2_customer_latest (customer_id, status, predicted_at),
+    CONSTRAINT fk_a2_customer FOREIGN KEY (customer_id)
+        REFERENCES t_customer (customer_id),
+    CONSTRAINT chk_a2_source CHECK (source_type IN ('IMPORT','MANUAL')),
+    CONSTRAINT chk_a2_status CHECK (status IN ('PENDING','PROCESSING','SUCCESS','FAILED'))
+) ENGINE=InnoDB COMMENT='A2 目标客户及 Top 3 营销策略结果';
 ```
 
 ## CSV 导入说明
 
 - 导入 `t_customer.csv` 时，直接保存文件中的 `risk_appetite`。
 - 新建客户时，客户端不提交 `risk_appetite`，后端计算后只保存最终的 R1～R5。
-- 另外三张表可以直接映射比赛 CSV 字段，时间戳字段使用数据库默认值。
+- `t_product.csv`、`t_holding.csv`、`t_event.csv` 可直接映射同名业务表，时间戳字段使用数据库默认值。
+- 导入 `partA_test_contacts.csv` 时生成 A1 批次号，记录写入 `t_a1_prediction`，初始状态为 `PENDING`。
+- 导入 `partA_strategy_customers.csv` 时生成 A2 批次号，记录写入 `t_a2_prediction`，初始状态为 `PENDING`、`source_type='IMPORT'`。
+- 单客生成 Top 3 时直接在 `t_a2_prediction` 新建 `source_type='MANUAL'` 的记录，不进入正式 A2 导出。
