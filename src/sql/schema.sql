@@ -188,6 +188,20 @@ CREATE TABLE IF NOT EXISTS app_portfolio_scenario (
     CONSTRAINT chk_app_scenario_type CHECK (scenario_type IN ('preset', 'custom'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='组合优化场景配置';
 
+CREATE TABLE IF NOT EXISTS app_campaign_event (
+    campaign_event_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '触达事件唯一标识',
+    strategy_id       VARCHAR(64)    NOT NULL COMMENT '关联策略（约定 {customer_id}:{rank}）',
+    event_type        VARCHAR(16)    NOT NULL COMMENT '事件类型 sent/responded',
+    occurred_at       DATETIME       NOT NULL COMMENT '事件发生时间',
+    product_id        VARCHAR(16)    NULL COMMENT 'responded 事件归因的购买产品',
+    amount            DECIMAL(18, 2) NULL COMMENT 'responded 事件归因的购买金额',
+    created_at        TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间（审计）',
+    PRIMARY KEY (campaign_event_id),
+    KEY idx_campaign_event_strategy (strategy_id),
+    KEY idx_campaign_event_type_time (event_type, occurred_at),
+    CONSTRAINT chk_campaign_event_type CHECK (event_type IN ('sent', 'responded'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='营销触达执行事件（append-only 埋点）';
+
 CREATE TABLE IF NOT EXISTS ads_marketing_response_score (
     contact_id             VARCHAR(64)    NOT NULL COMMENT '待预测触达记录标识',
     customer_id            VARCHAR(64)    NOT NULL COMMENT '客户标识',
