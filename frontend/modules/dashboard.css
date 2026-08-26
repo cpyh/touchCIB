@@ -1280,3 +1280,15 @@
 .action-hint{color:#93a2ad;font-size:9px}
 @media(max-width:1100px){.action-section .action-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.action-section .action-grid{grid-template-columns:1fr}}
+
+/* 到期预警条：固定期限持仓到期 → 再配置机会 */
+.expiry-strip{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;margin-top:10px;padding:11px 14px;border:1px solid #ecd9ae;border-left-width:4px;border-left-color:#d39b36;border-radius:9px;background:#fdf8ec}
+.expiry-strip>b{color:#8f6726;font-size:12px;white-space:nowrap}
+.expiry-strip>span{color:#5d7181;font-size:11px}
+.expiry-strip>span strong{color:#966922}
+.expiry-strip>ul{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 18px;margin:0;padding:0;list-style:none}
+.expiry-strip li{color:#5d7181;font-size:10px}
+.expiry-strip li em{color:#254b6d;font-style:normal;font-weight:600}
+.expiry-strip li b{color:#b34837;font-weight:600}
+.expiry-strip .primary{grid-column:1/-1;justify-self:start;min-height:32px;padding:6px 12px;font-size:10px}
+@media(max-width:620px){.expiry-strip{grid-template-columns:1fr}.expiry-strip>ul{flex-direction:column;gap:4px}}

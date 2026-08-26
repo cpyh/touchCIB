@@ -528,6 +528,70 @@ def _action_items() -> dict:
     }
 
 
+def _expiry_warning() -> dict:
+    """到期预警：未来 30 天固定期限持仓到期（再配置/挽留机会）。
+
+    口径：maturity = buy_date + duration_days，窗口 = 策略日次日至 +30 天。
+    """
+    from datetime import date, timedelta
+
+    as_of = date(2026, 4, 15)
+    window_end = as_of + timedelta(days=30)
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT h.customer_id, h.product_id, p.product_name,
+                           h.amount,
+                           DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY)
+                               AS maturity_date
+                    FROM ods_holding h
+                    JOIN ods_product p ON p.product_id = h.product_id
+                    WHERE p.duration_days > 0
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) > %s
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) <= %s
+                    ORDER BY maturity_date, h.amount DESC
+                    """,
+                    (as_of, window_end),
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError, TypeError):
+        return {
+            "available": False,
+            "as_of": as_of.isoformat(),
+            "window_days": 30,
+            "holding_count": 0,
+            "customer_count": 0,
+            "amount": 0,
+            "items": [],
+        }
+
+    customers = {row["customer_id"] for row in rows}
+    total_amount = sum(float(row["amount"]) for row in rows)
+    return {
+        "available": True,
+        "as_of": as_of.isoformat(),
+        "window_days": 30,
+        "holding_count": len(rows),
+        "customer_count": len(customers),
+        "amount": round(total_amount, 2),
+        "items": [
+            {
+                "customer_id": row["customer_id"],
+                "product_id": row["product_id"],
+                "product_name": row["product_name"],
+                "maturity_date": row["maturity_date"].isoformat(),
+                "amount": float(row["amount"]),
+            }
+            for row in rows[:5]
+        ],
+    }
+
+
 def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
     try:
         connection = database_connection()
@@ -591,6 +655,7 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
         "portfolio": _portfolio_performance(scenario_id),
         "marketing_funnel": _marketing_funnel(),
         "action_items": _action_items(),
+        "expiry_warning": _expiry_warning(),
     }
 
 

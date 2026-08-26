@@ -404,6 +404,33 @@ export function DashboardPage({
               <span className="action-hint">模型指标实时取自验证文件</span>
             </article>
           </div>
+
+          {(() => {
+            const expiry = dashboard.expiry_warning;
+            if (!expiry?.available) return null;
+            return (
+              <div className="expiry-strip">
+                <b>⚠ 到期预警</b>
+                <span>
+                  未来 {expiry.window_days} 天：<strong>{expiry.holding_count}</strong> 笔持仓到期
+                  · <strong>{expiry.customer_count}</strong> 位客户 · ¥{compactMoney(expiry.amount)} 待再配置
+                </span>
+                <ul>
+                  {expiry.items.slice(0, 3).map((item) => (
+                    <li key={`${item.customer_id}-${item.product_id}`}>
+                      <em>{item.customer_id}</em> · {item.product_name} · <b>{item.maturity_date}</b> 到期 · ¥{exactMoney(item.amount)}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className="primary"
+                  onClick={() => onOpenMarketing?.(expiry.items[0]?.customer_id ?? "")}
+                >
+                  跟进到期客户 →
+                </button>
+              </div>
+            );
+          })()}
         </section>
       )}
 

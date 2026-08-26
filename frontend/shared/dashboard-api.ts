@@ -95,6 +95,21 @@ export interface DashboardOverview {
       manager_target: number;
     };
   };
+  expiry_warning?: {
+    available: boolean;
+    as_of: string;
+    window_days: number;
+    holding_count: number;
+    customer_count: number;
+    amount: number;
+    items: Array<{
+      customer_id: string;
+      product_id: string;
+      product_name: string;
+      maturity_date: string;
+      amount: number;
+    }>;
+  };
 }
 
 export interface PortfolioResult {
