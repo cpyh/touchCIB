@@ -209,10 +209,36 @@ def initialize_schema(database: str) -> None:
             connection.select_db(database)
             for statement in sql_statements(SCHEMA_FILE.read_text(encoding="utf-8")):
                 cursor.execute(statement)
+            _migrate_ai_summary_columns(cursor)
         finally:
             cursor.close()
     finally:
         connection.close()
+
+
+def _migrate_ai_summary_columns(cursor) -> None:
+    """幂等迁移：为已存在的 ods_customer 补 AI 摘要列（CREATE IF NOT EXISTS 不会改旧表）。"""
+    migrations = (
+        (
+            "ai_summary",
+            "ALTER TABLE ods_customer ADD COLUMN ai_summary TEXT NULL "
+            "COMMENT 'AI 画像摘要' AFTER has_app",
+        ),
+        (
+            "ai_summary_generated_at",
+            "ALTER TABLE ods_customer ADD COLUMN ai_summary_generated_at "
+            "DATETIME(3) NULL COMMENT 'AI 摘要生成时间' AFTER ai_summary",
+        ),
+    )
+    for column_name, statement in migrations:
+        cursor.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ods_customer' "
+            "AND COLUMN_NAME = %s",
+            (column_name,),
+        )
+        if int(cursor.fetchone()[0]) == 0:
+            cursor.execute(statement)
 
 
 def rebuild_customer_360(database: str) -> None:

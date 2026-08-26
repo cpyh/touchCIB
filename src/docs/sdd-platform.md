@@ -1,7 +1,7 @@
 # SDD · 平台规格（Part C/D）
 
 > 范围：数据分层、API、前端运营看板（Part C 系统架构与工程、Part D 平台演示与看板，均为人工分）
-> 状态：数据层与 API ✅ ｜ 前端看板 ⬜（本文件 §5 为明天讨论的底稿）
+> 状态：数据层与 API ✅ ｜ 前端看板 ⬜（§4 为按赛会官方骨架 `src/docs/index.html` 重写的四 Tab 规格，作为前端实现与演示的定稿依据）
 
 ---
 
@@ -14,7 +14,7 @@ flowchart TB
     ODS["ODS 原始层（贴源）<br/>ods_customer / ods_product / ods_holding<br/>ods_campaign / ods_event<br/>+ ref_product_correlation"]
     DWD["DWD 明细层（标准化 + CHECK 约束）<br/>dwd_dim_customer / dwd_dim_product<br/>dwd_fact_holding / dwd_fact_campaign / dwd_fact_event"]
     DWS["DWS 汇总层<br/>dws_customer_360（客户全景画像）"]
-    ADS["ADS 应用层<br/>ads_marketing_response_score（评分 + 解释 JSON）<br/>+ app_portfolio_scenario（场景配置）"]
+    ADS["ADS 应用层<br/>ads_marketing_response_score（评分 + 解释 JSON）<br/>+ app_portfolio_scenario（场景配置）<br/>+ app_marketing_strategy（🟡 待建）<br/>+ app_campaign_execution（🟡 待建）"]
     ODS --> DWD --> DWS
     DWD --> ADS
 ```
@@ -50,14 +50,39 @@ flowchart TB
 | GET | `/portfolio/scenarios` | 官方 + 自定义场景列表 |
 | POST | `/portfolio/scenarios` | 新建自定义场景（201） |
 
-### 2.2 规划（🟡 随规则引擎落地）
+### 2.2 规划（🟡 随前端联动实现）
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| GET | `/marketing/rules` | 规则元数据（id/名称/类别/硬软/描述）→ 看板规则清单 |
-| POST | `/marketing/strategy/generate` | 生成单客户 Top3 策略（含轨迹）→ 演示现场实时生成 |
+| GET | `/marketing/rules` | 规则元数据（引擎 `metadata()` 直出）→ Tab3 规则清单 |
+| POST | `/marketing/strategy/generate` | 生成单客户 Top3（含轨迹）→ Tab3 实时生成与干预对比 |
 | POST | `/marketing/strategy/validate` | 提交前格式/合规校验 → 错误列表 |
-| POST | `/marketing/strategy/import` | 导入队友 partA_strategy.csv 落库 → 与引擎生成统一消费 |
+| POST | `/customers/intake` | Tab1 进件：属性入参 → 风险评估 → 写 ODS → 单客户画像 → 返回完整画像 |
+| GET | `/dashboard/summary` | Tab4 聚合数据（KPI/分布/漏斗/分层行数） |
+
+### 2.3 新增表设计（🟡）
+
+**`app_marketing_strategy`**（Tab3 策略落库，引擎与队友 CSV 统一消费）：
+
+| 字段 | 说明 |
+|------|------|
+| strategy_id / customer_id / rank / product_id | 主键为 strategy_id；rank 1-3 |
+| recommended_channel / recommended_time / marketing_script | 与提交 CSV 同构 |
+| score / model_prob / cf_score / overshoot | 排序信号与溢出标记 |
+| rule_trace JSON | 13 条规则的命中/拦截轨迹（Tab3 合规验收的数据源） |
+| source | engine / teammate（区分生成来源） |
+| strategy_date / etl_batch_id / loaded_at | 批次溯源 |
+
+**`app_campaign_execution`**（Tab3 触达管理/执行追踪）：
+
+| 字段 | 说明 |
+|------|------|
+| execution_id / customer_id / strategy_id | 执行记录主键 |
+| channel / planned_time | 计划渠道与时段 |
+| status | pending → sent → responded（枚举 CHECK） |
+| executed_at / responded_at / updated_at | 状态流转时间戳 |
+
+导入路径：`src/scripts/import_strategy.py` 读队友 CSV → `validate_strategy_file` → upsert 落库（source='teammate'）；引擎现场生成走 API 落库（source='engine'）。
 
 ---
 
@@ -65,71 +90,88 @@ flowchart TB
 
 | 项 | 现状 |
 |----|------|
-| 测试 | 55 个 unittest（覆盖服务、数据初始化、A1、A2 规则引擎与 Part B） |
-| 依赖 | pyproject：flask / numpy / pandas / scikit-learn / scipy / pymysql / python-dotenv（uv.lock 锁定） |
-| 环境 | `.env.example` 模板；Python 3.12；MySQL 8 utf8mb4 |
+| 测试 | 55 个 unittest（服务、数据初始化、A1、A2 规则引擎、Part B） |
+| 依赖 | pyproject + requirements.txt 双轨；Python 3.12；MySQL 8 |
 | 可复现 | random_state=42；训练/推理特征版本化；Part B 多起点种子固定 |
-| 文档 | 本 docs/ 目录 + README 运行说明 |
-
-> 提交物要求 `requirements.txt`（🟡 待补）：从 uv 导出 `uv pip compile` 或 `uv export`。
+| 文档 | `src/docs/` + README 运行说明 |
 
 ---
 
-## 4. 前端看板（Part D）设计底稿
+## 4. 前端看板规格（官方四 Tab，Part D 定稿）
 
-> ⬜ 待明天与队友讨论。以下为**讨论底稿**，两个方案可二选一或混合。
-
-### 4.1 目标
-
-面向**运营人员**的可视化看板，现场验收三件事：A2 策略的**个性化**、**合规性**、**平台联动**（题目原文），同时演示两条链路与数据架构。
-
-### 4.2 页面结构
+> 依据：赛会参考骨架 `src/docs/index.html`（四 Tab：客户进件与风险评估 / 智能投顾推荐 / 营销运营工作台 / 可视化看板）。前端实现在 `frontend/`，保持四 Tab 结构与骨架样式，填充 TODO。
 
 ```mermaid
-flowchart TB
-    HOME["总览首页<br/>平台指标：客户数/预测覆盖率/组合场景数/数据质量"]
-    HOME --> W1["工作台一：营销策略<br/>（Part A 联动）"]
-    HOME --> W2["工作台二：智能投顾<br/>（Part B）"]
-    HOME --> W3["工作台三：客户画像<br/>（DWS 360）"]
-
-    W1 --> F1["客户列表（2000 目标客户）"]
-    F1 --> F2["客户详情：<br/>A1 响应概率 + 局部解释<br/>Top3 策略卡（产品/渠道/时段/话术）<br/>规则轨迹 + 拦截原因"]
-    F2 --> F3["运营干预：开关规则 / 改偏好<br/>→ 引擎重跑 → 策略对比"]
-
-    W2 --> G1["场景列表（20 官方 + 自定义）"]
-    G1 --> G2["场景详情：权重柱状/饼图<br/>效用/波动/现金/约束达标灯<br/>optimality gap 证书展示"]
-    G2 --> G3["经理操作：新建场景改约束 → 实时优化"]
-
-    W3 --> H1["画像卡片：基本属性/风险偏好/VIP<br/>持仓结构/行为事件/历史响应率"]
+flowchart LR
+    I["Tab1 客户进件与风险评估<br/>录入 → 自动评级 → 画像"] --> A["Tab2 智能投顾推荐<br/>风险→场景参数 → Part B 求解 → 方案"]
+    A --> O["Tab3 营销运营工作台<br/>A1 名单 → A2 Top3 + 轨迹 → 干预重跑"]
+    O --> D["Tab4 可视化看板<br/>KPI / 分布 / 漏斗 / 分层"]
+    I -.-> O
 ```
 
-### 4.3 两个实现档位（明天讨论）
+### 4.1 Tab1 客户进件与风险评估
 
-| 维度 | 方案 A：静态展示型 | 方案 B：联动引擎型 |
-|------|-------------------|-------------------|
-| 数据来源 | 直接读 CSV/DB 预生成结果 | 调 API 实时生成 + 规则轨迹 |
-| 运营干预 | 无 | 规则开关/参数调整 → 重跑策略 |
-| 合规性演示 | 展示校验结论 | 逐条展示规则命中/拦截 + 干预后变化 |
-| 开发量 | 小（1~2 天） | 中（3~4 天，需先落地规则引擎） |
-| 对 D 验收的支撑 | 及格：有看板有演示 | 满分叙事：题目"平台联动"原文命中 |
+| 功能点 | 数据源 / 实现 | 状态 |
+|--------|--------------|------|
+| 客户信息录入表单 | 字段 = `t_customer` 属性（年龄/城市/职业/收入/AUM/是否装App） | 🟡 前端组件 |
+| **自动风险评估** | 用 8000 条 `t_customer` 样本拟合"属性 → risk_appetite"：方案 A 决策树（可解释，落地快）或方案 B 复用营销规则引擎（age/income/aum 分箱打分，强化"规则引擎"统一叙事） | 🟡 新算法点 |
+| 画像生成 | 进件 → INSERT `ods_customer`（register_date=当日）→ 单客户画像 SQL → 返回画像 JSON | 🟡 POST /customers/intake |
+| 页面组件 | 表单、评估结果卡（R 等级 + 依据）、画像卡 | 🟡 前端 |
 
-**建议**：以方案 A 起步保证"有演示"，规则引擎落地后升级方案 B 的交互部分（工作台一先升级，二/三保持静态）。
+**演示故事线**：现场录入一个新客户 → 系统给风险评级（并展示评级依据）→ 画像生成 → 评级自动传入 Tab2。
 
-### 4.4 技术选型建议（待定）
+### 4.2 Tab2 智能投顾推荐
 
-- 轻量 SPA（如 Vue3 + ECharts，或纯 HTML+JS+Chart 库），静态资源由 Flask 托管；
-- 数据全部走现有 REST API（JSON），不引入新后端框架；
-- 看板需要有「数据从 MySQL 分层来」的证据链展示（架构叙事素材）。
+| 功能点 | 数据源 / 实现 | 状态 |
+|--------|--------------|------|
+| **风险偏好 → 场景参数映射** | 建议值（实现时按官方 20 场景 λ∈[0.58,2.98] 校准）：R1→λ2.9/高风险0.0、R2→λ2.2/0.1、R3→λ1.5/0.3、R4→λ0.9/0.5、R5→λ0.6/0.7；其余约束给统一默认 | 🟡 新映射表 |
+| 组合求解 | `/portfolio/optimize`（读 MySQL，gap 证书） | ✅ |
+| 场景选择与调整面板 | `/portfolio/scenarios` 列表 + 约束编辑 | ✅/🟡 |
+| 页面组件 | 场景选择器、约束面板、权重条形图、摘要卡（效用/波动/现金）、约束达标灯、gap 徽章 | 🟡 前端 |
+
+**演示故事线**：Tab1 的评级自动带出场景参数 → 一键求解 → 经理现场调 max_high_risk_weight → 秒级重算 → 展示 gap≈0 证书。
+
+### 4.3 Tab3 营销运营工作台（A2 验收重点）
+
+| 功能点 | 数据源 / 实现 | 状态 |
+|--------|--------------|------|
+| 响应名单（按概率排序 + 筛选） | `partA_prediction.csv` 或 `ads_marketing_response_score` | ✅ 数据在 |
+| 客户营销策略（Top3 卡） | `partA_strategy.csv` / `app_marketing_strategy` | ✅ 数据在，🟡 落库 |
+| **策略下钻**（为什么这么推） | 引擎 `rule_trace`（合规验收点）+ A1 解释审计 top±5 因子（个性化验收点） | 🟡 落库 + API |
+| **运营干预** | 调 `w_cf` / manager 配额 / 渠道偏好 → `POST /marketing/strategy/generate` 重跑 → 前后对比（平台联动验收点） | 🟡 营销 API |
+| 触达管理/执行追踪 | `app_campaign_execution` 状态流转（pending→sent→responded） | 🟡 新表 + 前端操作 |
+| 页面组件 | 名单表、策略卡、轨迹抽屉、干预面板（滑块）、对比视图、触达状态操作 | 🟡 前端 |
+
+**演示故事线**：名单按概率排序 → 下钻客户 → Top3 + 规则轨迹 + 解释因子（个性化+合规）→ 现场把 w_cf 从 0.3 调到 0.8 → Top3 变化（联动）→ 标记触达 → 状态流转到 Tab4 漏斗。
+
+### 4.4 Tab4 可视化看板
+
+| 图表 | 数据源 | 状态 |
+|------|--------|------|
+| KPI 卡：AUC/F1/Lift、预测覆盖、策略数、Part B 总效用 | `a1_validation_metrics.json` + 三份 CSV 汇总 | ✅ |
+| 响应概率分布直方图 | `partA_prediction.csv` | ✅ |
+| 资产配置分布（按风险等级/产品类型） | `partB_allocation.csv` 聚合 | ✅ |
+| 营销转化漏斗（触达→响应） | `t_campaign` 历史漏斗；联动后加 `app_campaign_execution` 实时漏斗 | ✅/🟡 |
+| 数据分层全景（ODS→DWD→DWS→ADS 行数） | 现成 COUNT SQL | ✅ |
+| 渠道/时段分布 | `partA_strategy.csv` 聚合 | ✅ |
+
+### 4.5 实现分期与分工
+
+| 期 | 内容 | 目标 |
+|----|------|------|
+| M1 静态可演示 | 四 Tab 全部填满：后端脚本预生成 `dashboard_summary.json` + 策略/轨迹 JSON 快照，前端读静态数据 | 先保证"有完整演示" |
+| M2 联动引擎 | 营销 API（rules/generate/validate）、进件 API、触达状态表、实时重算与前后对比 | 满分叙事（平台联动原文命中） |
+| 分工 | 前端成员按 §4 组件清单实现页面（骨架已有）；工程线提供 M1 数据快照与 M2 API | — |
 
 ---
 
-## 5. 演示脚本（Part D 现场，草稿）
+## 5. 演示脚本（四 Tab 顺序，≤10 分钟）
 
-1. 打开总览 → 指认数据分层（ODS→DWD→DWS→ADS 实时查询）
-2. 工作台三：搜索一个客户 → 360 画像（呼应数据链路一）
-3. 工作台一：选客户 → 看 A1 概率与解释 → Top3 策略 + 规则轨迹 → 关掉一条规则/改渠道偏好 → 策略变化（联动）
-4. 工作台二：选官方场景 → 权重方案与约束达标 → 新建场景改风险厌恶 → 新方案与 gap 证书
-5. 收尾：数据质量看板 41 项检查全绿（工程严谨性）
+1. **Tab4 看板**：全局 KPI + 数据分层行数 + 41 项质量检查全绿（架构工程性）
+2. **Tab1 进件**：现场录入客户 → 自动风险评估（展示依据）→ 画像生成
+3. **Tab2 投顾**：评级自动带出场景参数 → 求解 → 经理改约束 → 重算 + gap 证书
+4. **Tab3 营销**：响应名单 → 客户 Top3 + 规则轨迹 + 解释因子 → 调 w_cf/配额重跑对比 → 触达状态流转
+5. 收尾：回到 Tab4，漏斗联动更新（闭环）
 
 ---
 
@@ -137,8 +179,8 @@ flowchart TB
 
 | 题目要求 | 落点 |
 |----------|------|
-| 系统架构设计 | 数据分层 + 双源算法层 + 无状态服务 + 架构决策记录（ADR） |
-| 规则/流程引擎实现 | `src/marketing/`（设计定稿，见 sdd-marketing §7） |
-| 可视化看板 | 前端三工作台（本节 §4） |
-| A2 个性化/合规性/平台联动现场验收 | 工作台一的规则轨迹 + 运营干预 |
+| 系统架构设计 | 数据分层 + 双源算法层 + 无状态服务 + ADR |
+| 规则/流程引擎实现 | `src/marketing/`（已实现，见 sdd-marketing）+ Tab1 风险评估可复用同一引擎 |
+| 可视化看板 | 官方四 Tab（§4） |
+| A2 个性化/合规性/平台联动现场验收 | Tab3 轨迹下钻 + 解释因子 + 干预重跑 |
 | 演示可复现 | README + 离线 CSV 模式 + 现场复跑 |

@@ -13,7 +13,7 @@
 | A2 策略生成 | 5 自动 + D 验收 | ✅ 规则引擎已落地，`partA_strategy.csv` 6000 行生成并通过校验 | ①队友产品排序优化 ②CSV 导入落库 | 产品部分队友；引擎部分工程线 |
 | B 组合优化 | 15 自动 | ✅ 提交合法，gap≈1e-18（投影 15/15） | 无 | 已交付 |
 | C 架构与工程 | 人工 | ✅ 数据分层/质量检查/API/测试/规则引擎 | ①CSV 导入落库 ②requirements.txt | 工程线 |
-| D 演示与看板 | 人工 | ⬜ 无前端 | 三工作台 + 演示脚本 | 工程线（明天讨论交互） |
+| D 演示与看板 | 人工 | ⬜ 无前端 | 官方四 Tab（规格已定稿 sdd-platform §4）+ 演示脚本 | 前端成员 + 工程线 |
 | 加分 | 人工 | ✅ gap 证书/解释审计/版本管理 | 规则轨迹可视化（随引擎） | 工程线 |
 | 提交物打包 | — | 🟡 缺 requirements.txt、A2 CSV、frontend；submission 需按清单归位 | 打包收尾 | 工程线 |
 
@@ -33,7 +33,7 @@ flowchart LR
     subgraph EN["工程线（你）"]
         E1["规则/流程引擎落地<br/>src/marketing/"]
         E2["A2 校验器 + CSV 导入落库"]
-        E3["前端三工作台"]
+        E3["前端四 Tab"]
         E4["requirements.txt / submission 打包 / README 补 A2"]
     end
     T2 -->|"接口契约 sdd-marketing §6"| E1
@@ -57,10 +57,10 @@ flowchart LR
 | M1 契约对齐 | 明天会议确认：分工、CSV 合并方式、前端交互方向（方案 A/B） | 会议纪要 + 契约定稿 | 明天 |
 | M2 引擎落地 | `src/marketing/` 十模块 + 4 个测试文件 | 规则引擎可跑、55 测试全绿 | ✅ 已完成 |
 | M3 A2 打通 | 引擎生成 partA_strategy.csv + 格式校验通过 | `partA_strategy.csv`（6000 行） | ✅ 已完成（队友产品排序可后续替换） |
-| M4 前端看板 | 三工作台（先静态后联动）+ 演示脚本 | `frontend/` + 截图 | 2~3 天 |
+| M4 前端看板 | 官方四 Tab：M1 静态填充 → M2 联动（营销/进件 API） | `frontend/` + 截图 | 2~3 天 |
 | M5 打包提交 | requirements.txt、submission 归位（三 CSV + src/ + frontend + README + requirements）、全量复跑 | 完整 submission 目录 | 提交前 1 天 |
 
-**关键路径**：M2 引擎 → M3 A2 打通 → M4 前端（工作台一依赖引擎轨迹）。队友的产品 Top3 与 M2 可并行。
+**关键路径**：M2 引擎 → M3 A2 打通 → M4 前端（Tab3 依赖引擎轨迹与营销 API）。队友的产品 Top3 与 M2 可并行。
 
 ---
 
@@ -82,6 +82,6 @@ flowchart LR
 1. 🔴 规则/流程引擎落地（`sdd-marketing.md` §7 规格已定稿）
 2. 🔴 A2 契约与队友对齐（明天会议第一议题）
 3. 🔴 `partA_strategy.csv` 产出并过校验器
-4. 🟠 前端三工作台（明天定方案 A/B）
+4. 🟠 前端四 Tab（规格已定稿，明天讨论分工与排期）
 5. 🟡 requirements.txt + submission 打包 + README 补 A2
 6. 🟢 可选：A1 GBDT 集成、答辩 PPT 实拍素材

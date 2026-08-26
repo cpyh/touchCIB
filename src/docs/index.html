@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>智能财富管理运营平台</title>
+  <style>
+    /* reset */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f6f9; color: #333; }
+
+    /* header */
+    .header {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      padding: 24px 0;
+      text-align: center;
+    }
+    .header h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: 2px; }
+    .header p { margin-top: 6px; font-size: 0.95rem; opacity: 0.85; }
+
+    /* container */
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+    /* tabs */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .tabs button {
+      padding: 10px 22px;
+      border: 2px solid #764ba2;
+      border-radius: 6px;
+      background: #fff;
+      color: #764ba2;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .tabs button.active,
+    .tabs button:hover {
+      background: #764ba2;
+      color: #fff;
+    }
+
+    /* content panels */
+    .content { display: block; }
+    .content.hidden { display: none; }
+
+    .content h2 {
+      font-size: 1.35rem;
+      color: #4a3880;
+      margin-bottom: 10px;
+    }
+    .content > p {
+      font-size: 0.95rem;
+      color: #555;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    /* card */
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      padding: 28px 24px;
+      min-height: 200px;
+      color: #aaa;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>智能财富管理运营平台</h1>
+    <p>Intelligent Wealth Management &amp; Operations Platform</p>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="active" onclick="showTab('intake')">客户进件与风险评估</button>
+      <button onclick="showTab('advisor')">智能投顾推荐</button>
+      <button onclick="showTab('ops')">营销运营工作台</button>
+      <button onclick="showTab('dashboard')">可视化看板</button>
+    </div>
+
+    <!-- Tab 1: 客户进件与风险评估 -->
+    <div id="intake" class="content">
+      <h2>客户进件与风险评估</h2>
+      <p>录入客户基本信息，自动完成风险偏好评估并生成客户画像，为后续投顾推荐提供基础数据。</p>
+      <div class="card">
+        <!-- TODO: 团队实现 -->
+        待实现：客户信息录入表单 &amp; 风险评估组件
+      </div>
+    </div>
+
+    <!-- Tab 2: 智能投顾推荐 -->
+    <div id="advisor" class="content hidden">
+      <h2>智能投顾推荐</h2>
+      <p>根据客户风险偏好与场景参数，调用 Part B 配置模型，输出个性化产品组合推荐方案。</p>
+      <div class="card">
+        <!-- TODO: 团队实现 -->
+        待实现：产品组合推荐展示 &amp; 配置调整面板
+      </div>
+    </div>
+
+    <!-- Tab 3: 营销运营工作台 -->
+    <div id="ops" class="content hidden">
+      <h2>营销运营工作台</h2>
+      <p>展示 Part A1 客户响应概率与 Part A2 Top3 产品、渠道、时段和话术，支持策略下钻与执行追踪。</p>
+      <div class="card">
+        <!-- TODO: 团队实现 -->
+        待实现：响应名单 &amp; 客户营销策略 &amp; 触达管理
+      </div>
+    </div>
+
+    <!-- Tab 4: 可视化看板 -->
+    <div id="dashboard" class="content hidden">
+      <h2>可视化看板</h2>
+      <p>汇总关键业务指标，通过图表直观呈现模型效果、资产配置分布与营销转化漏斗等数据。</p>
+      <div class="card">
+        <!-- TODO: 团队实现 -->
+        待实现：KPI 图表 &amp; 数据大屏
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTab(id) {
+      var panels = document.querySelectorAll('.content');
+      panels.forEach(function(panel) { panel.classList.add('hidden'); });
+      document.getElementById(id).classList.remove('hidden');
+
+      var buttons = document.querySelectorAll('.tabs button');
+      buttons.forEach(function(btn) { btn.classList.remove('active'); });
+      var idx = ['intake', 'advisor', 'ops', 'dashboard'].indexOf(id);
+      if (idx >= 0) { buttons[idx].classList.add('active'); }
+    }
+  </script>
+
+</body>
+</html>
