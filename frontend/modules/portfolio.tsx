@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api, API_BASE } from "../shared/api";
-import { money } from "../shared/format";
+import { formatNumber, metric, money, percent } from "../shared/format";
 import { Metric, Status, riskNames } from "../shared/ui";
 
 interface Scenario {
@@ -412,11 +412,11 @@ export function PortfolioPage({
   const maxWeight = allocations.reduce((current, item) => Math.max(current, item.weight), 0);
   const guards = summary && result
     ? [
-        { name: "总仓位", rule: "产品合计≤100%", actual: `${(summary.invested_weight * 100).toFixed(1)}%`, passed: summary.invested_weight <= 1.000001 },
-        { name: "单品上限", rule: `不超过${(result.scenario.max_single_weight * 100).toFixed(0)}%`, actual: `${(maxWeight * 100).toFixed(1)}%`, passed: maxWeight <= result.scenario.max_single_weight + 1e-6 },
-        { name: "高风险仓位", rule: `不超过${(result.scenario.max_high_risk_weight * 100).toFixed(0)}%`, actual: `${(summary.high_risk_weight * 100).toFixed(1)}%`, passed: summary.high_risk_weight <= result.scenario.max_high_risk_weight + 1e-6 },
-        { name: "流动性", rule: `至少${(result.scenario.min_liquid_weight * 100).toFixed(0)}%`, actual: `${(summary.liquid_plus_cash * 100).toFixed(1)}%`, passed: summary.liquid_plus_cash >= result.scenario.min_liquid_weight - 1e-6 },
-        { name: "分散度", rule: `至少${result.scenario.min_holdings}款`, actual: `${summary.holdings_count}款`, passed: summary.holdings_count >= result.scenario.min_holdings },
+        { name: "总仓位", rule: "产品合计 ≤ 100%", actual: percent(summary.invested_weight), passed: summary.invested_weight <= 1.000001 },
+        { name: "单品上限", rule: `不超过 ${percent(result.scenario.max_single_weight, 0)}`, actual: percent(maxWeight), passed: maxWeight <= result.scenario.max_single_weight + 1e-6 },
+        { name: "高风险仓位", rule: `不超过 ${percent(result.scenario.max_high_risk_weight, 0)}`, actual: percent(summary.high_risk_weight), passed: summary.high_risk_weight <= result.scenario.max_high_risk_weight + 1e-6 },
+        { name: "流动性", rule: `至少 ${percent(result.scenario.min_liquid_weight, 0)}`, actual: percent(summary.liquid_plus_cash), passed: summary.liquid_plus_cash >= result.scenario.min_liquid_weight - 1e-6 },
+        { name: "分散度", rule: `至少 ${formatNumber(result.scenario.min_holdings)} 款`, actual: `${formatNumber(summary.holdings_count)} 款`, passed: summary.holdings_count >= result.scenario.min_holdings },
       ]
     : [];
   const allPassed = guards.length > 0 && guards.every((item) => item.passed);
@@ -449,12 +449,12 @@ export function PortfolioPage({
           ? `已按${customer.customer_id}的${customer.risk_appetite}${riskNames[customer.risk_appetite]}偏好生成。`
           : "当前方案按所选场景参数生成。";
         const leadText = lead
-          ? `最高配置为${lead.product_name}（${(lead.weight * 100).toFixed(1)}%）。`
+          ? `最高配置为${lead.product_name}（${percent(lead.weight)}）。`
           : "组合保留全部资金为现金。";
         const gapText = summary.optimality_gap <= 1e-8
           ? "接近0"
           : `为${summary.optimality_gap.toExponential(1)}`;
-        return `${clientText}λ=${result.scenario.risk_aversion.toFixed(2)}，${riskTone}；${leadText}高风险仓位仍有${(highRiskRoom * 100).toFixed(1)}个百分点余量，流动性高于下限${(liquidRoom * 100).toFixed(1)}个百分点，最优性gap${gapText}。`;
+        return `${clientText}λ=${metric(result.scenario.risk_aversion, 2)}，${riskTone}；${leadText}高风险仓位仍有${percent(highRiskRoom)}个百分点余量，流动性高于下限${percent(liquidRoom)}个百分点，最优性gap${gapText}。`;
       })()
     : "";
   const parameterStatus = parameterSource === "customer" && customer
@@ -477,7 +477,7 @@ export function PortfolioPage({
           <span>智能投顾 · 投资组合优化</span>
           <h1>智能投顾推荐</h1>
           <p>选择客户与投资场景，调整约束并实时生成可解释的近优组合。</p>
-          <div className="portfolio-hero-tags"><i>{officialCount || 20}个场景</i><i>30个产品</i><i>5类硬约束</i></div>
+          <div className="portfolio-hero-tags"><i>{formatNumber(officialCount || 20)} 个场景</i><i>30 个产品</i><i>5 类硬约束</i></div>
           <div className="portfolio-client-link">
             <span>当前客户</span>
             <input
@@ -495,7 +495,7 @@ export function PortfolioPage({
               <div className="portfolio-client-profile">
                 <b>{customer.customer_id}</b>
                 <i>{customer.risk_appetite} · {riskNames[customer.risk_appetite]}</i>
-                <small>{customer.vip_level} · AUM ¥{money(customer.aum).replace("¥ ", "")}</small>
+                <small>{customer.vip_level} · AUM {money(customer.aum)}</small>
                 <button onClick={() => applyCustomerRisk()}>应用{customer.risk_appetite}参数</button>
               </div>
             ) : <small>加载画像后可按风险偏好生成默认约束</small>}
@@ -593,7 +593,7 @@ export function PortfolioPage({
           {summary && (
             <section className="card portfolio-overview">
               <div className="result-toolbar">
-                <div><h2>组合驾驶舱</h2><p>{activeScenarioLabel} · 配置金额¥{money(totalAmount).replace("¥ ", "")}</p></div>
+                <div><h2>组合驾驶舱</h2><p>{activeScenarioLabel} · 配置金额 {money(totalAmount)}</p></div>
                 <div className="result-tabs">
                   <button className={resultView === "overview" ? "on" : ""} onClick={() => setResultView("overview")}>组合概览</button>
                   <button className={resultView === "business" ? "on" : ""} onClick={() => setResultView("business")}>业务落地</button>
@@ -607,19 +607,19 @@ export function PortfolioPage({
               {resultView === "overview" && (
                 <div className="result-view">
                   <div className="metrics">
-                    <Metric label="预期年化收益" value={`${(summary.expected_return * 100).toFixed(2)}%`} note="组合加权收益" gold />
-                    <Metric label="组合波动率" value={`${(summary.portfolio_volatility * 100).toFixed(2)}%`} note="相关矩阵计算" />
-                    <Metric label="组合效用 U" value={summary.utility.toFixed(4)} note="Part B核心目标" />
+                    <Metric label="预期年化收益" value={percent(summary.expected_return, 2)} note="组合加权收益" gold />
+                    <Metric label="组合波动率" value={percent(summary.portfolio_volatility, 2)} note="相关矩阵计算" />
+                    <Metric label="组合效用 U" value={metric(summary.utility, 4)} note="Part B核心目标" />
                     <Metric label="最优性 gap" value={summary.optimality_gap.toExponential(1)} note="接近0表示近优" />
                   </div>
 
                   <div className="allocation-visual">
-                    <div className="allocation-visual-head"><span><b>资产配置分布</b><small>{summary.holdings_count}款产品 + 现金仓位</small></span><strong>{(summary.invested_weight * 100).toFixed(1)}%<small>已投资</small></strong></div>
+                    <div className="allocation-visual-head"><span><b>资产配置分布</b><small>{formatNumber(summary.holdings_count)} 款产品 + 现金仓位</small></span><strong>{percent(summary.invested_weight)}<small>已投资</small></strong></div>
                     <div className="allocation-stack">
-                      {distribution.map((item, index) => <i key={item.label} title={`${item.label} ${(item.weight * 100).toFixed(1)}%`} style={{ width: `${item.weight * 100}%`, background: allocationColors[index % allocationColors.length] }} />)}
+                      {distribution.map((item, index) => <i key={item.label} title={`${item.label} ${percent(item.weight)}`} style={{ width: `${item.weight * 100}%`, background: allocationColors[index % allocationColors.length] }} />)}
                     </div>
                     <div className="allocation-legend">
-                      {distribution.map((item, index) => <span key={item.label}><i style={{ background: allocationColors[index % allocationColors.length] }} /><b>{item.label}</b><em>{(item.weight * 100).toFixed(1)}%</em></span>)}
+                      {distribution.map((item, index) => <span key={item.label}><i style={{ background: allocationColors[index % allocationColors.length] }} /><b>{item.label}</b><em>{percent(item.weight)}</em></span>)}
                     </div>
                   </div>
 
@@ -627,18 +627,18 @@ export function PortfolioPage({
                     <div className="theory-business-bridge">
                       <div className="bridge-side">
                         <small>理论最优方案</small>
-                        <b>{summary.holdings_count} 款产品</b>
-                        <span>收益 {(summary.expected_return * 100).toFixed(2)}% · 现金 {(summary.cash_weight * 100).toFixed(1)}%</span>
+                        <b>{formatNumber(summary.holdings_count)} 款产品</b>
+                        <span>收益 {percent(summary.expected_return, 2)} · 现金 {percent(summary.cash_weight)}</span>
                       </div>
                       <div className="bridge-core">
                         <em>业务保真率</em>
-                        <strong>{result.business.retention_ratio != null ? `${(result.business.retention_ratio * 100).toFixed(1)}%` : "—"}</strong>
+                        <strong>{percent(result.business.retention_ratio)}</strong>
                         <button className="secondary" onClick={() => setResultView("business")}>查看业务落地明细 →</button>
                       </div>
                       <div className="bridge-side">
                         <small>业务可执行方案</small>
-                        <b>{result.business.holdings_count} 款产品</b>
-                        <span>收益 {(result.business.expected_return * 100).toFixed(2)}% · 现金 {(result.business.cash_weight * 100).toFixed(1)}%</span>
+                        <b>{formatNumber(result.business.holdings_count)} 款产品</b>
+                        <span>收益 {percent(result.business.expected_return, 2)} · 现金 {percent(result.business.cash_weight)}</span>
                       </div>
                     </div>
                   )}
@@ -702,10 +702,10 @@ export function PortfolioPage({
                   {result?.business ? (
                     <>
                       <div className="business-metrics">
-                        <Metric label="业务保真率" value={result.business.retention_ratio != null ? `${(result.business.retention_ratio * 100).toFixed(1)}%` : "—"} note="业务效用 ÷ 理论效用" gold />
-                        <Metric label="业务预期收益" value={`${(result.business.expected_return * 100).toFixed(2)}%`} note={`理论 ${(summary.expected_return * 100).toFixed(2)}%`} />
-                        <Metric label="业务组合波动" value={`${(result.business.portfolio_volatility * 100).toFixed(2)}%`} note={`理论 ${(summary.portfolio_volatility * 100).toFixed(2)}%`} />
-                        <Metric label="业务持仓数" value={`${result.business.holdings_count} 款`} note={`理论 ${summary.holdings_count} 款 · 现金 ${(result.business.cash_weight * 100).toFixed(1)}%`} />
+                        <Metric label="业务保真率" value={percent(result.business.retention_ratio)} note="业务效用 ÷ 理论效用" gold />
+                        <Metric label="业务预期收益" value={percent(result.business.expected_return, 2)} note={`理论 ${percent(summary.expected_return, 2)}`} />
+                        <Metric label="业务组合波动" value={percent(result.business.portfolio_volatility, 2)} note={`理论 ${percent(summary.portfolio_volatility, 2)}`} />
+                        <Metric label="业务持仓数" value={`${formatNumber(result.business.holdings_count)} 款`} note={`理论 ${formatNumber(summary.holdings_count)} 款 · 现金 ${percent(result.business.cash_weight)}`} />
                       </div>
                       <div className="business-note"><b>理论最优 → 业务可执行</b><span>起投金额校正后，保真率量化了落地成本；低于起投门槛的产品被剔除或提升，剩余资金以现金持有。</span></div>
                       <div className="table allocation-table">
@@ -717,10 +717,10 @@ export function PortfolioPage({
                               return (
                                 <tr key={item.product_id}>
                                   <td><b>{item.product_id}</b><small>{item.product_name}</small></td>
-                                  <td>¥{item.min_invest.toLocaleString("zh-CN")}</td>
-                                  <td>{(item.weight * 100).toFixed(2)}%</td>
-                                  <td>¥{item.amount.toLocaleString("zh-CN")}</td>
-                                  <td>{theory ? `${(theory.weight * 100).toFixed(2)}%` : "—"}</td>
+                                  <td>{money(item.min_invest)}</td>
+                                  <td>{percent(item.weight, 2)}</td>
+                                  <td>{money(item.amount)}</td>
+                                  <td>{theory ? percent(theory.weight, 2) : "—"}</td>
                                 </tr>
                               );
                             })}
@@ -745,8 +745,8 @@ export function PortfolioPage({
                           <tr key={item.product_id}>
                             <td><b>{item.product_id}</b><small>{item.product_name}</small></td>
                             <td><span className="risk-tag">{item.risk_level}</span></td>
-                            <td><div className="weight"><i><b style={{ width: `${maxWeight ? item.weight / maxWeight * 100 : 0}%` }} /></i>{(item.weight * 100).toFixed(2)}%</div></td>
-                            <td>¥{money(item.amount).replace("¥ ", "")}</td>
+                            <td><div className="weight"><i><b style={{ width: `${maxWeight ? item.weight / maxWeight * 100 : 0}%` }} /></i>{percent(item.weight, 2)}</div></td>
+                            <td>{money(item.amount)}</td>
                             <td>{item.liquidity}</td>
                           </tr>
                         ))}

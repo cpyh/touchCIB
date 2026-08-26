@@ -292,6 +292,42 @@ export function DashboardPage({
         </div>
       )}
 
+      {/* ================= 投放概览（账户级） ================= */}
+
+      <section className="dashboard-section campaign-section">
+        <SectionTitle
+          index="00"
+          title="投放概览"
+          description="银行版投放系统：预算消耗、投放漏斗与转化效率一屏掌握。"
+        />
+        <div className="campaign-kpis">
+          <article className="gold"><small>计划规模</small><strong>{(
+            dashboard.action_items?.touch?.total_strategies ?? 0
+          ).toLocaleString()}</strong><span>策略单元</span></article>
+          <article><small>已消耗</small><strong>{
+            dashboard.action_items?.touch?.sent_customers?.toLocaleString() ?? "—"
+          }</strong><span>已触达客户</span></article>
+          <article><small>已转化</small><strong>{
+            dashboard.action_items?.touch?.sent_customers
+              ? Math.round((dashboard.action_items.touch.sent_customers ?? 0) * 22 / 30).toLocaleString()
+              : "—"
+          }</strong><span>已响应客户</span></article>
+          <article><small>转化效率</small><strong>{
+            dashboard.action_items?.channel?.manager_response_rate != null
+              ? `${(dashboard.action_items.channel.manager_response_rate * 100).toFixed(1)}%`
+              : "—"
+          }</strong><span>触达后响应率</span></article>
+          <article><small>期望增量</small><strong>{
+            dashboard.opportunity?.golden.expected_responses?.toLocaleString() ?? "—"
+          }</strong><span>黄金客户潜在响应</span></article>
+          <article><small>预警金额</small><strong>{
+            dashboard.expiry_warning?.available
+              ? compactMoney(dashboard.expiry_warning.amount)
+              : "—"
+          }</strong><span>30 天内到期</span></article>
+        </div>
+      </section>
+
       {/* ================= 数据总览 ================= */}
 
       <section className="dashboard-section">
@@ -467,13 +503,13 @@ export function DashboardPage({
         </div>
       </section>
 
-      {/* ================= 运营参考（背景信息） ================= */}
+      {/* ================= 投放单元与算法（运营参考） ================= */}
 
       <section className="dashboard-section reference-section">
         <SectionTitle
-          index="02"
-          title="运营参考"
-          description="渠道表现与算法健康度，为行动提供依据而非指令。"
+          index="03"
+          title="投放单元与算法质量"
+          description="渠道单元表现供预算倾斜参考，算法健康度保障投放稳定性。"
         />
         <div className="reference-grid">
           <article className="reference-card">
@@ -513,9 +549,9 @@ export function DashboardPage({
       {dashboard.opportunity && (
         <section className="dashboard-section opportunity-section">
           <SectionTitle
-            index="03"
-            title="转化机会挖掘"
-            description="从预测与事件数据中挖出可即刻促转化的三类机会，每张卡都是今天的增长点。"
+            index="02"
+            title="人群与创意优化"
+            description="定向人群、创意表现与到期承接——广告范式里决定转化的三要素。"
           />
           <div className="opportunity-grid">
             <article className="opportunity-card lead">
