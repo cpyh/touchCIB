@@ -162,6 +162,8 @@ export function PortfolioPage({
     product_name: string | null;
     strategies: Array<{ rank: number; product_name: string }>;
   } | null>(null);
+  const [aiText, setAiText] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     api<{ scenarios: Scenario[] }>("/portfolio/scenarios")
@@ -269,6 +271,13 @@ export function PortfolioPage({
     };
   }, [customer]);
 
+  useEffect(() => {
+    if (resultView === "ai" && result && !aiText && !aiLoading) {
+      void loadAiAnalysis();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultView, result, aiText]);
+
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
     [scenarioId, scenarios],
@@ -367,10 +376,35 @@ export function PortfolioPage({
       });
       setResult(data);
       setResultView("overview");
+      setAiText(null);
     } catch (error) {
       notify(`组合优化失败：${(error as Error).message}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function loadAiAnalysis() {
+    if (!result || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const data = await api<{ text: string }>("/portfolio/ai-analysis", {
+        method: "POST",
+        body: JSON.stringify({
+          customer: customer ? { risk_appetite: customer.risk_appetite, aum: customer.aum } : null,
+          summary: result.summary,
+          business: result.business ?? null,
+          buys: rebalance?.buys ?? [],
+          sells: rebalance?.sells ?? [],
+          marketing_prob: marketingSignal?.prob ?? null,
+        }),
+      });
+      setAiText(data.text);
+    } catch (error) {
+      setAiText(null);
+      notify(`AI 解读生成失败：${(error as Error).message}`);
+    } finally {
+      setAiLoading(false);
     }
   }
 
@@ -591,8 +625,8 @@ export function PortfolioPage({
                   <button className={resultView === "overview" ? "on" : ""} onClick={() => setResultView("overview")}>组合概览</button>
                   <button className={resultView === "business" ? "on" : ""} onClick={() => setResultView("business")}>业务落地</button>
                   <button className={resultView === "detail" ? "on" : ""} onClick={() => setResultView("detail")}>产品明细</button>
-                  <button className={resultView === "guards" ? "on" : ""} onClick={() => setResultView("guards")}>约束检查</button>
-                  <button className={resultView === "ai" ? "on" : ""} onClick={() => setResultView("ai")}>AI能力</button>
+                  <button className={resultView === "guards" ? "on" : ""} onClick={() => setResultView("guards")}>合规校验</button>
+                  <button className={resultView === "ai" ? "on" : ""} onClick={() => setResultView("ai")}>AI分析</button>
                 </div>
                 <Status warn={!allPassed}>{allPassed ? "全部约束通过" : "存在约束违例"}</Status>
               </div>
@@ -661,11 +695,11 @@ export function PortfolioPage({
                   <section className="portfolio-ai-brief">
                     <div className="portfolio-ai-mark">AI</div>
                     <div>
-                      <small>PORTFOLIO EXPLANATION</small>
-                      <h3>为什么得到这个组合</h3>
-                      <p>{explanation}</p>
+                      <small>AI ANALYSIS</small>
+                      <h3>AI 组合解读</h3>
+                      <p>{aiLoading ? "AI 正在分析组合方案…" : (aiText || explanation)}</p>
                     </div>
-                    <Status>可复现解释引擎</Status>
+                    <Status>{aiLoading ? "生成中" : "DeepSeek 实时解读"}</Status>
                   </section>
                   <div className="portfolio-ai-evidence">
                     <article>

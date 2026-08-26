@@ -31,6 +31,7 @@ from .portfolio import (
     ScenarioInputError,
     ScenarioStoreError,
     create_portfolio_scenario,
+    generate_ai_analysis,
     list_portfolio_scenarios,
     optimize_portfolio,
 )
@@ -87,6 +88,18 @@ def portfolio_optimize():
         return jsonify(error=str(exc)), 400
     except (RuntimeError, ValueError) as exc:
         return jsonify(error=f"portfolio optimization failed: {exc}"), 422
+
+
+@app.post("/portfolio/ai-analysis")
+def portfolio_ai_analysis():
+    """组合方案 AI 解读：前端传方案上下文，后端调 DeepSeek 返回一段文本。"""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="request body must be a JSON object"), 400
+    try:
+        return jsonify(text=generate_ai_analysis(payload))
+    except (RuntimeError, ValueError) as exc:
+        return jsonify(error=f"portfolio AI analysis failed: {exc}"), 503
 
 
 @app.get("/portfolio/scenarios")

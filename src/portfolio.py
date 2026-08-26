@@ -464,3 +464,49 @@ def create_portfolio_scenario(payload: dict) -> dict:
     if row is None:
         raise ScenarioStoreError("saved portfolio scenario was not found")
     return _scenario_json(row)
+
+
+def generate_ai_analysis(payload: dict) -> str:
+    """调用 DeepSeek 生成一段组合解读（纯文本，供前端 AI 分析展示）。"""
+    import os
+
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPSEEK_API_KEY is not configured")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    timeout = float(os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "60"))
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("openai SDK is not installed") from exc
+
+    summary = payload.get("summary") or {}
+    business = payload.get("business") or {}
+    customer = payload.get("customer") or {}
+    buys = [f"{item.get('product_name')}(+{item.get('amount', 0):.0f}元)" for item in payload.get("buys") or []]
+    sells = [f"{item.get('product_name')}(-{item.get('amount', 0):.0f}元)" for item in payload.get("sells") or []]
+    prob = payload.get("marketing_prob")
+
+    prompt = (
+        "你是一名银行财富管理投顾助手。请根据以下组合优化结果，用一段话（120字以内，"
+        "纯文本、不用markdown、不列条款）向客户经理解读这个方案：先点明客户风险画像，"
+        "再说明理论最优方案的收益/波动，然后解释业务落地后的保真率和调仓要点，最后给一句"
+        "可执行的跟进建议。\n\n"
+        f"客户：风险偏好 {customer.get('risk_appetite')}，AUM {customer.get('aum', 0):.0f} 元。\n"
+        f"理论方案：预期收益 {(summary.get('expected_return', 0) * 100):.2f}%，"
+        f"波动 {(summary.get('portfolio_volatility', 0) * 100):.2f}%，"
+        f"持仓 {summary.get('holdings_count')} 款。\n"
+        f"业务落地：保真率 {(business.get('retention_ratio', 0) * 100):.1f}%，"
+        f"持仓 {business.get('holdings_count')} 款。\n"
+        f"调仓：买入 {('、'.join(buys)) if buys else '无'}；卖出 {('、'.join(sells)) if sells else '无'}。\n"
+        + (f"营销：该客户 A1 响应概率 {(prob * 100):.1f}%。\n" if prob is not None else "")
+    )
+
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4,
+    )
+    return (response.choices[0].message.content or "").strip()
