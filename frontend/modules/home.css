@@ -63,3 +63,11 @@
 .home-module-card strong{font-size:11px}
 .home-module-card small{font-size:8px}
 @media(max-width:1100px){.home-hero-compact{flex-direction:column;align-items:flex-start}.home-hero-side{flex-wrap:wrap}}
+
+/* 吉祥物徽章与今日签语 */
+.home-mascot{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 7px;border:1px solid #e0bd788c;border-radius:99px;background:#ffffff14}
+.home-mascot>i{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 30% 25%,#f0d491,#c69b4d);color:#5c4415;font:700 14px Georgia;box-shadow:0 2px 6px #00000033}
+.home-mascot span,.home-mascot b{display:block}
+.home-mascot span{display:flex;align-items:center;gap:6px}
+.home-mascot em{font-style:normal;font-size:13px}
+.home-mascot b{color:#f0d9a8;font-size:10px;font-weight:500}

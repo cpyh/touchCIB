@@ -78,9 +78,21 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
   const touch = dashboard?.action_items?.touch;
   const expiry = dashboard?.expiry_warning;
   const business = dashboard?.business_metrics;
-  const a1 = dashboard?.a1_performance;
 
   const goalText = encouragement(conversion?.gap, expiry?.customer_count);
+  const fortune = (() => {
+    if (conversion == null) return { emoji: "🪙", text: "数据加载中…" };
+    if (conversion.gap <= 0) {
+      return { emoji: "🎉", text: "今日宜庆祝：转化目标已达成" };
+    }
+    if (conversion.gap <= 4) {
+      return { emoji: "🪙", text: `今日宜冲刺：再拿下 ${conversion.gap} 个即可达标` };
+    }
+    if (expiry?.customer_count) {
+      return { emoji: "💛", text: "今日宜经营：到期资金是好运名单" };
+    }
+    return { emoji: "📞", text: "今日宜联系：高意向客户优先" };
+  })();
 
   return (
     <div className="home-page">
@@ -97,11 +109,13 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
               : "今日建议：目标已达成，把精力转到到期资金再配置上。"}
           </span>
           <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台 →</button>
+          <div className="home-mascot">
+            <i>兴</i>
+            <span><em>{fortune.emoji}</em><b>{fortune.text}</b></span>
+          </div>
           <div className="home-snapshot">
             {business && <span><small>客户</small><b>{business.customer_count.toLocaleString()}</b></span>}
             {business && <span><small>AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
-            {a1 && <span><small>AUC</small><b>{a1.auc?.toFixed(4) ?? "—"}</b></span>}
-            {touch && <span><small>策略</small><b>{touch.total_strategies.toLocaleString()}</b></span>}
           </div>
         </div>
       </section>
