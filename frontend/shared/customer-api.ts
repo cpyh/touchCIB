@@ -74,6 +74,12 @@ export interface CustomerProfile {
     latest_event_date: string | null;
     tags: string[];
   };
+  campaign_summary?: {
+    contact_count: number;
+    responded_count: number;
+    response_rate: number | null;
+    last_contact_date: string | null;
+  };
   ai_summary: AiAnalysis | null;
   ai_summary_generated_at: string | null;
 }

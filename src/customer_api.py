@@ -446,6 +446,17 @@ def get_customer_profile(customer_id: str) -> dict:
                     (customer_id, as_of_date),
                 )
                 events = cursor.fetchall()
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS contact_count,
+                           COALESCE(SUM(responded), 0) AS responded_count,
+                           MAX(contact_date) AS last_contact_date
+                    FROM ods_campaign
+                    WHERE customer_id = %s AND contact_date <= %s
+                    """,
+                    (customer_id, as_of_date),
+                )
+                campaign_row = cursor.fetchone()
         finally:
             connection.close()
     except NotFoundError:
@@ -458,11 +469,28 @@ def get_customer_profile(customer_id: str) -> dict:
         customer, events, asset_profile, as_of_date
     )
     basic = customer_dict(customer)
+    campaign = campaign_row or {}
+    contact_count = int(campaign.get("contact_count") or 0)
+    responded_count = int(campaign.get("responded_count") or 0)
     return {
         "as_of_date": as_of_date.isoformat(),
         "basic_info": basic,
         "asset_profile": asset_profile,
         "behavior_profile": behavior_profile,
+        "campaign_summary": {
+            "contact_count": contact_count,
+            "responded_count": responded_count,
+            "response_rate": (
+                round(responded_count / contact_count, 4)
+                if contact_count
+                else None
+            ),
+            "last_contact_date": (
+                campaign["last_contact_date"].isoformat()
+                if campaign.get("last_contact_date")
+                else None
+            ),
+        },
         "ai_summary": parse_cached_analysis(customer.get("ai_summary")),
         "ai_summary_generated_at": (
             customer["ai_summary_generated_at"].isoformat()

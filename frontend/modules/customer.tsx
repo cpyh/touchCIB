@@ -12,7 +12,36 @@ import {
   generateAiSummary,
   getCustomerProfile,
   listCustomers,
-} from "../shared/customer-api";;
+} from "../shared/customer-api";
+import { api } from "../shared/api";
+import { channelNames } from "../shared/ui";
+
+interface RosterRow {
+  contact_id: string;
+  customer_id: string;
+  product_id: string;
+  product_name: string;
+  risk_level: string;
+  channel: string;
+  contact_date: string;
+  response_prob: number;
+}
+
+interface StrategyItem {
+  strategy_id: string;
+  rank: number;
+  product_id: string;
+  product_name: string;
+  expected_return: number;
+  recommended_channel: string;
+  status: string;
+}
+
+interface LinkageData {
+  a1Rows: RosterRow[];
+  strategies: StrategyItem[] | null;
+  strategyMessage: string;
+}
 
 const PAGE_SIZE = 20;
 const cities = ["上海", "北京", "南京", "南通", "常州", "徐州", "无锡", "杭州", "深圳", "苏州"];
@@ -121,6 +150,7 @@ function paginationItems(current: number, total: number): Array<number | "ellips
 interface CustomerPageProps {
   initialCustomerId: string;
   onOpenMarketing: (customerId: string) => void;
+  onOpenPortfolio: (customerId: string) => void;
   notify?: (message: string) => void;
 }
 
@@ -147,6 +177,9 @@ export function CustomerPage(props: CustomerPageProps) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [summaryProvider, setSummaryProvider] = useState<string | null>(null);
+
+  const [linkage, setLinkage] = useState<LinkageData | null>(null);
+  const [linkageLoading, setLinkageLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<FormState>(initialForm);
@@ -215,6 +248,33 @@ export function CustomerPage(props: CustomerPageProps) {
       });
     return () => controller.abort();
   }, [selectedId, profileRefreshKey]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setLinkage(null);
+      return;
+    }
+    setLinkageLoading(true);
+    const rosterRequest = api<{ customers: RosterRow[] }>(
+      `/marketing/roster?keyword=${encodeURIComponent(selectedId)}&size=20`
+    )
+      .then(data => data.customers.filter(row => row.customer_id === selectedId))
+      .catch(() => [] as RosterRow[]);
+    const strategyRequest = api<{ items: StrategyItem[] }>(
+      `/customers/${selectedId}/strategies`
+    )
+      .then(data => ({ strategies: data.items as StrategyItem[] | null, strategyMessage: "" }))
+      .catch((error: Error) => ({ strategies: null, strategyMessage: error.message }));
+    Promise.all([rosterRequest, strategyRequest])
+      .then(([a1Rows, strategyResult]) => {
+        setLinkage({
+          a1Rows,
+          strategies: strategyResult.strategies,
+          strategyMessage: strategyResult.strategyMessage,
+        });
+      })
+      .finally(() => setLinkageLoading(false));
+  }, [selectedId]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visiblePages = paginationItems(page, totalPages);
@@ -334,7 +394,48 @@ export function CustomerPage(props: CustomerPageProps) {
         {profileError && <div className="api-error"><b>客户画像加载失败</b><p>{profileError}</p><button className="secondary" onClick={() => { setProfileLoading(true); setProfileError(""); setProfileRefreshKey(value => value + 1); }}>重新加载</button></div>}
         {profile && basic && asset && behavior && !profileLoading && <>
           <div className="profile-bar"><div className="avatar">{basic.customer_id.slice(-2)}</div><div className="profile-info"><div><h3>{basic.customer_id}</h3><span>{basic.vip_level}客户</span><StatusPill warn={currentActivity === "低活跃"}>{currentActivity}</StatusPill></div><p>{basic.age_group} · {basic.city} · {basic.occupation} · 收入{basic.income_level}</p><div className="tags">{behavior.tags.length ? behavior.tags.map(tag => <i key={tag}>{tag}</i>) : <i>暂无动态标签</i>}<i>{basic.has_app ? "App已安装" : "App未安装"}</i></div></div><div className="aum"><small>资产管理规模</small><strong>{money(basic.aum)}</strong><span>可识别持仓 {money(asset.holding_amount)}</span></div><div className="risk"><small>风险偏好</small><strong>{basic.risk_appetite}</strong><span>{basic.risk_label}</span></div>
-          <div className="profile-to-marketing"><button className="primary" onClick={() => props.onOpenMarketing(basic.customer_id)}>查看Top3营销策略 →</button></div></div>
+          <div className="profile-actions"><button className="primary" onClick={() => props.onOpenPortfolio(basic.customer_id)}>智能投顾配置 →</button><button className="secondary" onClick={() => props.onOpenMarketing(basic.customer_id)}>查看Top3营销策略 →</button></div></div>
+
+          {linkage && (
+            <div className={`linkage-panel ${linkageLoading ? "is-loading" : ""}`}>
+              <div className="linkage-head"><span><small>PLATFORM LINKAGE</small><h3>平台联动</h3></span><p>该客户在投顾与营销两条数据链路中的位置（实时查询）</p></div>
+              <div className="linkage-grid">
+                <section className="linkage-card">
+                  <b>营销信号 <small>A1 + A2</small></b>
+                  {linkage.a1Rows.length === 0 ? (
+                    <div className="linkage-empty">不在 A1 触达名单（8,000 条）</div>
+                  ) : (() => {
+                    const best = [...linkage.a1Rows].sort((left, right) => right.response_prob - left.response_prob)[0];
+                    return (
+                      <div className="linkage-fact"><span>最高响应概率</span><strong>{(best.response_prob * 100).toFixed(1)}%</strong><em>{best.product_name} · {channelNames[best.channel] ?? best.channel} · {best.contact_date}</em></div>
+                    );
+                  })()}
+                  {linkage.strategies ? (
+                    <ul className="linkage-top3">{linkage.strategies.map(item => <li key={item.strategy_id}><b>TOP{item.rank}</b><span>{item.product_id} {item.product_name}</span><em>{channelNames[item.recommended_channel] ?? item.recommended_channel} · {item.status}</em></li>)}</ul>
+                  ) : (
+                    <div className="linkage-empty">{linkage.strategyMessage || "不在 A2 目标名单（2,000 人）"}</div>
+                  )}
+                </section>
+                <section className="linkage-card">
+                  <b>投顾信号 <small>Part B</small></b>
+                  <div className="linkage-fact"><span>当前持仓产品</span><strong>{asset.holding_product_count} 款</strong><em>高流动性占比 {percent(asset.high_liquidity_ratio)}</em></div>
+                  <p className="linkage-note">投顾模块支持按客户风险偏好与资金规模新建配置场景，凸优化求解并给出最优性证书。</p>
+                  <button className="secondary" onClick={() => props.onOpenPortfolio(basic.customer_id)}>去投顾生成配置 →</button>
+                </section>
+                <section className="linkage-card">
+                  <b>历史触达 <small>训练口径</small></b>
+                  {profile.campaign_summary ? (
+                    <>
+                      <div className="linkage-fact"><span>历史触达</span><strong>{profile.campaign_summary.contact_count} 次</strong><em>响应 {profile.campaign_summary.responded_count} 次 · 响应率 {percent(profile.campaign_summary.response_rate)}</em></div>
+                      <div className="linkage-fact"><span>最近触达</span><strong>{profile.campaign_summary.last_contact_date ?? "—"}</strong><em>来自 ods_campaign 训练集口径</em></div>
+                    </>
+                  ) : (
+                    <div className="linkage-empty">暂无历史触达记录</div>
+                  )}
+                </section>
+              </div>
+            </div>
+          )}
           <div className="profile-grid">
             <div className="card inner">
               <div className="tabs">{[["overview", "画像概览"], ["holding", "资产持仓"], ["behavior", "行为概览"]].map(tab => <button key={tab[0]} className={customerTab === tab[0] ? "on" : ""} onClick={() => setCustomerTab(tab[0] as CustomerTab)}>{tab[1]}</button>)}</div>

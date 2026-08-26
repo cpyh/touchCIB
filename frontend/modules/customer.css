@@ -22,3 +22,30 @@
 
 /* AI 客户画像结构化输出与安全关键词高亮 */
 .ai-analysis{display:grid;gap:10px;min-height:118px;margin:11px 0;padding:13px 0;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c}.ai-analysis section{display:grid;gap:4px}.ai-analysis section>b{color:#e2c47e;font-size:10px;letter-spacing:.04em}.ai-analysis p{margin:0;color:#d5e0e8;font-size:11px;line-height:1.75}.ai-highlight{padding:0 2px;border-radius:3px;background:#d7aa4b24;color:#f1d18b;font-weight:700}.ai-empty{min-height:118px;display:grid;place-items:center;margin:11px 0;padding:13px 4px;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c;color:#adc0cf;font-size:11px;line-height:1.8;text-align:center}
+
+/* 平台联动面板：客户在投顾/营销链路中的位置 */
+.profile-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.linkage-panel{margin:0 0 14px;padding:13px 15px 15px;border:1px solid #dde6ed;border-radius:11px;background:#fff;box-shadow:0 4px 12px #112d4b0a;transition:opacity .2s}
+.linkage-panel.is-loading{opacity:.55}
+.linkage-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:11px}
+.linkage-head small{color:var(--gold);font-size:8px;font-weight:700;letter-spacing:.14em}
+.linkage-head h3{margin:2px 0 0;color:var(--navy);font-size:14px}
+.linkage-head p{margin:0;color:#7b8d9b;font-size:10px}
+.linkage-grid{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:10px}
+.linkage-card{min-width:0;padding:12px 13px;border:1px solid #e3eaf0;border-radius:9px;background:#fbfcfd}
+.linkage-card>b{display:flex;justify-content:space-between;color:var(--navy2);font-size:12px}
+.linkage-card>b small{color:#96a5b1;font-size:9px;font-weight:500}
+.linkage-fact{margin-top:9px}
+.linkage-fact span,.linkage-fact strong,.linkage-fact em{display:block}
+.linkage-fact span{color:#7c8f9e;font-size:10px}
+.linkage-fact strong{margin:2px 0;color:var(--navy);font:700 18px Georgia,serif}
+.linkage-fact em{color:#5f7687;font-size:10px;font-style:normal}
+.linkage-top3{display:grid;gap:6px;margin:9px 0 0;padding:0;list-style:none}
+.linkage-top3 li{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;padding:7px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fff;font-size:10px}
+.linkage-top3 li b{color:#966922;font:700 9px Georgia}
+.linkage-top3 li span{color:#254b6d}
+.linkage-top3 li em{color:#6c8293;font-style:normal}
+.linkage-empty{margin-top:9px;padding:10px;border-radius:7px;background:#f6f8fa;color:#8a99a5;font-size:10px}
+.linkage-note{margin:8px 0;color:#75889a;font-size:10px;line-height:1.6}
+.linkage-card .secondary{min-height:32px;padding:6px 11px;font-size:10px}
+@media(max-width:850px){.linkage-grid{grid-template-columns:1fr}.profile-actions{margin-left:0}}

@@ -43,6 +43,11 @@ export default function Home() {
     setActive("customer");
   }
 
+  function openPortfolio(nextCustomerId: string) {
+    setCustomerId(nextCustomerId);
+    setActive("portfolio");
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -67,7 +72,7 @@ export default function Home() {
         </header>
 
         <main className={`page-${active}`}>
-          {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} notify={notify} />}
+          {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} />}
           {active === "marketing" && <MarketingPage initialCustomerId={customerId} onOpenCustomer={openCustomer} notify={notify} />}
           {active === "dashboard" && <DashboardPage />}
