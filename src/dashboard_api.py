@@ -17,6 +17,8 @@ from flask import Blueprint, jsonify, request
 
 from .customer_api import RISK_LABELS, ServiceError, ValidationError
 from .database import database_connection
+from .marketing.models import CHANNELS, TIME_SLOTS
+from .marketing.rules import RULES
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 METRICS_JSON = (
@@ -156,11 +158,15 @@ def _a2_performance() -> dict:
         return {
             "status": "NOT_READY",
             "data_source": "CSV",
+            "result_row_count": 0,
             "target_customer_count": 0,
             "generated_customer_count": 0,
             "coverage_rate": None,
             "hit_rate_at_3": None,
+            "rule_count": len(RULES),
             "channel_distribution": [],
+            "time_distribution": [],
+            "validation": {},
         }
     try:
         strategies = pd.read_csv(STRATEGY_CSV, dtype=str)
@@ -180,6 +186,7 @@ def _a2_performance() -> dict:
         raise ServiceError("invalid A2 strategy file columns")
 
     target_ids = set(targets["customer_id"].dropna())
+    strategy_ids = set(strategies["customer_id"].dropna())
     valid_customers = 0
     for customer_id, rows in strategies.groupby("customer_id"):
         ranks = set(rows["rank"])
@@ -188,16 +195,39 @@ def _a2_performance() -> dict:
             valid_customers += 1
     total_target = len(target_ids)
     generated = valid_customers
-    channels = ("sms", "call", "app_push", "manager")
     channel_counts = strategies["recommended_channel"].value_counts().to_dict()
     channel_distribution = [
         {"channel": channel, "count": int(channel_counts.get(channel, 0))}
-        for channel in channels
+        for channel in CHANNELS
     ]
-    unknown_customers = set(strategies["customer_id"].dropna()) - target_ids
+    time_counts = strategies["recommended_time"].value_counts().to_dict()
+    time_distribution = [
+        {"time_slot": time_slot, "count": int(time_counts.get(time_slot, 0))}
+        for time_slot in TIME_SLOTS
+    ]
+    grouped = strategies.groupby("customer_id")
+    validation = {
+        "customer_coverage_passed": strategy_ids == target_ids,
+        "top3_complete_passed": bool(
+            len(grouped) == total_target
+            and all(len(rows) == 3 and set(rows["rank"]) == {"1", "2", "3"}
+                    for _, rows in grouped)
+        ),
+        "product_unique_passed": bool(
+            len(grouped) == total_target
+            and all(rows["product_id"].nunique() == 3 for _, rows in grouped)
+        ),
+        "channel_enum_passed": set(strategies["recommended_channel"].dropna()).issubset(CHANNELS),
+        "time_enum_passed": set(strategies["recommended_time"].dropna()).issubset(TIME_SLOTS),
+        "script_length_passed": bool(
+            strategies["marketing_script"].notna().all()
+            and strategies["marketing_script"].str.len().between(10, 300).all()
+        ),
+    }
+    unknown_customers = strategy_ids - target_ids
     status = (
         "READY"
-        if generated == total_target and not unknown_customers
+        if generated == total_target and not unknown_customers and all(validation.values())
         else "INVALID"
     )
     return {
@@ -208,7 +238,48 @@ def _a2_performance() -> dict:
         "generated_customer_count": generated,
         "coverage_rate": round(generated / total_target, 4) if total_target else None,
         "hit_rate_at_3": None,
+        "rule_count": len(RULES),
         "channel_distribution": channel_distribution,
+        "time_distribution": time_distribution,
+        "validation": validation,
+    }
+
+
+def _portfolio_summary() -> dict:
+    """汇总正式 Part B 结果，供看板展示 20 个场景的整体质量。"""
+    import pandas as pd
+
+    if not ALLOCATION_CSV.is_file() or not PARTB_AUDIT_CSV.is_file():
+        return {
+            "status": "NOT_READY",
+            "scenario_count": 0,
+            "constraints_passed_count": 0,
+            "allocation_row_count": 0,
+            "total_utility": None,
+            "max_optimality_gap": None,
+        }
+    try:
+        allocations = pd.read_csv(ALLOCATION_CSV, dtype={"scenario_id": str})
+        audit = pd.read_csv(PARTB_AUDIT_CSV, dtype={"scenario_id": str})
+    except (OSError, ValueError) as exc:
+        raise ServiceError("unable to read Part B summary") from exc
+
+    passed = (
+        (audit["product_weight_sum"] <= 1 + 1e-6)
+        & (audit["high_risk_weight"] <= audit["high_risk_cap"] + 1e-6)
+        & (audit["liquid_plus_cash"] + 1e-6 >= audit["liquid_floor"])
+        & (audit["holdings_count"] >= audit["required_min_holdings"])
+        & (audit["max_product_weight"] <= audit["single_product_cap"] + 1e-6)
+    )
+    scenario_count = int(audit["scenario_id"].nunique())
+    passed_count = int(passed.sum())
+    return {
+        "status": "READY" if scenario_count and passed_count == scenario_count else "INVALID",
+        "scenario_count": scenario_count,
+        "constraints_passed_count": passed_count,
+        "allocation_row_count": int(len(allocations)),
+        "total_utility": round(float(audit["utility"].sum()), 12) if scenario_count else None,
+        "max_optimality_gap": float(audit["absolute_gap_bound"].max()) if scenario_count else None,
     }
 
 
@@ -335,35 +406,40 @@ def _portfolio_performance(scenario_id: str | None) -> dict:
 
 
 def _marketing_funnel() -> dict:
-    """营销漏斗真实数据：目标客户 → 已生成 → 已触达 → 已响应（事件表口径）。"""
+    """营销闭环同时返回客户口径与 strategy_id 事件口径。"""
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS contacted "
+                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
+                    "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
                     "FROM app_campaign_event WHERE event_type = 'sent'"
                 )
                 sent = cursor.fetchone()
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS responded "
+                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
+                    "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
                     "FROM app_campaign_event WHERE event_type = 'responded'"
                 )
                 responded = cursor.fetchone()
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
-        sent = {"contacted": 0}
-        responded = {"responded": 0}
-    contacted_count = int(sent["contacted"] or 0) if sent else 0
-    responded_count = int(responded["responded"] or 0) if responded else 0
+        sent = {"strategies": 0, "customers": 0}
+        responded = {"strategies": 0, "customers": 0}
+    sent_strategy_count = int(sent["strategies"] or 0) if sent else 0
+    responded_strategy_count = int(responded["strategies"] or 0) if responded else 0
     a2 = _a2_performance()
     return {
-        "status": "READY" if contacted_count or responded_count else "NOT_STARTED",
+        "status": "READY" if sent_strategy_count or responded_strategy_count else "NOT_STARTED",
         "target_customer_count": a2["target_customer_count"],
         "generated_customer_count": a2["generated_customer_count"],
-        "contacted_customer_count": contacted_count,
-        "responded_customer_count": responded_count,
+        "contacted_customer_count": int(sent["customers"] or 0) if sent else 0,
+        "responded_customer_count": int(responded["customers"] or 0) if responded else 0,
+        "generated_strategy_count": a2.get("result_row_count", 0),
+        "sent_strategy_count": sent_strategy_count,
+        "responded_strategy_count": responded_strategy_count,
     }
 
 
@@ -426,6 +502,7 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
         ),
         "a1_performance": _a1_performance(),
         "a2_performance": _a2_performance(),
+        "portfolio_summary": _portfolio_summary(),
         "portfolio": _portfolio_performance(scenario_id),
         "marketing_funnel": _marketing_funnel(),
     }

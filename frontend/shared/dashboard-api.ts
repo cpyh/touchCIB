@@ -52,7 +52,18 @@ export interface DashboardOverview {
     generated_customer_count: number;
     coverage_rate: number | null;
     hit_rate_at_3: number | null;
+    rule_count?: number;
     channel_distribution: Array<{ channel: string; count: number }>;
+    time_distribution?: Array<{ time_slot: string; count: number }>;
+    validation?: Record<string, boolean>;
+  };
+  portfolio_summary?: {
+    status: DataStatus;
+    scenario_count: number;
+    constraints_passed_count: number;
+    allocation_row_count: number;
+    total_utility: number | null;
+    max_optimality_gap: number | null;
   };
   portfolio: PortfolioResult;
   marketing_funnel: {
@@ -61,6 +72,9 @@ export interface DashboardOverview {
     generated_customer_count: number;
     contacted_customer_count: number;
     responded_customer_count: number;
+    generated_strategy_count?: number;
+    sent_strategy_count?: number;
+    responded_strategy_count?: number;
   };
 }
 
