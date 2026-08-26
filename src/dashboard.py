@@ -8,25 +8,20 @@
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
 
 from .database import database_connection
+from .dashboard_api import _a1_performance, _a2_performance
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-METRICS_JSON = (
-    PROJECT_DIR / "src" / "data" / "outputs" / "a1_validation_metrics.json"
-)
-PREDICTION_CSV = PROJECT_DIR / "partA_prediction.csv"
 STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
 PARTB_AUDIT_CSV = (
     PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
 )
 
-TOTAL_STRATEGIES = 6000
 DEMO_MANAGER_ID = "MGR001"
 
 KPI_TARGETS = [
@@ -58,7 +53,6 @@ KPI_TARGETS = [
 ]
 
 
-@lru_cache(maxsize=1)
 def _strategy_frame() -> pd.DataFrame:
     return pd.read_csv(STRATEGY_CSV, dtype=str)
 
@@ -187,27 +181,28 @@ def _channel_stats() -> dict:
 
 def dashboard_summary() -> dict:
     """Tab4 全部聚合数据，前端零计算。"""
-    # ---- A1 模型指标 ----
-    metrics: dict = {}
-    if METRICS_JSON.is_file():
-        metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
-
-    # ---- 预测分布 ----
-    predictions = pd.read_csv(PREDICTION_CSV)
-    probabilities = pd.to_numeric(predictions["response_prob"])
+    # ---- A1 模型指标与已落库预测分布 ----
+    a1 = _a1_performance()
+    probability_counts = {
+        item["bucket"]: item["count"]
+        for item in a1["probability_distribution"]
+    }
     prediction_stats = {
-        "total": int(len(predictions)),
-        "mean_prob": round(float(probabilities.mean()), 6),
-        "high_intent": int((probabilities >= 0.7).sum()),
-        "mid_intent": int(((probabilities >= 0.3) & (probabilities < 0.7)).sum()),
-        "low_intent": int((probabilities < 0.3).sum()),
+        "total": int(a1.get("prediction_count") or 0),
+        "mean_prob": a1.get("mean_probability"),
+        "high_intent": int(probability_counts.get("高意向(≥70%)", 0)),
+        "mid_intent": int(probability_counts.get("中意向(30%~70%)", 0)),
+        "low_intent": int(probability_counts.get("低意向(<30%)", 0)),
     }
 
     # ---- 策略分布 ----
     strategies = _strategy_frame()
+    a2 = _a2_performance()
+    total_strategies = int(len(strategies))
     strategy_stats = {
-        "rows": int(len(strategies)),
-        "customers": int(strategies["customer_id"].nunique()),
+        "status": a2["status"],
+        "rows": total_strategies,
+        "customers": a2["generated_customer_count"],
         "channel_distribution": {
             channel: int(count)
             for channel, count in strategies["recommended_channel"].value_counts().items()
@@ -229,10 +224,10 @@ def dashboard_summary() -> dict:
 
     # ---- 漏斗与 KPI ----
     events = _event_summary()
-    pending = TOTAL_STRATEGIES - events["sent"]
+    pending = max(0, total_strategies - events["sent"])
     funnel = {
         "stages": [
-            {"stage": "策略生成", "count": TOTAL_STRATEGIES},
+            {"stage": "策略生成", "count": total_strategies},
             {"stage": "已触达", "count": events["sent"]},
             {"stage": "已响应", "count": events["responded"]},
         ],
@@ -250,7 +245,7 @@ def dashboard_summary() -> dict:
                 else 0.0
             )
         else:  # campaign_touch_progress
-            actual = events["sent"] / TOTAL_STRATEGIES
+            actual = events["sent"] / total_strategies if total_strategies else 0.0
         target_value = target["target"]
         completion = actual / target_value if target_value else 0.0
         kpis.append(
@@ -263,9 +258,9 @@ def dashboard_summary() -> dict:
 
     return {
         "model_metrics": {
-            "auc": metrics.get("auc"),
-            "best_f1": metrics.get("best_f1"),
-            "lift_at_10_percent": metrics.get("lift_at_10_percent"),
+            "auc": a1.get("auc"),
+            "best_f1": a1.get("f1"),
+            "lift_at_10_percent": a1.get("lift_at_10"),
         },
         "prediction_stats": prediction_stats,
         "strategy_stats": strategy_stats,
