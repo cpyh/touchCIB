@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import CustomerModule from "./customer-module";
 
 type Module = "customer" | "advisor" | "marketing" | "dashboard";
 
@@ -99,6 +100,7 @@ export default function Home() {
   }
 
   function customerPage() {
+    if (active === "customer") return <CustomerModule />;
     return <>
       {pageHead(<button className="primary import-button" onClick={() => fileRef.current?.click()}>⇧&nbsp; 导入业务数据</button>)}
       <input ref={fileRef} hidden type="file" accept=".csv" onChange={e => setFileName(e.target.files?.[0]?.name || "")} />
@@ -172,7 +174,7 @@ export default function Home() {
 
   return <div className="app">
     <aside className="sidebar"><div className="brand"><b>兴</b><span><strong>智能财富管理</strong><small>运营平台</small></span></div><nav>{[["customer","客","客户画像","数据接入与风险评估"],["advisor","投","智能投顾","组合配置与约束检查"],["marketing","营","营销运营","响应预测与策略生成"],["dashboard","览","经营看板","关键指标与结果汇总"]].map(n=><button key={n[0]} className={active===n[0]?"on":""} onClick={()=>setActive(n[0] as Module)}><b>{n[1]}</b><span><strong>{n[2]}</strong><small>{n[3]}</small></span></button>)}</nav><div className="safe"><b>盾</b><span><strong>数据安全域</strong><small>演示环境 · 已脱敏</small></span></div></aside>
-    <div className="main"><header><div>智能财富管理运营平台 <i>›</i> <b>{titles[active]}</b></div><section><span><small>分析基准日</small><b>2026-03-31</b></span><div className="user">李</div><span><b>李经理</b><small>财富运营部</small></span></section></header><main className={`page-${active}`}>{active==="customer"?customerPage():active==="advisor"?advisorPage():active==="marketing"?marketingPage():dashboardPage()}</main><footer>智能财富管理运营平台 · Demo V1 <span>所有数据均为比赛模拟数据</span></footer></div>
+    <div className="main"><header><div>智能财富管理运营平台 <i>›</i> <b>{titles[active]}</b></div><section><span><small>分析基准日</small><b>2026-03-31</b></span><div className="user">李</div><span><b>李经理</b><small>财富运营部</small></span></section></header><main className={`page-${active}`}>{active==="customer"?customerPage():active==="advisor"?advisorPage():active==="marketing"?marketingPage():dashboardPage()}</main><footer>智能财富管理运营平台 · Demo V1 <span>客户画像模块已接入实时 API · 其他模块为演示数据</span></footer></div>
     {drawer&&<div className="backdrop" onClick={()=>setDrawer(false)}><aside className="drawer" onClick={e=>e.stopPropagation()}><button className="close" onClick={()=>setDrawer(false)}>×</button><label>CUSTOMER 360</label><div className="drawer-profile"><div className="avatar">83</div><span><h2>C002583</h2><p>普通客户 · R4成长型 · 南京</p></span></div><div className="drawer-kpis"><Metric label="AUM" value="¥10.06万" note="当前资产"/><Metric label="历史响应率" value="50.0%" note="12次触达"/><Metric label="持仓产品" value="2款" note="集中度偏高"/></div><section><h3>客户标签</h3><div className="tags"><i>成长型</i><i>App已安装</i><i>偏好线上渠道</i><i>持仓集中</i></div></section><section className="drawer-ai"><b>AI</b><p>该客户风险承受能力较高，历史上对App推送响应良好，适合优先推荐具有收益弹性且能改善持仓集中度的产品。</p></section><section><h3>本次营销机会</h3><dl><div><dt>推荐产品</dt><dd>P005 现金管理005号</dd></div><div><dt>响应概率</dt><dd>86.7%</dd></div><div><dt>推荐渠道</dt><dd>App推送</dd></div><div><dt>数据截点</dt><dd>2026-04-15</dd></div></dl></section><section><h3>推荐依据</h3><ul><li>风险偏好与产品风险等级匹配</li><li>历史App推送响应优于其他渠道</li><li>现有持仓存在分散配置空间</li></ul></section><button className="primary full" onClick={()=>{setDrawer(false);setActive("marketing");setMarketingTab("a2")}}>查看 Top 3 营销策略</button></aside></div>}
   </div>;
 }
