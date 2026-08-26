@@ -43,3 +43,23 @@
 .home-hero-full{display:block;padding:20px 26px}
 @media(max-width:1100px){.home-actions{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.home-actions{grid-template-columns:1fr}}
+
+/* 一屏紧凑版首页 */
+.home-hero-compact{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 22px}
+.home-hero-compact .home-greeting h1{font-size:22px}
+.home-hero-compact .home-greeting p{font-size:12px}
+.home-hero-side{display:flex;align-items:center;gap:14px;min-width:0}
+.home-advice{color:#d3e0ea;font-size:11px}
+.home-hero-side .primary{min-height:34px;padding:7px 12px;font-size:10px;white-space:nowrap}
+.home-hero-side .home-snapshot{display:flex;gap:14px;padding-left:14px;border-left:1px solid #ffffff2e}
+.home-hero-side .home-snapshot small{color:#9db3c4;font-size:8px}
+.home-hero-side .home-snapshot b{margin-top:2px;color:#fff;font:700 12px Georgia}
+.home-page .action-card{padding:12px 13px;gap:6px}
+.home-page .action-card>strong{font-size:17px}
+.home-page .action-card>p{font-size:9px}
+.home-page .action-card .primary{min-height:30px;padding:6px 10px;font-size:9px}
+.home-module-card{padding:10px 12px}
+.home-module-card>b{width:34px;height:34px;font-size:11px}
+.home-module-card strong{font-size:11px}
+.home-module-card small{font-size:8px}
+@media(max-width:1100px){.home-hero-compact{flex-direction:column;align-items:flex-start}.home-hero-side{flex-wrap:wrap}}

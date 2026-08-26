@@ -97,11 +97,25 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
 
   return (
     <div className="home-page">
-      <section className="home-hero home-hero-full">
+      <section className="home-hero home-hero-compact">
         <div className="home-greeting">
           <small>2026年4月15日 · 星期四 · 财富运营部</small>
           <h1>早上好，李经理</h1>
           <p>{goalText}</p>
+        </div>
+        <div className="home-hero-side">
+          <span className="home-advice">
+            {conversion && conversion.gap > 0
+              ? `今日建议：优先跟进已触达未响应的客户，转化进度往上推一格。`
+              : "今日建议：目标已达成，把精力转到到期资金再配置上。"}
+          </span>
+          <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台 →</button>
+          <div className="home-snapshot">
+            {business && <span><small>客户</small><b>{business.customer_count.toLocaleString()}</b></span>}
+            {business && <span><small>AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
+            {a1 && <span><small>AUC</small><b>{a1.auc?.toFixed(4) ?? "—"}</b></span>}
+            {touch && <span><small>策略</small><b>{touch.total_strategies.toLocaleString()}</b></span>}
+          </div>
         </div>
       </section>
 
@@ -124,7 +138,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
           <article className="action-card level-amber">
             <header><b>到期跟进</b><span>再配置机会</span></header>
             <strong>{expiry.holding_count.toLocaleString()}<i>笔</i><em>{expiry.customer_count.toLocaleString()} 位客户</em></strong>
-            <p>{expiry.window_days} 天内 ¥{compactMoney(expiry.amount)} 到期；<b>{expiry.items[0]?.product_name ?? "—"}</b> 等产品迎来赎回，是挽留与再配置窗口</p>
+            <p>{expiry.window_days} 天内 ¥{compactMoney(expiry.amount)} 到期，是挽留与再配置窗口</p>
             <button
               className="primary"
               onClick={() => onOpenExpiry(expiry.items[0]?.customer_id ?? "")}
@@ -146,24 +160,6 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
             <em>→</em>
           </button>
         ))}
-      </section>
-
-      <section className="home-today-strip">
-        <div>
-          <b>今日建议</b>
-          {conversion && conversion.gap > 0 ? (
-            <span>优先跟进 {conversion.gap > 1 ? `${conversion.gap} 位` : "1 位"}已触达未响应的客户，把转化进度往上推一格。</span>
-          ) : (
-            <span>目标已达成，把精力转到到期资金再配置上。</span>
-          )}
-          <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台 →</button>
-        </div>
-        <div className="home-snapshot">
-          {business && <span><small>客户总数</small><b>{business.customer_count.toLocaleString()}</b></span>}
-          {business && <span><small>客户AUM</small><b>{compactMoney(business.total_aum)}</b></span>}
-          {a1 && <span><small>模型AUC</small><b>{a1.auc?.toFixed(4) ?? "—"}</b></span>}
-          {touch && <span><small>策略规模</small><b>{touch.total_strategies.toLocaleString()}</b></span>}
-        </div>
       </section>
 
       {loading && <div className="home-loading">正在聚合今日数据…</div>}
