@@ -37,3 +37,9 @@
 
 @media(max-width:1100px){.home-hero{grid-template-columns:1fr}.home-modules{grid-template-columns:repeat(2,1fr)}.home-today-strip{grid-template-columns:1fr}.home-snapshot{padding-left:0;border-left:0}}
 @media(max-width:620px){.home-goals{grid-template-columns:1fr}.home-modules{grid-template-columns:1fr}.home-today-strip>div:first-child{flex-wrap:wrap}}
+
+/* 首页行动卡（复用全局 action-card 样式，三卡网格） */
+.home-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.home-hero-full{display:block;padding:20px 26px}
+@media(max-width:1100px){.home-actions{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.home-actions{grid-template-columns:1fr}}

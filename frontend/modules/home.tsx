@@ -93,69 +93,46 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
   const business = dashboard?.business_metrics;
   const a1 = dashboard?.a1_performance;
 
-  const conversionRate = conversion && conversion.target > 0
-    ? Math.min(1, conversion.actual / conversion.target)
-    : 0;
   const goalText = encouragement(conversion?.gap, expiry?.customer_count);
-
-  const goals = [
-    {
-      label: "四月经理转化",
-      value: conversion ? `${conversion.actual}/${conversion.target}` : "—",
-      note: conversion?.gap ? `还差 ${conversion.gap} 个` : "已达标",
-      rate: conversionRate,
-      module: "marketing" as Module,
-    },
-    {
-      label: "到期跟进客户",
-      value: expiry?.available ? expiry.customer_count.toLocaleString() : "—",
-      note: "未来 30 天资金到期",
-      rate: expiry?.customer_count ? Math.min(1, expiry.customer_count / 300) : 0,
-      module: "marketing" as Module,
-      expiry: true,
-    },
-    {
-      label: "高意向未触达",
-      value: touch ? touch.high_intent_untouched.toLocaleString() : "—",
-      note: "概率 ≥70% 的待联系客户",
-      rate: touch && touch.total_strategies ? Math.min(1, touch.high_intent_untouched / 1500) : 0,
-      module: "marketing" as Module,
-    },
-  ];
 
   return (
     <div className="home-page">
-      <section className="home-hero">
+      <section className="home-hero home-hero-full">
         <div className="home-greeting">
           <small>2026年4月15日 · 星期四 · 财富运营部</small>
           <h1>早上好，李经理</h1>
           <p>{goalText}</p>
-          {expiry?.available && (
-            <span className="home-expiry-hint">
-              今天还有 {expiry.customer_count} 位客户的资金即将到期，记得安排跟进。
-            </span>
-          )}
         </div>
-        <div className="home-goals">
-          {goals.map((goal) => (
-            <article
-              className="home-goal-card"
-              key={goal.label}
-              onClick={() => {
-                if (goal.expiry && expiry?.items[0]) {
-                  onOpenExpiry(expiry.items[0].customer_id);
-                } else {
-                  onOpenModule(goal.module);
-                }
-              }}
+      </section>
+
+      <section className="home-actions">
+        <article className={`action-card ${(conversion?.gap ?? 0) > 0 ? "level-red" : "level-green"}`}>
+          <header><b>转化缺口</b><span>{conversion?.gap ? `还差 ${conversion.gap} 个` : "已达目标"}</span></header>
+          <strong>{conversion?.actual ?? "—"}<i>/</i><em>{conversion?.target ?? "—"}</em></strong>
+          <p>{conversion?.label ?? "经理 4月转化"} · 已触达未响应的客户是跟进的优先对象</p>
+          <button className="primary" onClick={() => onOpenModule("marketing")}>去营销工作台执行 →</button>
+        </article>
+
+        <article className={`action-card ${(touch?.sent_customers ?? 0) < (touch?.total_customers ?? 1) ? "level-amber" : "level-green"}`}>
+          <header><b>触达缺口</b><span>{(touch?.total_customers ?? 0) - (touch?.sent_customers ?? 0)} 位客户待触达</span></header>
+          <strong>{touch?.sent_customers?.toLocaleString() ?? "—"}<i>/</i><em>{touch?.total_customers?.toLocaleString() ?? "—"}</em></strong>
+          <p>高意向客户（概率≥70%）中还有 <b>{touch?.high_intent_untouched ?? "—"}</b> 名未触达，建议今日优先执行</p>
+          <button className="primary" onClick={() => onOpenModule("marketing")}>优先触达高意向客户 →</button>
+        </article>
+
+        {expiry?.available && (
+          <article className="action-card level-amber">
+            <header><b>到期跟进</b><span>再配置机会</span></header>
+            <strong>{expiry.holding_count.toLocaleString()}<i>笔</i><em>{expiry.customer_count.toLocaleString()} 位客户</em></strong>
+            <p>{expiry.window_days} 天内 ¥{compactMoney(expiry.amount)} 到期；<b>{expiry.items[0]?.product_name ?? "—"}</b> 等产品迎来赎回，是挽留与再配置窗口</p>
+            <button
+              className="primary"
+              onClick={() => onOpenExpiry(expiry.items[0]?.customer_id ?? "")}
             >
-              <small>{goal.label}</small>
-              <strong>{goal.value}</strong>
-              <i><b style={{ width: `${goal.rate * 100}%` }} /></i>
-              <span>{goal.note}</span>
-            </article>
-          ))}
-        </div>
+              跟进到期客户 →
+            </button>
+          </article>
+        )}
       </section>
 
       <section className="home-modules">

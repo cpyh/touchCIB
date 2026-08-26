@@ -94,7 +94,7 @@ export default function Home() {
           {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} onOpenMarketing={openMarketing} />}
           {active === "marketing" && <MarketingPage initialCustomerId={customerId} initialCohort={marketingCohort} onOpenCustomer={openCustomer} notify={notify} />}
-          {active === "dashboard" && <DashboardPage onOpenMarketing={openMarketing} onOpenExpiry={(nextCustomerId) => openMarketingWithCohort(nextCustomerId, "expiry")} onOpenPortfolio={openPortfolio} />}
+          {active === "dashboard" && <DashboardPage onOpenPortfolio={openPortfolio} />}
         </main>
 
         <footer>
