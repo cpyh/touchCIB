@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "../shared/api";
 import { channelNames, Status } from "../shared/ui";
+import { formatTime, money, percent } from "../shared/format";
 
 type TaskStatus = "all" | "pending" | "follow_up" | "converted";
 type StrategyDetailTab = "why" | "compliance" | "script";
@@ -194,22 +195,6 @@ interface MarketingPageProps {
   initialCohort?: "all" | "expiry";
   onOpenCustomer: (customerId: string) => void;
   notify: (message: string) => void;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "CNY",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function percent(value: number) {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatTime(value: string) {
-  return value.replace("T", " ").slice(5, 16);
 }
 
 export function MarketingPage({

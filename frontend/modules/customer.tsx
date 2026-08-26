@@ -15,6 +15,7 @@ import {
 } from "../shared/customer-api";
 import { api } from "../shared/api";
 import { channelNames } from "../shared/ui";
+import { exactMoney as money, percent } from "../shared/format";
 
 interface RosterRow {
   contact_id: string;
@@ -85,14 +86,6 @@ const initialForm = (): FormState => ({
 
 function StatusPill({ children, warn = false }: { children: React.ReactNode; warn?: boolean }) {
   return <span className={warn ? "status warn" : "status"}><i />{children}</span>;
-}
-
-function money(value: number) {
-  return `¥ ${value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function percent(value: number | null) {
-  return value == null ? "—" : `${(value * 100).toFixed(1)}%`;
 }
 
 function errorMessage(error: unknown) {

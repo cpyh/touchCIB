@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { DashboardApiError, getDashboardOverview } from "../shared/dashboard-api";
+import { compactMoney } from "../shared/format";
 
 type Module = "customer" | "portfolio" | "marketing" | "dashboard";
 
@@ -52,20 +53,6 @@ function encouragement(conversionGap: number | undefined, expiryCount: number | 
     return `转化目标还差 ${conversionGap} 个，今天拿下 ${conversionGap} 个就能提前达标。`;
   }
   return `转化目标还差 ${conversionGap} 个——把高意向客户排进今天的前三名。`;
-}
-
-/** 与看板一致的金额压缩格式（¥ 12.34亿 / ¥ 1,234.5万 / 全量） */
-function compactMoney(value: number | null | undefined) {
-  if (value == null) return "—";
-  if (Math.abs(value) >= 100_000_000) {
-    return `¥ ${(value / 100_000_000).toFixed(2)}亿`;
-  }
-  if (Math.abs(value) >= 10_000) {
-    return `¥ ${(value / 10_000).toFixed(1)}万`;
-  }
-  return `¥ ${value.toLocaleString("zh-CN", {
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {

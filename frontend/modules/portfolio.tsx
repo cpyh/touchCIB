@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../shared/api";
+import { money } from "../shared/format";
 import { Metric, Status, riskNames } from "../shared/ui";
 
 interface Scenario {
@@ -414,7 +415,7 @@ export function PortfolioPage({
               <div className="portfolio-client-profile">
                 <b>{customer.customer_id}</b>
                 <i>{customer.risk_appetite} · {riskNames[customer.risk_appetite]}</i>
-                <small>{customer.vip_level} · AUM ¥{customer.aum.toLocaleString("zh-CN")}</small>
+                <small>{customer.vip_level} · AUM ¥{money(customer.aum).replace("¥ ", "")}</small>
                 <button onClick={applyCustomerRisk}>应用{customer.risk_appetite}参数</button>
               </div>
             ) : <small>加载画像后可按风险偏好生成默认约束</small>}
@@ -497,7 +498,7 @@ export function PortfolioPage({
           {summary && (
             <section className="card portfolio-overview">
               <div className="result-toolbar">
-                <div><h2>组合驾驶舱</h2><p>{activeScenarioLabel} · 配置金额¥{totalAmount.toLocaleString("zh-CN")}</p></div>
+                <div><h2>组合驾驶舱</h2><p>{activeScenarioLabel} · 配置金额¥{money(totalAmount).replace("¥ ", "")}</p></div>
                 <div className="result-tabs">
                   <button className={resultView === "overview" ? "on" : ""} onClick={() => setResultView("overview")}>组合概览</button>
                   <button className={resultView === "detail" ? "on" : ""} onClick={() => setResultView("detail")}>产品明细</button>
@@ -561,7 +562,7 @@ export function PortfolioPage({
                     <article>
                       <small>客户适配证据</small>
                       <b>{customer ? `${customer.risk_appetite} · ${riskNames[customer.risk_appetite]}` : `${scenarioId}场景`}</b>
-                      <p>{customer ? `${customer.customer_id}，AUM ¥${customer.aum.toLocaleString("zh-CN")}` : "当前未绑定客户画像，按场景参数解释"}</p>
+                      <p>{customer ? `${customer.customer_id}，AUM ¥${money(customer.aum).replace("¥ ", "")}` : "当前未绑定客户画像，按场景参数解释"}</p>
                     </article>
                     <article>
                       <small>风险收益证据</small>
@@ -593,7 +594,7 @@ export function PortfolioPage({
                             <td><b>{item.product_id}</b><small>{item.product_name}</small></td>
                             <td><span className="risk-tag">{item.risk_level}</span></td>
                             <td><div className="weight"><i><b style={{ width: `${maxWeight ? item.weight / maxWeight * 100 : 0}%` }} /></i>{(item.weight * 100).toFixed(2)}%</div></td>
-                            <td>¥{item.amount.toLocaleString("zh-CN")}</td>
+                            <td>¥{money(item.amount).replace("¥ ", "")}</td>
                             <td>{item.liquidity}</td>
                           </tr>
                         ))}

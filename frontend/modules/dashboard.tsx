@@ -9,6 +9,13 @@ import {
   getDashboardOverview,
 } from "../shared/dashboard-api";
 import { channelNames, PageHead, Status } from "../shared/ui";
+import {
+  compactMoney,
+  exactMoney,
+  formatDateTime,
+  metric,
+  percent,
+} from "../shared/format";
 
 const scenarios = Array.from(
   { length: 20 },
@@ -30,57 +37,6 @@ const validationLabels: Record<string, string> = {
   time_enum_passed: "时段合法",
   script_length_passed: "话术格式",
 };
-
-function percent(
-  value: number | null | undefined,
-  digits = 1
-) {
-  return value == null
-    ? "—"
-    : `${(value * 100).toFixed(digits)}%`;
-}
-
-function compactMoney(value: number | null | undefined) {
-  if (value == null) return "—";
-
-  if (Math.abs(value) >= 100_000_000) {
-    return `¥ ${(value / 100_000_000).toFixed(2)}亿`;
-  }
-
-  if (Math.abs(value) >= 10_000) {
-    return `¥ ${(value / 10_000).toFixed(1)}万`;
-  }
-
-  return `¥ ${value.toLocaleString("zh-CN", {
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function exactMoney(value: number | null | undefined) {
-  return value == null
-    ? "—"
-    : `¥ ${value.toLocaleString("zh-CN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`;
-}
-
-function metric(
-  value: number | null | undefined,
-  digits = 3
-) {
-  return value == null ? "—" : value.toFixed(digits);
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleString("zh-CN", {
-        hour12: false,
-      });
-}
 
 function ResultStatus({ status }: { status: DataStatus }) {
   return (
@@ -311,7 +267,7 @@ export function DashboardPage({
             >
               {loading
                 ? "正在刷新"
-                : `更新于 ${formatTime(
+                : `更新于 ${formatDateTime(
                     dashboard.generated_at
                   )}`}
             </span>
