@@ -20,7 +20,7 @@ test("renders the competition dashboard home page", async () => {
 
   const html = await response.text();
   assert.match(html, /智能财富管理运营平台/);
-  assert.match(html, /Part A精准营销运营工作台/);
-  assert.match(html, /A1预测与A2策略/);
+  assert.match(html, /精准营销运营工作台/);
+  assert.match(html, /响应预测与策略执行/);
   assert.doesNotMatch(html, /Your site is taking shape/);
 });

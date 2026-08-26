@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../shared/api";
-import { channelNames, Metric, PageHead, Status, Timeline } from "../shared/ui";
+import { channelNames, Metric, Status, Timeline } from "../shared/ui";
 
 type MarketingTab = "a1" | "a2" | "track";
+const ROSTER_PAGE_SIZE = 10;
 
 interface RosterRow {
   contact_id: string;
@@ -47,6 +48,29 @@ interface CampaignEvent {
   amount: number | null;
 }
 
+interface GeneratedItem {
+  rank: number;
+  product_id: string;
+  product_name: string;
+  risk_level: string;
+  expected_return: number;
+  recommended_channel: string;
+  recommended_time: string;
+  marketing_script: string;
+  score: number;
+  model_prob: number;
+  cf_score: number;
+  overshoot: boolean;
+  rule_trace: RuleTrace[];
+}
+
+interface GeneratedResult {
+  customer_id: string;
+  strategy_date: string;
+  parameters: { w_cf: number; manager_quota: number; top_n: number };
+  items: GeneratedItem[];
+}
+
 interface MarketingSummary {
   model_metrics: {
     auc: number | null;
@@ -83,12 +107,17 @@ export function MarketingPage({
   const [query, setQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState("全部渠道");
   const [intentFilter, setIntentFilter] = useState("全部意向");
+  const [rosterPage, setRosterPage] = useState(1);
   const [strategyInput, setStrategyInput] = useState(initialCustomerId || "C000010");
   const [strategyCustomerId, setStrategyCustomerId] = useState(initialCustomerId || "C000010");
   const [strategies, setStrategies] = useState<StrategyItem[]>([]);
   const [trackedStrategyId, setTrackedStrategyId] = useState("");
   const [events, setEvents] = useState<CampaignEvent[]>([]);
   const [busy, setBusy] = useState(false);
+  const [wcf, setWcf] = useState(0.3);
+  const [quota, setQuota] = useState(600);
+  const [generated, setGenerated] = useState<GeneratedResult | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     void loadRoster();
@@ -177,6 +206,27 @@ export function MarketingPage({
     }
   }
 
+  async function regenerate() {
+    setGenerating(true);
+    setGenerated(null);
+    try {
+      const data = await api<GeneratedResult>("/marketing/strategy/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          customer_id: strategyCustomerId,
+          w_cf: wcf,
+          manager_quota: quota,
+        }),
+      });
+      setGenerated(data);
+      notify(`干预完成：w_cf=${data.parameters.w_cf}，manager配额=${data.parameters.manager_quota}`);
+    } catch (error) {
+      notify(`策略重跑失败：${(error as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   const filteredRoster = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return roster.filter((row) => {
@@ -187,6 +237,11 @@ export function MarketingPage({
       return fuzzy && channelMatched && (intentFilter === "全部意向" || intentFilter === intent);
     });
   }, [channelFilter, intentFilter, query, roster]);
+
+  const rosterPageCount = Math.max(1, Math.ceil(filteredRoster.length / ROSTER_PAGE_SIZE));
+  const currentRosterPage = Math.min(rosterPage, rosterPageCount);
+  const rosterPageStart = (currentRosterPage - 1) * ROSTER_PAGE_SIZE;
+  const pagedRoster = filteredRoster.slice(rosterPageStart, rosterPageStart + ROSTER_PAGE_SIZE);
 
   const trackedStrategy = strategies.find((item) => item.strategy_id === trackedStrategyId) ?? strategies[0];
   const timeline = [
@@ -205,27 +260,36 @@ export function MarketingPage({
 
   return (
     <>
-      <PageHead
-        title="Part A · 精准营销运营工作台"
-        description="A1响应概率驱动客户排序，A2输出Top 3产品、渠道、时段与话术，并通过规则轨迹和执行事件形成运营闭环。"
-        action={<Status>Part D现场验收主页面</Status>}
-      />
-
-      <section className="card batch">
-        <div><b>A</b><span><strong>2026年4月财富客户营销任务</strong><small>分析基准日 2026-03-31 · 策略日 2026-04-15</small></span></div>
-        <div className="file-box"><b>A1</b><span><strong>partA_prediction.csv</strong><small>8,000条预测</small></span><Status>格式通过</Status></div>
-        <div className="file-box"><b>A2</b><span><strong>partA_strategy.csv</strong><small>2,000客户 × Top3</small></span><Status>格式通过</Status></div>
-        <Status>严格as-of截断</Status>
+      <section className="marketing-hero">
+        <div className="marketing-hero-copy">
+          <span>精准营销 · 响应预测与策略执行</span>
+          <h1>营销运营工作台</h1>
+          <p>从高意向客户识别，到Top 3策略生成，再到触达与响应归因，在同一个运营闭环内完成。</p>
+        </div>
+        <div className="marketing-deliverables">
+          <div><b>A1</b><span><strong>8,000条响应预测</strong><small>partA_prediction.csv</small></span><Status>格式通过</Status></div>
+          <div><b>A2</b><span><strong>2,000客户 × Top 3</strong><small>partA_strategy.csv</small></span><Status>格式通过</Status></div>
+          <Status>严格 as-of 截断</Status>
+        </div>
       </section>
 
-      <div className="main-tabs">
-        <button className={tab === "a1" ? "on" : ""} onClick={() => setTab("a1")}>A1 响应预测 <span>8,000</span></button>
-        <button className={tab === "a2" ? "on" : ""} onClick={() => setTab("a2")}>A2 Top 3策略 <span>2,000</span></button>
-        <button className={tab === "track" ? "on" : ""} onClick={() => setTab("track")}>执行与归因 <span>{events.length}</span></button>
-      </div>
+      <section className="card marketing-workbench">
+        <div className="marketing-workbench-head">
+          <div>
+            <h2>2026年4月财富客户营销任务</h2>
+            <p>分析基准日 2026-03-31 · 策略日 2026-04-15</p>
+          </div>
+          <div className="main-tabs">
+            <button className={tab === "a1" ? "on" : ""} onClick={() => setTab("a1")}>响应机会名单 <span>8,000</span></button>
+            <button className={tab === "a2" ? "on" : ""} onClick={() => setTab("a2")}>客户Top 3策略 <span>2,000</span></button>
+            <button className={tab === "track" ? "on" : ""} onClick={() => setTab("track")}>执行与归因 <span>{events.length}</span></button>
+          </div>
+        </div>
+
+        <div className="marketing-workbench-body">
 
       {tab === "a1" && (
-        <section className="card marketing">
+        <section className="marketing marketing-panel marketing-panel-a1">
           <div className="metrics">
             <Metric label="验证 AUC" value={summary?.model_metrics.auc?.toFixed(3) ?? "—"} note="满分锚点0.85" gold />
             <Metric label="最佳 F1" value={summary?.model_metrics.best_f1?.toFixed(3) ?? "—"} note="后台自动扫描阈值" />
@@ -237,19 +301,19 @@ export function MarketingPage({
             <span>每条预测以contact_date为目标时点，持仓、行为和历史触达特征只取严格早于目标日的数据。</span>
           </div>
           <div className="toolbar">
-            <input placeholder="搜索客户ID或产品" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}>
+            <input placeholder="搜索客户ID或产品" value={query} onChange={(event) => { setQuery(event.target.value); setRosterPage(1); }} />
+            <select value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setRosterPage(1); }}>
               {["全部渠道", "短信", "电话", "App推送", "客户经理"].map((item) => <option key={item}>{item}</option>)}
             </select>
-            <select value={intentFilter} onChange={(event) => setIntentFilter(event.target.value)}>
+            <select value={intentFilter} onChange={(event) => { setIntentFilter(event.target.value); setRosterPage(1); }}>
               {["全部意向", "高意向", "中意向", "低意向"].map((item) => <option key={item}>{item}</option>)}
             </select>
           </div>
-          <div className="table">
+          <div className="table marketing-roster-table">
             <table>
               <thead><tr>{["客户", "产品", "渠道", "目标日期", "响应概率", "意向等级", ""].map((header) => <th key={header}>{header}</th>)}</tr></thead>
               <tbody>
-                {filteredRoster.map((row) => (
+                {pagedRoster.map((row) => (
                   <tr key={row.contact_id}>
                     <td><b>{row.customer_id}</b><small>{row.contact_id}</small></td>
                     <td>{row.product_name}<small>{row.product_id} · {row.risk_level}</small></td>
@@ -263,17 +327,76 @@ export function MarketingPage({
               </tbody>
             </table>
           </div>
+          <div className="marketing-pagination">
+            <span>
+              {filteredRoster.length === 0 ? "暂无匹配客户" : `显示 ${rosterPageStart + 1}–${Math.min(rosterPageStart + ROSTER_PAGE_SIZE, filteredRoster.length)} / ${filteredRoster.length}`}
+            </span>
+            <div>
+              <button disabled={currentRosterPage === 1} onClick={() => setRosterPage(Math.max(1, currentRosterPage - 1))}>上一页</button>
+              <b>{currentRosterPage} / {rosterPageCount}</b>
+              <button disabled={currentRosterPage === rosterPageCount} onClick={() => setRosterPage(Math.min(rosterPageCount, currentRosterPage + 1))}>下一页</button>
+            </div>
+          </div>
         </section>
       )}
 
       {tab === "a2" && (
-        <section>
-          <div className="card customer-strip">
+        <section className="marketing-panel marketing-panel-a2">
+          <div className="customer-strip">
             <div className="avatar">{strategyCustomerId.slice(-2)}</div>
             <span><small>当前目标客户</small><strong>{strategyCustomerId}</strong><em>A1概率 + 协同过滤 + 规则引擎 → Top3</em></span>
             <input value={strategyInput} onChange={(event) => setStrategyInput(event.target.value)} placeholder="客户编号" />
             <button className="secondary" disabled={busy} onClick={() => void loadStrategies(strategyInput)}>查询策略</button>
             <button className="secondary" onClick={() => onOpenCustomer(strategyCustomerId)}>查看360画像</button>
+          </div>
+
+          <div className="intervention-panel">
+            <div className="section-head">
+              <div><h2>运营干预 · 平台联动</h2><p>调整协同过滤权重与客户经理配额，现场重跑 Top3 并与当前提交版对比。</p></div>
+              <Status>实时生成 · 不落库</Status>
+            </div>
+            <div className="intervention-controls">
+              <label>协同过滤权重 w_cf <b>{wcf.toFixed(1)}</b>
+                <input type="range" min="0" max="1" step="0.1" value={wcf} onChange={(event) => setWcf(Number(event.target.value))} />
+              </label>
+              <label>manager 渠道配额 <b>{quota}</b>
+                <input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => setQuota(Number(event.target.value))} />
+              </label>
+              <button className="primary" disabled={generating} onClick={() => void regenerate()}>
+                {generating ? "正在重跑…" : "重新生成 Top3 →"}
+              </button>
+            </div>
+            {generated && (
+              <div className="compare-block">
+                <div className="section-head"><h3>干预对比：当前提交版 vs 生成版（w_cf={generated.parameters.w_cf} / 配额={generated.parameters.manager_quota}）</h3></div>
+                <div className="compare-table">
+                  <table>
+                    <thead><tr>{["rank", "当前提交版", "干预生成版", "产品变化", "score", "model_prob", "cf_score", "渠道"].map((header) => <th key={header}>{header}</th>)}</tr></thead>
+                    <tbody>
+                      {[1, 2, 3].map((rank) => {
+                        const before = strategies.find((item) => item.rank === rank);
+                        const after = generated.items.find((item) => item.rank === rank);
+                        if (!after) return null;
+                        const changed = !before || before.product_id !== after.product_id;
+                        return (
+                          <tr key={rank}>
+                            <td><b>TOP {rank}</b></td>
+                            <td>{before ? `${before.product_id} ${before.product_name}` : "—"}</td>
+                            <td className={changed ? "changed-cell" : ""}>{after.product_id} {after.product_name}</td>
+                            <td>{changed ? <span className="changed-badge">已变化</span> : <span className="same-badge">未变化</span>}</td>
+                            <td>{after.score.toFixed(3)}</td>
+                            <td>{after.model_prob.toFixed(3)}</td>
+                            <td>{after.cf_score.toFixed(3)}</td>
+                            <td>{channelNames[after.recommended_channel]}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="muted-note">分数 = A1 概率 + w_cf × 协同过滤相似度；渠道由规则引擎按配额与资格分配。生成结果仅用于演示对比，不影响提交文件。</p>
+              </div>
+            )}
           </div>
 
           <div className="strategy-grid">
@@ -315,7 +438,7 @@ export function MarketingPage({
       )}
 
       {tab === "track" && (
-        <div className="tracking">
+        <div className="tracking marketing-panel marketing-panel-track">
           <section className="card">
             <div className="section-head"><div><h2>策略执行与响应归因</h2><p>事件采用append-only方式写入MySQL，可追溯、不覆盖。</p></div><Status>平台联动</Status></div>
             {strategies.length > 0 && (
@@ -350,6 +473,8 @@ export function MarketingPage({
           <section className="card"><div className="section-head timeline-head"><h2>事件时间线</h2><Status>sent / responded</Status></div><Timeline items={timeline} /></section>
         </div>
       )}
+        </div>
+      </section>
     </>
   );
 }

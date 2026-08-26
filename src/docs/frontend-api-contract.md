@@ -13,6 +13,10 @@
 | 4 | `GET /customers/<id>/strategies` | 营销运营 A2：Top3 策略卡 + 推荐依据 |
 | 5 | `POST /campaign/events` | 执行追踪：已触达 / 记录响应 / 标记购买 按钮 |
 | 6 | `GET /dashboard/summary` | 经营看板：全部 KPI 与图表 |
+| 7 | `POST /marketing/strategy/generate` | 运营干预：调 w_cf / manager 配额 → 重跑 Top3（不落库） |
+| 8 | `GET /marketing/rules` | 规则引擎元数据（13 条规则清单） |
+| 9-12 | `/api/v1/customers*`（客户画像服务，已统一到 5001） | 列表/新建+风险评估/画像/AI 摘要，envelope 格式 `{code, message, data}` |
+| 13-14 | `/api/v1/dashboard/overview` + `/portfolio`（队友看板骨架，已用真实数据填满） | 业务指标/A1/A2/组合实时求解/营销漏斗 |
 
 ---
 
@@ -130,6 +134,58 @@
       "target": 0.6, "actual": 0.0, "completion_rate": 0.0, "unit": "%" } ],
   "data_layers": { "ods": 79751, "dwd": 79751, "dws": 8000, "ads": 8020 } }
 ```
+
+---
+
+## 7. POST /marketing/strategy/generate（运营干预，不落库）
+
+```json
+// 请求（w_cf ∈ [0,1]，manager_quota ≥ 0，top_n 默认 3）
+{ "customer_id": "C002690", "w_cf": 0.8, "manager_quota": 600, "top_n": 3 }
+```
+
+```json
+// 响应（节选）
+{ "customer_id": "C002690", "strategy_date": "2026-04-15",
+  "parameters": { "w_cf": 0.8, "manager_quota": 600, "top_n": 3 },
+  "items": [ { "rank": 1, "product_id": "P012", "product_name": "混合012号",
+    "risk_level": "R2", "expected_return": 0.0369, "recommended_channel": "manager",
+    "recommended_time": "工作日09:00-12:00", "marketing_script": "...",
+    "score": 0.83, "model_prob": 0.79, "cf_score": 0.05, "overshoot": false,
+    "rule_trace": [ { "rule_id": "risk_match", "passed": true, "reason": "..." } ] } ] }
+```
+
+> **演示建议**：w_cf 干预在**有持仓的客户**上效果最明显（已验证：C002690 / C003040 调 w_cf 后 Top3 会换产品）；manager_quota 600→0 会把 manager 渠道换成 app_push/call/sms。
+
+## 8. GET /marketing/rules
+
+```json
+{ "rules": [ { "rule_id": "risk_match", "name": "适当性匹配（风险等级）",
+  "category": "compliance", "description": "产品风险等级不得超过客户风险偏好…",
+  "hard": true }, ...13 条 ] }
+```
+
+---
+
+## 9. 客户画像服务（原 backend/ 8000，已统一到 5001）
+
+| 方法与路径 | 用途 |
+|-----------|------|
+| `GET /api/v1/customers?page=&page_size=&keyword=&risk_appetite=&vip_level=&city=` | 客户列表（分页 + 组合筛选） |
+| `POST /api/v1/customers` | 新建客户并自动风险评估（入参：age_group/city/occupation/income_level/register_date/aum/vip_level/has_app） |
+| `GET /api/v1/customers/<id>/profile` | 全景画像（basic_info / asset_profile / behavior_profile / ai_summary） |
+| `POST /api/v1/customers/<id>/ai-summary` | 生成并保存 AI 摘要（模板模式；AI_SUMMARY_MODE=remote 切远程模型） |
+
+响应统一为 `{ "code": 0, "message": "success", "data": {...} }`；业务错误 `code` 为 400/404/502/503。前端 `shared/customer-api.ts` 默认指向 `http://127.0.0.1:5001`，`VITE_API_BASE_URL` 可覆盖。
+
+## 13. 可视化看板（`/api/v1/dashboard/*`，与队友骨架契约一致、数据已真实化）
+
+| 方法与路径 | 用途 |
+|-----------|------|
+| `GET /api/v1/dashboard/overview?scenario_id=` | 看板总览：业务指标（客户/AUM/历史触达/响应率）、风险分布、持仓类型分布、A1 指标（AUC/F1/Lift + 概率分箱）、A2 指标（覆盖/渠道分布）、营销漏斗（事件表口径）、组合配置（给 scenario_id 时实时求解） |
+| `GET /api/v1/dashboard/portfolio?scenario_id=` | 单场景组合：效用/波动/现金/约束/gap + 按产品类型聚合 + 明细权重 |
+
+AI 摘要（结构化）：`POST /api/v1/customers/<id>/ai-summary` 返回 `{analysis: {overview, insight, suggestion, highlights}, provider, model}`；配置 `DEEPSEEK_API_KEY` 走 DeepSeek（openai SDK），未配置自动回退本地规则模板。
 
 ---
 

@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS ods_customer (
     risk_appetite   CHAR(2)        NOT NULL COMMENT '风险偏好 R1-R5',
     vip_level       VARCHAR(16)    NOT NULL COMMENT 'VIP 等级',
     has_app         TINYINT UNSIGNED NOT NULL COMMENT '是否安装 App，0/1',
+    ai_summary            TEXT     NULL COMMENT 'AI 画像摘要（模板或远程模型生成）',
+    ai_summary_generated_at DATETIME(3) NULL COMMENT 'AI 摘要生成时间',
     etl_batch_id    VARCHAR(64)    NOT NULL DEFAULT 'student_pkg_20260331' COMMENT 'ETL 批次',
     loaded_at       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
     PRIMARY KEY (customer_id),

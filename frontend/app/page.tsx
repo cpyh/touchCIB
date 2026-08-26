@@ -12,14 +12,14 @@ type Module = "customer" | "portfolio" | "marketing" | "dashboard";
 const navigation: [Module, string, string, string][] = [
   ["customer", "客", "客户360", "画像与风险证据"],
   ["portfolio", "投", "智能投顾", "客户适配与组合优化"],
-  ["marketing", "营", "Part A营销运营", "A1预测与A2策略"],
+  ["marketing", "营", "营销运营", "响应预测与策略执行"],
   ["dashboard", "览", "Part C/D看板", "工程与运营闭环"],
 ];
 
 const titles: Record<Module, string> = {
   customer: "客户360与风险画像",
   portfolio: "智能投顾组合配置优化",
-  marketing: "Part A精准营销运营工作台",
+  marketing: "精准营销运营工作台",
   dashboard: "Part C/D经营与工程看板",
 };
 

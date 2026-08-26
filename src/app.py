@@ -9,8 +9,20 @@ from .campaign import (
     list_campaign_events,
 )
 from .customer import CustomerProfileError, get_customer_profile
+from .customer_api import customers_bp
 from .dashboard import dashboard_summary
+from .dashboard_api import dashboard_bp
+from .marketing.generate import (
+    StrategyGenerationError,
+    generate_customer_strategy,
+)
+from .marketing.models import (
+    DEFAULT_MANAGER_QUOTA,
+    DEFAULT_TOP_N,
+    DEFAULT_W_CF,
+)
 from .marketing.roster import query_roster
+from .marketing.rules import build_default_engine
 from .portfolio import PortfolioInputError, optimize_portfolio
 from .scenario import (
     ScenarioInputError,
@@ -21,6 +33,9 @@ from .scenario import (
 
 
 app = Flask(__name__)
+app.json.ensure_ascii = False
+app.register_blueprint(customers_bp)
+app.register_blueprint(dashboard_bp)
 
 
 @app.after_request
@@ -162,6 +177,8 @@ def campaign_events_create():
             return jsonify(error="event_type must be 'sent' or 'responded'"), 400
     except CampaignInputError as exc:
         return jsonify(error=str(exc)), 422
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=f"参数不合法：{exc}"), 422
     except CampaignStoreError:
         app.logger.exception("Campaign event write failed")
         return jsonify(error="campaign event could not be recorded"), 503
@@ -203,6 +220,8 @@ def marketing_roster():
         )
     except (ValueError, TypeError) as exc:
         return jsonify(error=str(exc)), 400
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
 
 
 @app.get("/customers/<customer_id>/strategies")
@@ -212,9 +231,49 @@ def customer_strategy_list(customer_id: str):
         return jsonify(customer_strategies(customer_id))
     except CampaignInputError as exc:
         return jsonify(error=str(exc)), 404
+    except (ValueError, OSError) as exc:
+        app.logger.exception("Customer strategies query failed")
+        return jsonify(error=f"customer strategies failed: {exc}"), 503
     except CampaignStoreError:
         app.logger.exception("Customer strategies query failed")
         return jsonify(error="customer strategies are temporarily unavailable"), 503
+
+
+@app.post("/marketing/strategy/generate")
+def marketing_strategy_generate():
+    """运营干预：调 w_cf / manager 配额后现场重跑单客户 Top3（不落库）。"""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="request body must be a JSON object"), 400
+    try:
+        w_cf = float(payload.get("w_cf", DEFAULT_W_CF))
+        if not 0.0 <= w_cf <= 1.0:
+            raise ValueError("w_cf must be in [0, 1]")
+        manager_quota = int(payload.get("manager_quota", DEFAULT_MANAGER_QUOTA))
+        if manager_quota < 0:
+            raise ValueError("manager_quota must be >= 0")
+        top_n = int(payload.get("top_n", DEFAULT_TOP_N))
+        if not 1 <= top_n <= 30:
+            raise ValueError("top_n must be between 1 and 30")
+        customer_id = str(payload.get("customer_id", ""))
+        return jsonify(
+            generate_customer_strategy(
+                customer_id,
+                w_cf=w_cf,
+                manager_quota=manager_quota,
+                top_n=top_n,
+            )
+        )
+    except StrategyGenerationError as exc:
+        return jsonify(error=str(exc)), 404
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=f"参数不合法：{exc}"), 400
+
+
+@app.get("/marketing/rules")
+def marketing_rules():
+    """规则引擎元数据（Tab2 轨迹区块的规则清单）。"""
+    return jsonify(rules=build_default_engine().metadata())
 
 
 @app.get("/dashboard/summary")
@@ -222,7 +281,7 @@ def dashboard_summary_endpoint():
     """Tab4 看板聚合：模型指标 + 分布 + 漏斗 + KPI + 数据分层行数。"""
     try:
         return jsonify(dashboard_summary())
-    except (ValueError, OSError):
+    except (ValueError, OSError, KeyError):
         app.logger.exception("Dashboard summary failed")
         return jsonify(error="dashboard summary is temporarily unavailable"), 503
 

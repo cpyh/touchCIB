@@ -190,6 +190,14 @@ def create_responded_event(
         raise CampaignInputError("customer_id 不能为空")
     if not product_id:
         raise CampaignInputError("product_id 不能为空")
+    if (
+        isinstance(window_days, bool)
+        or not isinstance(window_days, int)
+        or not 1 <= window_days <= 365
+    ):
+        raise CampaignInputError(
+            "window_days 必须是 1~365 之间的整数"
+        )
 
     outcome = attribute_purchase(
         customer_id=customer_id,
@@ -338,7 +346,11 @@ def customer_strategies(customer_id: str) -> dict:
     items: list[dict] = []
     for row in rows.itertuples():
         strategy_id = f"{row.customer_id}:{row.rank}"
-        product = products[row.product_id]
+        product = products.get(row.product_id)
+        if product is None:
+            raise CampaignInputError(
+                f"产品 {row.product_id} 不在产品池 P001~P030"
+            )
         context = {
             "customer": customer,
             "behavior": behavior,
