@@ -291,3 +291,24 @@
 .execution-summary .secondary{min-height:32px;padding:6px 12px;font-size:10px}
 .execution-summary small{color:#94a2ad;font-size:9px}
 @media(max-width:850px){.execution-grid{grid-template-columns:1fr}.execution-summary{justify-items:start;padding-left:0;border-left:0;text-align:left}}
+
+/* AI 执行建议 */
+.portfolio-ai-advice{margin-top:12px;padding:14px;border:1px solid #e2d6b8;border-left-width:4px;border-left-color:var(--gold);border-radius:9px;background:#fbf8f0}
+.ai-advice-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:10px}
+.ai-advice-head small{color:#8f6726;font-size:8px;font-weight:700;letter-spacing:.12em}
+.ai-advice-head h3{margin:2px 0 0;color:var(--navy);font-size:13px}
+.ai-advice-head p{margin:0;color:#7b8d9b;font-size:10px}
+.ai-advice-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:start}
+.ai-advice-col>b{color:var(--navy2);font-size:11px}
+.ai-advice-col.buy>b{color:#1d7a5c}
+.ai-advice-col.sell>b{color:#b34837}
+.ai-advice-col ul{margin:7px 0 0;padding:0;list-style:none;display:grid;gap:5px}
+.ai-advice-col li{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fff;font-size:10px}
+.ai-advice-col li span{color:#254b6d}
+.ai-advice-col li em{color:#6c8293;font-style:normal}
+.ai-advice-summary{display:grid;justify-items:end;gap:6px;padding-left:14px;border-left:1px solid #e6dcc4;text-align:right}
+.ai-advice-summary>b{color:#8b99a4;font-size:10px}
+.ai-advice-summary strong{color:var(--navy);font:700 20px Georgia}
+.ai-advice-summary .secondary{min-height:32px;padding:6px 12px;font-size:10px}
+.ai-advice-summary small{color:#94a2ad;font-size:9px}
+@media(max-width:850px){.ai-advice-grid{grid-template-columns:1fr}.ai-advice-summary{justify-items:start;padding-left:0;border-left:0;text-align:left}}

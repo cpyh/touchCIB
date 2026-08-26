@@ -650,6 +650,35 @@ export function PortfolioPage({
                     <span><b>解释输入</b> 客户画像 · 场景参数 · 组合指标 · 约束校验</span>
                     <p>AI解读用于辅助客户经理理解方案，不替代客户适当性、产品准入和起投金额校验。</p>
                   </div>
+
+                  {rebalance && (
+                    <section className="portfolio-ai-advice">
+                      <div className="ai-advice-head">
+                        <span><small>EXECUTION ADVICE</small><h3>执行建议</h3></span>
+                        <p>基于业务可执行方案与当前持仓的差异，AI 给出落地调仓清单。</p>
+                      </div>
+                      <div className="ai-advice-grid">
+                        <div className="ai-advice-col buy">
+                          <b>建议买入</b>
+                          {rebalance.buys.length ? (
+                            <ul>{rebalance.buys.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>+ ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
+                          ) : <div className="inline-empty">持仓已覆盖方案</div>}
+                        </div>
+                        <div className="ai-advice-col sell">
+                          <b>建议卖出</b>
+                          {rebalance.sells.length ? (
+                            <ul>{rebalance.sells.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>- ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
+                          ) : <div className="inline-empty">无需卖出</div>}
+                        </div>
+                        <div className="ai-advice-summary">
+                          <b>净调仓</b>
+                          <strong>¥{money(Math.max(0, rebalance.buys.reduce((sum, item) => sum + item.amount, 0) - rebalance.sells.reduce((sum, item) => sum + item.amount, 0))).replace("¥ ", "")}</strong>
+                          <button className="secondary" disabled={busy} onClick={() => void saveScenario()}>保存方案</button>
+                          <small>保存后可复用 · 不影响官方提交文件</small>
+                        </div>
+                      </div>
+                    </section>
+                  )}
                 </div>
               )}
 
@@ -715,35 +744,6 @@ export function PortfolioPage({
           )}
         </main>
       </div>
-
-      {customer && result?.business && rebalance && (
-        <section className="portfolio-execution">
-          <div className="execution-head">
-            <span><small>STEP 4 · 落地执行</small><h3>配置调整指令</h3></span>
-            <p>业务方案已满足起投约束，可直接执行；以下为相对当前持仓的调仓清单。</p>
-          </div>
-          <div className="execution-grid">
-            <div className="execution-col buy">
-              <b>建议买入</b>
-              {rebalance.buys.length ? (
-                <ul>{rebalance.buys.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>+ ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
-              ) : <div className="inline-empty">持仓已覆盖方案</div>}
-            </div>
-            <div className="execution-col sell">
-              <b>建议卖出</b>
-              {rebalance.sells.length ? (
-                <ul>{rebalance.sells.map((item) => <li key={item.product_id}><span>{item.product_name}</span><em>- ¥{money(item.amount).replace("¥ ", "")}</em></li>)}</ul>
-              ) : <div className="inline-empty">无需卖出</div>}
-            </div>
-            <div className="execution-summary">
-              <b>净调仓</b>
-              <strong>¥{money(Math.max(0, rebalance.buys.reduce((sum, item) => sum + item.amount, 0) - rebalance.sells.reduce((sum, item) => sum + item.amount, 0))).replace("¥ ", "")}</strong>
-              <button className="secondary" disabled={busy} onClick={() => void saveScenario()}>保存方案</button>
-              <small>保存后可复用 · 不影响官方提交文件</small>
-            </div>
-          </div>
-        </section>
-      )}
     </>
   );
 }
