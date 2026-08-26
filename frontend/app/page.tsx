@@ -75,7 +75,7 @@ export default function Home() {
           {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
           {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} />}
           {active === "marketing" && <MarketingPage initialCustomerId={customerId} onOpenCustomer={openCustomer} notify={notify} />}
-          {active === "dashboard" && <DashboardPage />}
+          {active === "dashboard" && <DashboardPage onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} />}
         </main>
 
         <footer>

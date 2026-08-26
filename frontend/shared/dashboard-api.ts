@@ -76,6 +76,25 @@ export interface DashboardOverview {
     sent_strategy_count?: number;
     responded_strategy_count?: number;
   };
+  action_items?: {
+    conversion: {
+      actual: number;
+      target: number;
+      gap: number;
+      label: string;
+    };
+    touch: {
+      sent_strategies: number;
+      total_strategies: number;
+      high_intent_untouched: number;
+    };
+    channel: {
+      manager_sent: number;
+      manager_responded: number;
+      manager_response_rate: number | null;
+      manager_target: number;
+    };
+  };
 }
 
 export interface PortfolioResult {

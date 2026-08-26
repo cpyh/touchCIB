@@ -1259,3 +1259,24 @@
     font-size: 17px;
   }
 }
+/* 今日行动：运营指令卡（红黄绿三级语义） */
+.action-section .action-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.action-card{min-width:0;display:flex;flex-direction:column;gap:8px;padding:14px 15px;border:1px solid #dde6ed;border-left-width:4px;border-radius:10px;background:#fff;box-shadow:0 4px 12px #112d4b0a}
+.action-card.level-red{border-left-color:#c0523f}
+.action-card.level-amber{border-left-color:#d39b36}
+.action-card.level-green{border-left-color:#26906f}
+.action-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.action-card>header b{color:var(--navy);font-size:12px}
+.action-card>header span{color:#8b99a4;font-size:9px;font-weight:600}
+.action-card.level-red>header span{color:#b34837}
+.action-card.level-amber>header span{color:#966922}
+.action-card.level-green>header span{color:#1d7a5c}
+.action-card>strong{color:var(--navy);font:700 22px Georgia,serif}
+.action-card>strong i{color:#9fb0bd;margin:0 6px;font:500 12px PingFang SC,sans-serif}
+.action-card>strong em{color:var(--navy2);font:600 13px PingFang SC,sans-serif}
+.action-card>p{margin:0;color:#6b7f90;font-size:10px;line-height:1.6}
+.action-card>p b{color:#966922}
+.action-card .primary{min-height:34px;padding:7px 10px;font-size:10px}
+.action-hint{color:#93a2ad;font-size:9px}
+@media(max-width:1100px){.action-section .action-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.action-section .action-grid{grid-template-columns:1fr}}

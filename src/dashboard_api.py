@@ -30,6 +30,9 @@ STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
 STRATEGY_TARGET_CSV = (
     PROJECT_DIR / "src" / "data" / "raw" / "partA_strategy_customers.csv"
 )
+TEST_CONTACTS_CSV = (
+    PROJECT_DIR / "src" / "data" / "raw" / "partA_test_contacts.csv"
+)
 ALLOCATION_CSV = PROJECT_DIR / "partB_allocation.csv"
 PARTB_AUDIT_CSV = (
     PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
@@ -440,6 +443,91 @@ def _marketing_funnel() -> dict:
     }
 
 
+def _action_items() -> dict:
+    """运营行动指令：目标-实际-缺口，供看板"今日行动"指挥工作台执行。"""
+    import pandas as pd
+
+    strategy_channels: dict[tuple[str, str], str] = {}
+    if STRATEGY_CSV.is_file():
+        try:
+            strategies = pd.read_csv(STRATEGY_CSV, dtype=str)
+            strategy_channels = {
+                (row.customer_id, row.rank): row.recommended_channel
+                for row in strategies.itertuples()
+            }
+        except (OSError, ValueError):
+            pass
+
+    sent_strategies = 0
+    manager_sent = 0
+    manager_responded = 0
+    sent_customers: set[str] = set()
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT strategy_id, event_type, COUNT(*) AS count "
+                    "FROM app_campaign_event GROUP BY strategy_id, event_type"
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+        for row in rows:
+            strategy_id = str(row["strategy_id"])
+            customer_id, _, rank = strategy_id.partition(":")
+            channel = strategy_channels.get((customer_id, rank))
+            count = int(row["count"])
+            if row["event_type"] == "sent":
+                sent_strategies += count
+                sent_customers.add(customer_id)
+                if channel == "manager":
+                    manager_sent += count
+            elif row["event_type"] == "responded" and channel == "manager":
+                manager_responded += count
+    except (pymysql.MySQLError, OSError, ValueError):
+        pass
+
+    high_intent_customers: set[str] = set()
+    try:
+        contacts = pd.read_csv(TEST_CONTACTS_CSV, dtype={"customer_id": str})
+        predictions = pd.read_csv(PREDICTION_CSV, dtype={"contact_id": str})
+        merged = contacts.merge(predictions, on="contact_id", how="left")
+        merged["response_prob"] = pd.to_numeric(
+            merged["response_prob"], errors="coerce"
+        )
+        high_intent_customers = set(
+            merged.loc[merged["response_prob"] >= 0.7, "customer_id"].dropna()
+        )
+    except (OSError, ValueError, KeyError):
+        high_intent_customers = set()
+
+    conversion_target = 30
+    return {
+        "conversion": {
+            "actual": manager_responded,
+            "target": conversion_target,
+            "gap": max(0, conversion_target - manager_responded),
+            "label": "经理 MGR001 4月转化",
+        },
+        "touch": {
+            "sent_strategies": sent_strategies,
+            "total_strategies": int(len(strategy_channels)),
+            "high_intent_untouched": len(high_intent_customers - sent_customers),
+        },
+        "channel": {
+            "manager_sent": manager_sent,
+            "manager_responded": manager_responded,
+            "manager_response_rate": (
+                round(manager_responded / manager_sent, 4)
+                if manager_sent
+                else None
+            ),
+            "manager_target": 0.25,
+        },
+    }
+
+
 def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
     try:
         connection = database_connection()
@@ -502,6 +590,7 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
         "portfolio_summary": _portfolio_summary(),
         "portfolio": _portfolio_performance(scenario_id),
         "marketing_funnel": _marketing_funnel(),
+        "action_items": _action_items(),
     }
 
 

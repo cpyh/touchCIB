@@ -130,7 +130,13 @@ function SectionTitle({
   );
 }
 
-export function DashboardPage() {
+export function DashboardPage({
+  onOpenMarketing,
+  onOpenPortfolio,
+}: {
+  onOpenMarketing?: (customerId: string) => void;
+  onOpenPortfolio?: (customerId: string) => void;
+}) {
   const [scenarioId, setScenarioId] = useState("S01");
   const [dashboard, setDashboard] =
     useState<DashboardOverview | null>(null);
@@ -318,6 +324,20 @@ export function DashboardPage() {
       ([, passed]) => passed
     ).length;
 
+  const actions = dashboard.action_items;
+  const conversion = actions?.conversion;
+  const touch = actions?.touch;
+  const channel = actions?.channel;
+  const a1AllAnchorsMet =
+    (a1.auc ?? 0) >= 0.85 &&
+    (a1.f1 ?? 0) >= 0.615 &&
+    (a1.lift_at_10 ?? 0) >= 3.3;
+  const partBOk =
+    !!portfolioSummary &&
+    portfolioSummary.status === "READY" &&
+    portfolioSummary.constraints_passed_count ===
+      portfolioSummary.scenario_count;
+
   return (
     <>
       <PageHead
@@ -355,6 +375,47 @@ export function DashboardPage() {
           <span>本次刷新失败：{error}</span>
           <button onClick={refresh}>重试</button>
         </div>
+      )}
+
+      {/* ================= 今日行动（运营指令） ================= */}
+
+      {actions && (
+        <section className="dashboard-section action-section">
+          <SectionTitle
+            index="00"
+            title="今日行动"
+            description="目标-实际-缺口：看板发现异常，点击卡片直接跳转工作台执行。"
+          />
+          <div className="action-grid">
+            <article className={`action-card ${(conversion?.gap ?? 0) > 0 ? "level-red" : "level-green"}`}>
+              <header><b>转化缺口</b><span>{conversion?.gap ? `还差 ${conversion.gap} 个` : "已达目标"}</span></header>
+              <strong>{conversion?.actual}<i>/</i><em>{conversion?.target}</em></strong>
+              <p>{conversion?.label} · 已触达未响应的客户是跟进的优先对象</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>去营销工作台执行 →</button>
+            </article>
+
+            <article className={`action-card ${(touch?.sent_strategies ?? 0) < (touch?.total_strategies ?? 1) ? "level-amber" : "level-green"}`}>
+              <header><b>触达缺口</b><span>{(touch?.total_strategies ?? 0) - (touch?.sent_strategies ?? 0)} 条策略待触达</span></header>
+              <strong>{touch?.sent_strategies?.toLocaleString()}<i>/</i><em>{touch?.total_strategies?.toLocaleString()}</em></strong>
+              <p>高意向客户（概率≥70%）中还有 <b>{touch?.high_intent_untouched ?? "—"}</b> 名未触达，建议今日优先执行</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
+            </article>
+
+            <article className={`action-card ${(channel?.manager_response_rate ?? 0) >= (channel?.manager_target ?? 1) ? "level-green" : "level-amber"}`}>
+              <header><b>渠道机会</b><span>预算倾斜建议</span></header>
+              <strong>{channel?.manager_response_rate != null ? `${(channel.manager_response_rate * 100).toFixed(1)}%` : "—"}<i>vs</i><em>{channel ? `${(channel.manager_target * 100).toFixed(0)}%` : "—"}</em></strong>
+              <p>经理渠道现场响应率对比历史均值 {percent(business.historical_response_rate)}，表现领先则继续倾斜经理渠道</p>
+              <span className="action-hint">数据引用 · 无需跳转</span>
+            </article>
+
+            <article className={`action-card ${a1AllAnchorsMet && partBOk ? "level-green" : "level-amber"}`}>
+              <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
+              <strong>{a1AllAnchorsMet ? "达标" : "复核"}<i>A1</i><em>{partBOk ? "达标" : "复核"} PartB</em></strong>
+              <p>AUC {(a1.auc ?? 0).toFixed(4)} · F1 {(a1.f1 ?? 0).toFixed(4)} · Lift {(a1.lift_at_10 ?? 0).toFixed(2)}；Part B {portfolioSummary?.constraints_passed_count ?? "—"}/{portfolioSummary?.scenario_count ?? "—"} 场景约束通过</p>
+              <span className="action-hint">模型指标实时取自验证文件</span>
+            </article>
+          </div>
+        </section>
       )}
 
       {/* ================= 数据总览 ================= */}
