@@ -99,16 +99,16 @@ flowchart TB
 | 话术 | `script_compliance_note` | 硬 | 含「理财非存款，产品有风险，投资须谨慎」 |
 | 话术 | `script_overshoot_warning` | 硬 | 溢出产品话术含「风险等级高于您的风险偏好，请谨慎选择」 |
 
-### 9.1 manager 渠道配额（方案 B：资格 + 全局配额）
+### 9.1 manager 渠道配额（资格 + 全局配额）
 
 - 资格池：金卡/钻石 或 AUM≥50万（实测 595 人 / 29.8%）
 - 配额：600 行（10%），参数 `--manager-quota` 可调
-- 分配序：钻石→金卡→高AUM（层内按 AUM 降序、customer_id 兜底），第一轮每人至多 1 条（rank1），余量第二轮给钻石/金卡第 2 条（rank2）
+- 分配序：钻石→金卡→高AUM（层内按 AUM 降序、customer_id 兜底）；由于渠道是 A1 特征，同一客户的 30 产品先固定同一可执行渠道，因此配额按完整 Top3（三行）分配，保证评分渠道与最终策略渠道一致
 - 依据：历史 manager 渠道占比 24.6%（全量客户口径），目标名单收紧至 10% 聚焦高价值客户
 
 ### 9.2 渠道阶梯与时段偏好
 
-- 渠道阶梯：app_push(有App) → call(无投诉) → sms；manager 配额命中行插入 rank 顺位（rank1→最优渠道，rank2→次优……自然形成渠道多样性）
+- 渠道阶梯：manager（命中配额）→ app_push（有App）→ call（无投诉）→ sms；同一客户 Top3 使用同一可执行渠道，便于执行与概率口径一致
 - 时段：职业主序 × 渠道修正拼接偏好序，55+ 前置工作日 09:00-12:00；rank1/2/3 取偏好序前 3 位
 - 说明：周末/工作日响应率持平（0.188 vs 0.184），时段规则定位为业务惯例（职业作息 + 外呼合规时段），答辩不宣称数据挖掘结论
 
@@ -124,15 +124,16 @@ flowchart TB
 
 ```bash
 # A1 训练与提交预测
-uv run python -m src.partA1serving.training.train_and_save --profile all --model lgbm_onehot
+uv run python -m src.partA1serving.training.train_and_save --profile full --model lgbm_onehot
 uv run python -m src.partA1serving.training.predict --model lgbm_onehot --out partA_prediction.csv
 # A2 提交文件
-uv run python -m src.marketing --predictions partA_prediction.csv --output partA_strategy.csv
+uv run python -m src.marketing --model lgbm_onehot --output partA_strategy.csv
 # 业务 ADS 日批
 uv run python -m src.scripts.run_marketing_batch --strategy-date 2026-04-15
 ```
 
-A2 离线产出 `partA_strategy.csv`（6000 行）和可选审计文件；业务日批产出
+A2 离线对 2000×30 组合生成 60000 条 A1 评分，再产出
+`partA_strategy.csv`（6000 行）和审计文件；业务日批产出
 `ads_a1_customer_product_score`、`ads_a2_candidate_decision`、
 `ads_marketing_strategy`。
 
@@ -146,7 +147,7 @@ A2 离线产出 `partA_strategy.csv`（6000 行）和可选审计文件；业务
 | manager 配额 | 600 行，全部命中资格客户 ✅ |
 | 无 App 客户出 app_push | 0 ✅ |
 | 投诉 ≥2 客户出 call | 0 ✅ |
-| 溢出行 | 399（恰好 = R1 客户数，每人 1 条溢出）✅ |
+| 风险放宽一档补位行 | 500（严格风险且满足起投能力的候选不足 3 个时触发）✅ |
 | 格式校验器 | 0 错误 ✅ |
 
 ## 14. A 链路测试

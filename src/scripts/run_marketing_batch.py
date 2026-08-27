@@ -12,6 +12,7 @@ from datetime import date
 
 from src.database import database_connection
 from src.marketing.batch import compute_marketing_batch, persist_marketing_batch
+from src.marketing.models import DEFAULT_MANAGER_QUOTA
 from src.marketing.warehouse import load_marketing_context
 from src.partA1serving.runtime import get_mysql_predictor
 from src.scripts.init_db import database_name, initialize_schema, load_environment
@@ -23,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--customer-id", action="append", default=[])
     parser.add_argument("--limit", type=int)
     parser.add_argument("--batch-id")
+    parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
     args = parser.parse_args()
     try:
         args.strategy_date = date.fromisoformat(args.strategy_date)
@@ -32,6 +34,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--limit 必须大于0")
     if args.customer_id and args.limit is not None:
         parser.error("--customer-id 与 --limit 不能同时使用")
+    if args.manager_quota < 0:
+        parser.error("--manager-quota 必须大于等于0")
     return args
 
 
@@ -71,7 +75,12 @@ def main() -> int:
         f"customers={len(context.customers)} products={len(context.products)}",
         flush=True,
     )
-    result = compute_marketing_batch(context, predictor, batch_id=batch_id)
+    result = compute_marketing_batch(
+        context,
+        predictor,
+        batch_id=batch_id,
+        manager_quota=args.manager_quota,
+    )
     persist_marketing_batch(result)
     print(
         f"[OK] customers={result.customer_count} "

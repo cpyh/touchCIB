@@ -59,7 +59,7 @@
   "train_range": "2025-04-01 ~ 2026-03-26",
   "train_cutoff": null,
   "eval_range": null,
-  "trained_at": "2026-08-26T12:36:31",
+  "trained_at": "2026-08-27T11:33:02",
   "source_rows": {
     "t_campaign_used": 50000,
     "t_campaign_total": 50000,

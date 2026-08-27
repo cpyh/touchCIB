@@ -4,7 +4,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.marketing.batch import compute_marketing_batch
+from src.marketing.batch import allocate_manager_customers, compute_marketing_batch
 from src.marketing.models import Customer, CustomerBehavior, Product
 from src.marketing.warehouse import MarketingWarehouseContext, load_marketing_context
 
@@ -34,6 +34,27 @@ class _FakePredictor:
 
 
 class MarketingBatchTestCase(unittest.TestCase):
+    def test_manager_quota_is_allocated_in_complete_top3_units(self):
+        customers = [
+            Customer(
+                customer_id=f"C{index}",
+                age_group="35-44",
+                city="上海",
+                occupation="企业职员",
+                income_level="30-50万",
+                register_date=date(2024, 1, 1),
+                aum=500_000 + index,
+                risk_appetite="R2",
+                vip_level="金卡",
+                has_app=True,
+            )
+            for index in range(3)
+        ]
+
+        allocated = allocate_manager_customers(customers, manager_quota=6)
+
+        self.assertEqual(allocated, {"C1", "C2"})
+
     def test_context_excludes_customers_registered_after_strategy_date(self):
         eligible = Customer(
             customer_id="C000001",

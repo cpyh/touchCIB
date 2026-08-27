@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Protocol
 
 import pandas as pd
@@ -71,14 +72,17 @@ def _normalize(name: str, frame: pd.DataFrame) -> pd.DataFrame:
 class CsvDataSource:
     """官方 CSV 数据源，用于训练、回放和无数据库复现。"""
 
+    def __init__(self, data_dir: str | Path | None = None) -> None:
+        self.data_dir = Path(data_dir or config.DATA_DIR)
+
     def load(self, *, history_cutoff: str | None = None) -> A1DataBundle:
-        data_dir = config.DATA_DIR
+        data_dir = self.data_dir
         frames = {
-            "customers": pd.read_csv(f"{data_dir}/t_customer.csv"),
-            "products": pd.read_csv(f"{data_dir}/t_product.csv"),
-            "campaigns": pd.read_csv(f"{data_dir}/t_campaign.csv"),
-            "holdings": pd.read_csv(f"{data_dir}/t_holding.csv"),
-            "events": pd.read_csv(f"{data_dir}/t_event.csv"),
+            "customers": pd.read_csv(data_dir / "t_customer.csv"),
+            "products": pd.read_csv(data_dir / "t_product.csv"),
+            "campaigns": pd.read_csv(data_dir / "t_campaign.csv"),
+            "holdings": pd.read_csv(data_dir / "t_holding.csv"),
+            "events": pd.read_csv(data_dir / "t_event.csv"),
         }
         normalized = {name: _normalize(name, frame) for name, frame in frames.items()}
         if history_cutoff is not None:

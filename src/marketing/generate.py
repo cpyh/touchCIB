@@ -52,7 +52,7 @@ def generate_customer_strategy(
         context,
         response_predictor,
         batch_id=f"preview_{normalized}_{strategy_date:%Y%m%d}",
-        manager_enabled=manager_quota > 0,
+        manager_quota=manager_quota,
     )
     customer = context.customers[normalized]
     product_map = {product.product_id: product for product in context.products}

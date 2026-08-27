@@ -1,6 +1,10 @@
-"""A2 历史提交文件生成器（业务日批请使用 marketing.batch）。
+"""A2 基础规则与策略装配组件。
 
-阶段一（全局批次）：
+正式提交和业务日批统一由 ``marketing.batch`` 负责完整 A1 评分；本模块保留
+规则装配的纯内存组件、渠道/时段决策函数及可单测的数据结构，不再读取 A1/A2
+提交 CSV，也不再提供独立命令行生成路径。
+
+规则装配阶段一（全局批次）：
     产品排序 = A1 响应概率；
     合规顺位过滤（风险偏好内优先，不足 3 个时自动溢出 1 级）；
     manager 渠道配额分配（资格 + 全局配额，按客户价值排序）。
@@ -12,28 +16,15 @@
 
 from __future__ import annotations
 
-import argparse
-import csv
-import sys
 from datetime import date
-from pathlib import Path
 from typing import Mapping, Sequence
 
 from .engine import RuleEngine
-from .io import (
-    build_behaviors,
-    load_customers,
-    load_model_scores,
-    load_products,
-    load_strategy_customers,
-)
 from .models import (
     DEFAULT_MANAGER_QUOTA,
-    DEFAULT_TOP_N,
     MANAGER_ELIGIBLE_AUM,
     MANAGER_ELIGIBLE_VIP,
     RISK_RANK,
-    STRATEGY_COLUMNS,
     TIME_SLOTS,
     Product,
     StepRecord,
@@ -41,11 +32,8 @@ from .models import (
     StrategyRequest,
     StrategyResult,
 )
-from .rules import RULES, build_default_engine
+from .rules import build_default_engine
 from .templates import build_script
-from .validate import validate_strategy_file
-
-PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 VIP_RANK = {"钻石": 3, "金卡": 2, "银卡": 1, "普通": 0}
 
@@ -488,141 +476,3 @@ def generate_strategies(
             )
         )
     return results
-
-
-# ----------------------------------------------------------------
-# 命令行入口
-# ----------------------------------------------------------------
-
-
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="A2 营销策略生成（规则/流程引擎）")
-    parser.add_argument("--data-dir", type=Path, default=PROJECT_DIR / "src" / "data" / "raw")
-    parser.add_argument(
-        "--test-contacts",
-        type=Path,
-        default=PROJECT_DIR / "src" / "data" / "raw" / "partA_test_contacts.csv",
-    )
-    parser.add_argument(
-        "--predictions",
-        type=Path,
-        default=PROJECT_DIR / "partA_prediction.csv",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=PROJECT_DIR / "partA_strategy.csv",
-    )
-    parser.add_argument(
-        "--audit-output",
-        type=Path,
-        default=PROJECT_DIR / "src" / "data" / "outputs" / "a2_strategy_audit.csv",
-    )
-    parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
-    return parser.parse_args(argv)
-
-
-def write_strategy_csv(output_path: Path, results: Sequence[StrategyResult]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=STRATEGY_COLUMNS)
-        writer.writeheader()
-        for result in results:
-            writer.writerows(result.to_rows())
-
-
-def write_strategy_audit(output_path: Path, results: Sequence[StrategyResult]) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            [
-                "customer_id", "rank", "product_id", "model_prob",
-                "overshoot", "recommended_channel",
-                "recommended_time", "script_length",
-            ]
-        )
-        for result in results:
-            for item in result.items:
-                writer.writerow(
-                    [
-                        result.customer_id, item.rank, item.product_id,
-                        f"{item.model_prob:.8f}", int(item.overshoot),
-                        item.recommended_channel, item.recommended_time,
-                        len(item.marketing_script),
-                    ]
-                )
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-
-    customers = load_customers(args.data_dir / "t_customer.csv")
-    products = load_products(args.data_dir / "t_product.csv")
-    strategy_dates = load_strategy_customers(
-        args.data_dir / "partA_strategy_customers.csv"
-    )
-
-    import pandas as pd
-
-    events = pd.read_csv(
-        args.data_dir / "t_event.csv", dtype={"customer_id": str}
-    )
-    holdings = pd.read_csv(
-        args.data_dir / "t_holding.csv",
-        dtype={"customer_id": str, "product_id": str},
-    )
-    behaviors = build_behaviors(
-        customers, events, holdings, strategy_dates
-    )
-    model_scores = load_model_scores(args.test_contacts, args.predictions)
-
-    print(f"ranking_source=A1_probability customers={len(strategy_dates)}")
-
-    requests = [
-        StrategyRequest(
-            customer=customers[customer_id],
-            strategy_date=strategy_date,
-            behavior=behaviors[customer_id],
-            top_n=DEFAULT_TOP_N,
-        )
-        for customer_id, strategy_date in strategy_dates.items()
-    ]
-
-    results = generate_strategies(
-        requests,
-        products,
-        model_scores=model_scores,
-        manager_quota=args.manager_quota,
-    )
-
-    write_strategy_csv(args.output, results)
-    write_strategy_audit(args.audit_output, results)
-    errors = validate_strategy_file(
-        args.output, expected_customers=set(strategy_dates)
-    )
-
-    manager_rows = sum(
-        1
-        for result in results
-        for item in result.items
-        if item.recommended_channel == "manager"
-    )
-    overshoot_rows = sum(
-        1 for result in results for item in result.items if item.overshoot
-    )
-    total_rows = sum(len(result.items) for result in results)
-
-    print(f"customers={len(results)} rows={total_rows}")
-    print(f"manager_rows={manager_rows} overshoot_rows={overshoot_rows}")
-    print(f"validation_errors={len(errors)}")
-    if errors:
-        for error in errors[:10]:
-            print(f"  - {error}")
-    print(f"strategy={args.output}")
-    print(f"audit={args.audit_output}")
-    return 1 if errors else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -183,7 +183,7 @@ flowchart LR
 | 4 | 历史响应率用 Beta(2,8) 平滑 | 无历史时的中性先验 20%，避免 0/0 | 加一平滑（偏乐观） |
 | 5 | Part B 用凸化 + SLSQP 多起点，而非黑盒进化算法 | 凸问题可证全局最优，配切平面上界证书 | 遗传算法（无最优性保证） |
 | 6 | 算法层支持 MySQL/CSV 双数据源 | 平台模式与离线复现共用一套代码 | 只读 MySQL（答辩现场不便） |
-| 7 | 业务规则进规则引擎（声明式 + 轨迹），不散落在脚本 | 可配置、可开关、可解释，支撑 D 联动 | 硬编码 if/else |
+| 7 | 业务规则进规则引擎（声明式 + 轨迹），不散落在接口 | 可审计、可解释，支撑 D 联动 | 规则散落在各 API 的 if/else |
 | 8 | 模型/特征/提交文件三重自校验 | 任何格式违例 A1/A2 直接 0 分，必须前置拦截 | 人工检查 |
 
 ---
@@ -195,20 +195,23 @@ flowchart TB
     subgraph OFFLINE["离线（复现/训练）"]
         T1["python -m src.partA1serving.training.train_and_save"]
         T2["python -m src.partA1serving.training.predict"]
-        T3["python -m src.pipelines.solve_partB --data-dir src/data/raw"]
+        T3["python -m src.marketing"]
+        T4["python -m src.pipelines.solve_partB --data-dir src/data/raw"]
     end
     subgraph ONLINE["在线（平台演示）"]
-        T4["python -m src.scripts.init_db"]
-        T5["uv run python -m src.app"]
-        T6["前端看板 → REST API"]
+        T5["python -m src.scripts.init_db"]
+        T6["uv run python -m src.app"]
+        T7["前端看板 → REST API"]
     end
     T1 --> M["src/partA1serving/artifacts/"]
     M --> T2
+    M --> T3
     T2 --> SUB["partA_prediction.csv"]
-    T3 --> SUBB["partB_allocation.csv"]
-    T4 --> DB["MySQL: ODS/DWD/DWS/ADS"]
-    T5 --> DB
-    T6 --> T5
+    T3 --> SUBA2["partA_strategy.csv"]
+    T4 --> SUBB["partB_allocation.csv"]
+    T5 --> DB["MySQL: ODS/DWD/DWS/ADS"]
+    T6 --> DB
+    T7 --> T6
 ```
 
 演示现场推荐顺序：`init_db.py` → 起服务 → 看板演示三条链路 → 必要时离线复跑训练/求解证明可复现。
@@ -219,8 +222,8 @@ flowchart TB
 
 | 评分项 | 架构支撑 | 状态 |
 |--------|----------|------|
-| A1 AUC/F1/Lift | 特征工程 + 时间验证 + 模型工件 | ✅ 已达标 |
-| A2 HitRate@3 | A1 概率排序 + 基础规则过滤 | ✅ |
+| A1 AUC/F1/Lift | 特征工程 + 时间验证 + 模型工件 | ✅ 本地时间留出达到满分锚点，最终以隐藏标签为准 |
+| A2 HitRate@3 | 同一 full A1 对 2000×30 完整评分 + 基础规则过滤 | ✅ 链路完整，最终以隐藏购买标签为准 |
 | A2 格式合规 | 提交校验器（`src/marketing/validate.py`） | ✅ |
 | B 效用分数 | 凸优化 + 证书 | ✅ |
 | C 架构与工程 | 分层数据架构、质量检查、测试、双源算法层 | ✅ |

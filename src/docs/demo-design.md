@@ -1,6 +1,6 @@
 # 平台演示闭环设计 · 小组讨论稿
 
-> 状态：🟡 设计讨论稿（未实现）｜ 用途：小组评审与分工对齐
+> 状态：✅ 核心链路已实现，保留作演示脚本｜用途：答辩演练与分工对齐
 > 关联：[sdd-platform.md](sdd-platform.md)（四 Tab 规格）、[architecture.md](architecture.md)
 
 ---

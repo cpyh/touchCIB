@@ -1,13 +1,8 @@
-"""生成 A1 提交文件 `partA_prediction.csv`。
+"""用已落盘的 full A1 模型生成 `partA_prediction.csv`。
 
-与验证阶段（training/pipeline.py）的区别
-----------------------------------------
-验证阶段按时间切分，只用训练段拟合，目的是**估计**线上表现。
-本脚本用于**产出提交**，因此：
-  1. 用全部 50000 条 t_campaign 拟合（不再留出验证段），充分利用数据；
-  2. 测试集的历史统计特征全部来自训练集（推理模式），
-     测试日 2026-04-15 晚于所有训练数据，故等价于使用全部训练历史；
-  3. 平滑先验统一取自训练集，保证训练/推理口径一致。
+正式导出与 Flask/A2 共用 ``ResponsePredictor``，避免出现“提交脚本重新训练一套、
+平台加载另一套模型”的口径漂移。运行前先执行 ``train_and_save --profile full``；
+模型、特征装配、as-of 历史索引和线上服务因此只有一套实现。
 
 输出精度
 --------
@@ -18,7 +13,7 @@
 用法
 ----
     python -m partA1serving.training.predict
-    python -m partA1serving.training.predict --no-history   # 消融：仅用基础特征
+    python -m partA1serving.training.predict --model lgbm_onehot
 """
 
 from __future__ import annotations
@@ -27,117 +22,81 @@ import argparse
 import os
 import sys
 
-import numpy as np
 import pandas as pd
 
 from .. import config
 from .. import estimators as M
-from .. import features_a1 as F
-from .. import features_history as H
-from .pipeline import build_pipeline, get_all_feature_columns
+from ..data_source import CsvDataSource
+from ..feature_service import PredictRequest
+from ..predictor import ResponsePredictor
 
 
 def generate(
-    use_history: bool = True, verbose: bool = True, model: str = M.DEFAULT_MODEL
+    verbose: bool = True,
+    model: str = "lgbm_onehot",
+    *,
+    predictor: ResponsePredictor | None = None,
+    test_contacts: pd.DataFrame | None = None,
+    batch_size: int = 1_000,
 ) -> pd.DataFrame:
-    """在全量训练集上拟合，对测试集输出响应概率。"""
-    customer, product = F.load_base_tables()
-    train_raw = F.load_train_contacts()
-    test_raw = F.load_test_contacts()
+    """加载 full 模型产物，对官方测试触达记录批量推理。"""
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    test_raw = (
+        test_contacts.copy()
+        if test_contacts is not None
+        else pd.read_csv(config.TEST_CONTACTS_CSV, parse_dates=["contact_date"])
+    )
+    required = {"contact_id", "customer_id", "product_id", "channel", "contact_date"}
+    missing = sorted(required - set(test_raw.columns))
+    if missing:
+        raise ValueError(f"测试触达缺少字段：{missing}")
+    if test_raw["contact_id"].duplicated().any():
+        raise ValueError("测试触达存在重复 contact_id")
+    predictor = predictor or ResponsePredictor(
+        profile="full",
+        model=model,
+        data_source=CsvDataSource(),
+    )
 
     if verbose:
         print("=" * 66)
-        print(f"生成 A1 提交文件 partA_prediction.csv | 模型={model}")
-        print(f"  {M.describe(model)}")
+        print(f"生成 A1 提交文件 partA_prediction.csv | 模型=full/{model}")
+        print(f"  复用已落盘模型与线上特征服务：{M.describe(model)}")
         print("=" * 66)
-        print(f"\n[数据] 训练 {len(train_raw)} 条  测试 {len(test_raw)} 条")
-        print(
-            f"       训练期 {train_raw['contact_date'].min():%Y-%m-%d}"
-            f" ~ {train_raw['contact_date'].max():%Y-%m-%d}"
-        )
-        print(f"       测试日 {test_raw['contact_date'].min():%Y-%m-%d}（晚于全部训练数据）")
+        print(f"\n[数据] 测试触达 {len(test_raw)} 条")
 
-    # ---------------- 基础特征：train / test 共用同一函数
-    train = pd.DataFrame(F.build_features(train_raw, customer, product))
-    test = pd.DataFrame(F.build_features(test_raw, customer, product))
-
-    # ---------------- 历史特征
-    if use_history:
-        holding = H.load_holding()
-        events = H.load_events()
-        # 先验统一取自训练集，训练与推理保持同一口径
-        prior = float(train_raw["responded"].mean())
-
-        hist_train = H.build_history_features(
-            train_raw, holding, events, label_col="responded", prior=prior
-        )
-        # 推理模式：测试集自身无标签，历史全部来自训练集
-        hist_test = H.build_history_features(
-            test_raw,
-            holding,
-            events,
-            label_col=None,
-            history_source=train_raw,
-            prior=prior,
-        )
-        train = train.merge(hist_train, on="contact_id", how="left")
-        test = test.merge(hist_test, on="contact_id", how="left")
-
-        if verbose:
-            print(f"\n[历史特征] 平滑先验 prior = {prior:.6f}（取自训练集）")
-            print("       测试集历史来自全量训练集（推理模式）")
-            print(
-                "       注：t_event 数据截止 2026-03-27，测试日 30 天窗口后段无事件，"
-                "\n           故 consult_30d/complaint_30d 在测试集上偏低，属数据边界而非缺陷"
+    probabilities: list[float] = []
+    for start in range(0, len(test_raw), batch_size):
+        chunk = test_raw.iloc[start : start + batch_size]
+        requests = [
+            PredictRequest(
+                customer_id=str(row.customer_id),
+                product_id=str(row.product_id),
+                channel=str(row.channel),
+                contact_date=f"{pd.Timestamp(row.contact_date):%Y-%m-%d}",
             )
-
-    feat_cols = get_all_feature_columns(use_history)
-
-    # ---------------- 一致性自检
-    missing_cols = [c for c in feat_cols if c not in test.columns]
-    if missing_cols:
-        raise ValueError(f"测试集缺少特征列：{missing_cols}")
-    n_na_train = int(train[feat_cols].isna().sum().sum())
-    n_na_test = int(test[feat_cols].isna().sum().sum())
-    if n_na_train or n_na_test:
-        raise ValueError(f"存在缺失值：train={n_na_train}, test={n_na_test}")
-
-    if verbose:
-        print("\n[自检]")
-        print(f"  特征列数              : {len(feat_cols)}")
-        print("  train/test 特征列一致 : True")
-        print(f"  缺失值                : train={n_na_train}, test={n_na_test}")
-        print(f"  训练集正例率          : {train['responded'].mean():.6f}")
-
-    # ---------------- 全量拟合
-    x_train = train.loc[:, feat_cols]
-    y_train = np.asarray(train["responded"])
-    pipe = build_pipeline(use_history, model)
-    pipe.fit(x_train, y_train)
-
-    if verbose:
-        n_encoded = M.encoded_width(pipe, x_train.iloc[:1])
-        print(f"  编码后维度            : {len(feat_cols)} -> {n_encoded} 列")
-
-    # ---------------- 推理
-    prob = pipe.predict_proba(test.loc[:, feat_cols])[:, 1]
-    # 数值兜底：确保严格落在 [0, 1]，避免极端浮点导致格式判 0
-    prob = np.clip(prob, 0.0, 1.0)
+            for row in chunk.itertuples(index=False)
+        ]
+        results = predictor.predict_batch(requests, explain=False)
+        probabilities.extend(float(result.probability) for result in results)
 
     out = pd.DataFrame(
         {
-            "contact_id": test["contact_id"].to_numpy(),
-            "response_prob": np.round(prob, 6),
+            "contact_id": test_raw["contact_id"].astype(str).to_numpy(),
+            "response_prob": probabilities,
         }
     )
 
     if verbose:
+        prob = out["response_prob"]
+        prior = float(getattr(predictor.meta, "prior", 0.0))
         print("\n[预测分布]")
-        print(f"  均值   : {prob.mean():.6f}（训练集正例率 {y_train.mean():.6f}）")
+        print(f"  均值   : {prob.mean():.6f}（训练集正例率 {prior:.6f}）")
         print(f"  区间   : [{prob.min():.6f}, {prob.max():.6f}]")
-        qs = np.percentile(prob, [10, 25, 50, 75, 90])
+        qs = prob.quantile([0.10, 0.25, 0.50, 0.75, 0.90]).to_numpy()
         print("  分位数 : p10={:.4f} p25={:.4f} p50={:.4f} p75={:.4f} p90={:.4f}".format(*qs))
-        n_distinct3 = len(np.unique(np.round(prob, 3)))
+        n_distinct3 = prob.round(3).nunique()
         print(f"  按 3 位小数去重的不同值: {n_distinct3}（后台据此扫描 F1 阈值，越多越好）")
 
     return out
@@ -150,23 +109,22 @@ def main(argv: list[str] | None = None) -> int:
         default=os.path.join(config.SUBMISSION_DIR, config.FILE_PREDICTION),
         help="输出路径，默认 submission/partA_prediction.csv",
     )
-    ap.add_argument("--no-history", action="store_true", help="不使用历史统计特征（消融用）")
     ap.add_argument(
         "--model",
-        default=M.DEFAULT_MODEL,
+        default="lgbm_onehot",
         choices=M.list_models(),
-        help="模型类型，默认 lr（与基线一致）",
+        help="模型类型，默认正式模型 lgbm_onehot",
     )
     args = ap.parse_args(argv)
 
-    out = generate(use_history=not args.no_history, model=args.model)
+    out = generate(model=args.model)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     out.to_csv(args.out, index=False)
     size_mib = os.path.getsize(args.out) / config.MIB
     print(f"\n已写出 {args.out}")
     print(f"  行数 {len(out)}  大小 {size_mib:.3f} MiB（上限 5 MiB）")
     print("\n请运行校验器确认格式：")
-    print("  .venv/bin/python submission/src/validate_submission.py --part A1 -v")
+    print("  python -m src.scripts.check_submission")
     return 0
 
 

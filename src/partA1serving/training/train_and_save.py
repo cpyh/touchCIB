@@ -9,14 +9,15 @@
            从数据源头切断"看到未来标签"的可能。
            默认 as-of 基准日 = 2026-01-31。
 
-  full —— 使用全部 50000 条。仅用于生成提交物 partA_prediction.csv。
+  full —— 使用全部 50000 条。用于正式 A1/A2 提交物与平台推理；
+           已见过训练期标签，不可用于现场回放自评。
            默认 as-of 基准日 = 2026-03-26。
 
 与 predict.py 的关系
 ---------------------
-`predict.py` 内部自行做全量训练并直接产出 CSV，不读取本脚本的产物；
-两者共用 `build_pipeline`，模型结构完全一致。本脚本产出的 full 模型
-用于让在线服务也能复现提交口径（测试会校验两者概率一致）。
+`predict.py`、A2 正式导出和 Flask 在线服务都会加载本脚本保存的模型产物，
+不再各自训练另一套模型。正式复现时先训练 full，再依次导出 A1/A2，即可保证
+模型、特征列顺序、平滑先验和 as-of 历史索引完全一致。
 
 用法
 ----
@@ -152,7 +153,7 @@ def train_full(
     feat_cols = get_all_feature_columns(True)
 
     print("\n" + "-" * 66)
-    print(f"[profile=full | model={model_name}] 全量训练（仅用于生成提交物）")
+    print(f"[profile=full | model={model_name}] 全量训练（正式提交与平台推理）")
     print("-" * 66)
     print(f"  训练集: {len(contacts):>6} 条  {_fmt_range(contacts)}  正例率 {prior:.6f}")
     print(f"  as-of 默认基准日 = {as_of}")
