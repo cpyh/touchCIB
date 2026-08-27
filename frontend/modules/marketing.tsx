@@ -422,6 +422,11 @@ export function MarketingPage({
       setTaskPage(page);
       setTaskStatus(status);
       setTaskCohort(cohort);
+      // 默认展开队列首位（已按机会分排序），避免中栏与右栏同时停留在空状态。
+      if (!strategyCustomerId && !initialCustomerId) {
+        const firstReady = data.tasks.find((task) => task.strategy_ready);
+        if (firstReady) void loadStrategies(firstReady.customer_id, undefined, firstReady);
+      }
     } catch (error) {
       if (requestId === taskRequestId.current) {
         notify(`营销任务加载失败：${(error as Error).message}`);
@@ -1117,15 +1122,15 @@ export function MarketingPage({
           )}
         </section>
 
+        {selectedStrategy && (
         <aside className="action-pane">
           <header>
-            <div><small>下一步行动</small><h2>{selectedStrategy?.status ?? "等待选择任务"}</h2></div>
-            {selectedStrategy && <Status warn={selectedStrategy.status === "待执行"}>{selectedStrategy.status}</Status>}
+            <div><small>下一步行动</small><h2>{selectedStrategy.status}</h2></div>
+            <Status warn={selectedStrategy.status === "待执行"}>{selectedStrategy.status}</Status>
           </header>
 
-          {selectedStrategy && (
-            <>
-              <div className="action-strategy-summary">
+          <>
+            <div className="action-strategy-summary">
                 <b>TOP {selectedStrategy.rank}</b>
                 <span><strong>{selectedStrategy.product_name}</strong><small>{channelNames[selectedStrategy.recommended_channel]} · {selectedStrategy.recommended_time}</small></span>
               </div>
@@ -1234,15 +1239,8 @@ export function MarketingPage({
                 <em>{lastSimulation?.kpi_delta.manager_conversion ? "本次归因 +1" : eventServiceAvailable ? `完成率 ${percent((managerKpi?.actual ?? 0) / (managerKpi?.target ?? 30), 0)}` : "事件服务暂不可用"}</em>
               </div>
             </>
-          )}
-          {!selectedStrategy && (
-            <div className="action-empty">
-              <i>1</i>
-              <b>先选择客户与策略</b>
-              <p>左侧选择客户，中间确认 Top3 推荐后，这里会给出唯一的下一步行动。</p>
-            </div>
-          )}
         </aside>
+        )}
       </div>
 
       {drawer && (

@@ -82,12 +82,12 @@
 .optimize-button { min-height: 44px; margin-top: 4px; }
 .solver-note { margin: 7px 0 0; color: #8a98a3; font-size: 8px; line-height: 1.45; text-align: center; }
 
-.portfolio-result-area { height: 100%; min-height: 0; display: grid; min-width: 0; overflow: hidden; }
-.optimization-placeholder { height: 100%; min-height: 0; display: grid; place-items: center; align-content: center; padding: 30px; overflow: hidden; text-align: center; background: radial-gradient(circle at 50% 38%, #edf4f9, transparent 32%), #fff; }
-.formula-mark { width: 115px; height: 115px; display: grid; place-items: center; border: 1px solid #d8e4ec; border-radius: 50%; background: #f8fbfd; color: var(--navy2); font: 600 18px Georgia, serif; box-shadow: 0 0 0 11px rgba(233,241,247,.65); }
-.optimization-placeholder h2 { margin: 22px 0 8px; color: var(--navy); font-size: 18px; }
+.portfolio-result-area { height: 100%; min-height: 0; display: grid; align-content: start; min-width: 0; overflow: hidden; }
+.optimization-placeholder { height: auto; min-height: 0; display: grid; place-items: center; align-content: center; padding: 26px 30px; overflow: hidden; text-align: center; background: radial-gradient(circle at 50% 38%, #edf4f9, transparent 32%), #fff; }
+.formula-mark { width: 62px; height: 62px; display: grid; place-items: center; border: 1px solid #d8e4ec; border-radius: 50%; background: #f8fbfd; color: var(--navy2); font: 600 12px Georgia, serif; box-shadow: 0 0 0 6px rgba(233,241,247,.65); }
+.optimization-placeholder h2 { margin: 14px 0 6px; color: var(--navy); font-size: 16px; }
 .optimization-placeholder p { max-width: 520px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
-.optimization-placeholder>div:last-child { display: flex; align-items: center; gap: 9px; margin-top: 22px; color: #738594; font-size: 10px; }
+.optimization-placeholder>div:last-child { display: flex; align-items: center; gap: 9px; margin-top: 14px; color: #738594; font-size: 10px; }
 .optimization-placeholder>div:last-child span { color: var(--gold); font-size: 17px; font-weight: 700; }
 .optimization-placeholder>div:last-child i { width: 1px; height: 18px; background: #d7e0e7; }
 
@@ -176,7 +176,8 @@
   .page-portfolio + footer { display: block; }
   .investment-workbench { grid-template-columns: 1fr; }
   .constraint-panel { height: auto; overflow: visible; }
-  .portfolio-result-area, .portfolio-overview, .optimization-placeholder { height: auto; min-height: 520px; }
+  .portfolio-result-area, .portfolio-overview { height: auto; min-height: 520px; }
+  .optimization-placeholder { height: auto; min-height: 0; }
   .result-view { overflow: visible; }
   .detail-view { height: auto; overflow: visible; }
   .allocation-table { flex: none; height: auto; max-height: 420px; }
@@ -219,7 +220,7 @@
   .portfolio-ai-brief .status { grid-column: 1/-1; width: max-content; }
   .portfolio-ai-mark { width: 40px; height: 40px; }
   .portfolio-ai-evidence,.portfolio-ai-trace { grid-template-columns: 1fr; }
-  .optimization-placeholder { min-height: 430px; padding: 30px 18px; }
+  .optimization-placeholder { min-height: 0; padding: 24px 18px; }
 }
 
 /* 客户闭环条：投顾配置缺口 → 营销触达 */
