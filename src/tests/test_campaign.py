@@ -90,16 +90,22 @@ class CampaignEventTestCase(unittest.TestCase):
             fetchall_results=[],
         )
         mock_db.return_value = connection
-        event = create_sent_event(self.strategy_id)
+        event = create_sent_event(
+            self.strategy_id, occurred_at=datetime(2026, 4, 15, 10, 0)
+        )
         self.assertEqual(event["event_type"], "sent")
         self.assertTrue(connection.commit.called)
 
     @patch("src.campaign.database_connection")
     def test_sent_event_invalid_strategy_id(self, mock_db):
         with self.assertRaises(CampaignInputError):
-            create_sent_event("bad-format")
+            create_sent_event(
+                "bad-format", occurred_at=datetime(2026, 4, 15, 10, 0)
+            )
         with self.assertRaises(CampaignInputError):
-            create_sent_event("C999999:1")
+            create_sent_event(
+                "C999999:1", occurred_at=datetime(2026, 4, 15, 10, 0)
+            )
         mock_db.assert_not_called()
 
     @patch("src.campaign.database_connection")
@@ -119,7 +125,9 @@ class CampaignEventTestCase(unittest.TestCase):
         )
         mock_db.return_value = connection
         with self.assertRaises(CampaignInputError) as ctx:
-            create_sent_event(self.strategy_id)
+            create_sent_event(
+                self.strategy_id, occurred_at=datetime(2026, 4, 15, 10, 0)
+            )
         self.assertIn("只触达一次", str(ctx.exception))
 
     @patch("src.campaign.database_connection")
