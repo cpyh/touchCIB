@@ -98,7 +98,7 @@ class CustomerBehavior:
 
 @dataclass(frozen=True)
 class ChannelDecision:
-    """单客户当日执行渠道决策；由最新画像动态计算，不跨日持久化。"""
+    """单客户当日执行渠道决策；由日批画像计算并固化为当日快照。"""
 
     customer_id: str
     assigned_channel: str

@@ -1,7 +1,7 @@
-"""每日动态经理池与画像渠道策略。
+"""经理池日批与画像渠道策略。
 
 该模块只依赖业务实体，不依赖模型或数据库，因此正式日批、单客试算和纯内存
-策略组件可以复用同一套渠道决策。经理池结果是当日派生数据，不在这里持久化。
+策略组件可以复用同一套渠道决策。正式经理池由日批计算并写入 ADS 当日快照。
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ def allocate_manager_customers(
     strategies_per_customer: int = 3,
     behaviors: Mapping[str, CustomerBehavior] | None = None,
 ) -> set[str]:
-    """根据当日最新画像动态选出经理候选池。"""
+    """根据日批截至时点的最新画像选出经理候选池。"""
     size = resolve_manager_pool_size(
         manager_pool_size, manager_quota, strategies_per_customer
     )

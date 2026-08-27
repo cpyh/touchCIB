@@ -238,14 +238,14 @@ def _check_channel_manager_quota(ctx: RuleContext) -> RuleOutcome:
             return RuleOutcome(
                 "channel_manager_quota",
                 False,
-                "客户未进入当日动态经理池，不能使用 manager 渠道",
+                "客户未进入当日经理池快照，不能使用 manager 渠道",
             )
         rank = ctx.get("manager_priority_rank")
         size = ctx.get("manager_pool_size")
         return RuleOutcome(
             "channel_manager_quota",
             True,
-            f"客户位于当日动态经理池第 {rank}/{size} 位",
+            f"客户位于当日经理池快照第 {rank}/{size} 位",
         )
     return RuleOutcome(
         "channel_manager_quota", True, "非 manager 渠道，不占用经理池容量"
@@ -388,7 +388,7 @@ RULES = [
     ),
     _rule(
         "channel_manager_quota",
-        "当日动态经理池",
+        "当日经理池快照",
         "channel",
         "仅当日高价值客户池成员可使用 manager 渠道",
         _check_channel_manager_quota,

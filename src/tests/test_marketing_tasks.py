@@ -75,9 +75,9 @@ class MarketingTasksTestCase(unittest.TestCase):
     def test_status_filter_and_counts(self, _mock_rows):
         result = query_marketing_tasks(status="follow_up", size=10)
 
-        self.assertEqual(result["counts"]["all"], 3)
+        self.assertEqual(result["counts"]["all"], 1)
         self.assertEqual(result["counts"]["follow_up"], 1)
-        self.assertEqual(result["counts"]["converted"], 1)
+        self.assertEqual(result["counts"]["converted"], 0)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["tasks"][0]["customer_id"], "C000001")
 
@@ -85,10 +85,13 @@ class MarketingTasksTestCase(unittest.TestCase):
         "src.marketing.tasks._latest_business_rows",
         return_value=(business_rows(), "2026-04-15", 3, 3),
     )
-    def test_all_customers_use_batch_strategy_source(self, _mock_rows):
+    def test_scaled_workspace_excludes_manager_pool(self, _mock_rows):
         result = query_marketing_tasks(status="all", size=10)
         self.assertEqual(result["population_total"], 3)
         self.assertEqual(result["strategy_ready_customers"], 3)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["tasks"][0]["customer_id"], "C000001")
+        self.assertFalse(result["tasks"][0]["manager_pool"])
         self.assertTrue(all(task["strategy_ready"] for task in result["tasks"]))
         self.assertTrue(
             all(task["strategy_source"] == "batch_generated" for task in result["tasks"])

@@ -89,10 +89,11 @@
 - `opportunity_score` 是该客户在 A1 触达集中的最高机会分，不是Top3产品概率；产品级复核调用 `/marketing/response/predict`
 - 主队列固定覆盖 `dwd_dim_customer` 的全量客户，按 A1 最高响应概率降序展示
 - A1/A2 日批对全量客户生成结果；页面只读 ADS，不在请求时临时生成策略
+- `workspace=all` 返回规模化触达池，仅包含 App、电话和短信；经理池客户不会重复出现。
 - `workspace=manager` 进入经理 VIP 通道；`manager_view=today|pool` 分别返回未联系池内
   前 12 位或全部未联系候选。`status=follow_up|converted` 返回经理池对应状态。
-- “今日任务”是查询时从未联系经理池动态派生的视图；完成 `sent` 后下一位补入，
-  未处理客户不写超时状态，次日随最新预测重新排序。
+- 经理池成员来自当日日批 ADS 快照，页面不实时重算成员；“今日任务”只从该快照
+  的未联系客户中取前 12 位。完成 `sent` 后下一位补入，次日日批再生成新快照。
 
 ## 3a. GET /marketing/roster?page=1&size=50&sort=prob_desc
 

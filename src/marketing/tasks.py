@@ -178,13 +178,6 @@ def query_marketing_tasks(
             str(row["customer_id"]),
         )
     )
-    counts = {
-        value: sum(row["status"] == value for row in rows)
-        for value in STATUS_VALUES
-        if value != "all"
-    }
-    counts["all"] = len(rows)
-
     manager_rows = [
         row for row in rows if row.get("recommended_channel") == "manager"
     ]
@@ -209,6 +202,13 @@ def query_marketing_tasks(
     }
 
     if workspace == "manager":
+        workspace_rows = manager_rows
+        counts = {
+            value: sum(row["status"] == value for row in workspace_rows)
+            for value in STATUS_VALUES
+            if value != "all"
+        }
+        counts["all"] = len(workspace_rows)
         if status == "pending":
             rows = (
                 manager_pending_rows[:manager_daily_capacity]
@@ -219,8 +219,21 @@ def query_marketing_tasks(
             rows = manager_rows
         else:
             rows = [row for row in manager_rows if row["status"] == status]
-    elif status != "all":
-        rows = [row for row in rows if row["status"] == status]
+    else:
+        workspace_rows = [
+            row for row in rows if row.get("recommended_channel") != "manager"
+        ]
+        counts = {
+            value: sum(row["status"] == value for row in workspace_rows)
+            for value in STATUS_VALUES
+            if value != "all"
+        }
+        counts["all"] = len(workspace_rows)
+        rows = (
+            workspace_rows
+            if status == "all"
+            else [row for row in workspace_rows if row["status"] == status]
+        )
     if keyword and keyword.strip():
         term = keyword.strip().lower()
         rows = [

@@ -59,7 +59,7 @@ const ruleNames: Record<string, string> = {
   min_invest_affordable: "起投金额留痕",
   channel_app_requires_app: "App渠道资格",
   channel_call_complaint_block: "投诉与外呼限制",
-  channel_manager_quota: "当日动态经理池",
+  channel_manager_quota: "当日经理池快照",
   channel_manager_eligible: "经理池资格",
   slot_in_enum: "联系时段合规",
   script_length: "话术长度检查",
@@ -311,7 +311,6 @@ export function MarketingPage({
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskPopulation, setTaskPopulation] = useState(8000);
   const [strategyReadyCount, setStrategyReadyCount] = useState(0);
-  const [modelCoveredCustomers, setModelCoveredCustomers] = useState(0);
   const taskSearchTimer = useRef<number | null>(null);
   const taskRequestId = useRef(0);
   const rosterRequestId = useRef(0);
@@ -463,7 +462,6 @@ export function MarketingPage({
       setManagerSummary(data.manager_summary);
       setTaskPopulation(data.population_total);
       setStrategyReadyCount(data.strategy_ready_customers);
-      setModelCoveredCustomers(data.model_covered_customers);
       setTaskPage(page);
       setTaskStatus(status);
       setTaskCohort(cohort);
@@ -884,16 +882,16 @@ export function MarketingPage({
         <div className="manager-kpis">
           {workspaceMode === "manager" ? (
             <>
-              <div><small>高价值经理池</small><strong>{formatNumber(managerSummary.pool_total)}</strong><span>每日随最新画像动态重算</span></div>
+              <div><small>高价值经理池</small><strong>{formatNumber(managerSummary.pool_total)}</strong><span>由当日日批快照确定</span></div>
               <div><small>今日任务</small><strong>{formatNumber(managerSummary.today_count)}<i>/ {formatNumber(managerSummary.daily_capacity)}</i></strong><span>按机会分滚动补位</span></div>
               <div><small>等待回流</small><strong>{formatNumber(managerSummary.follow_up)}</strong><span>已联系，等待购买回流</span></div>
               <div className="target"><small>经理池已转化</small><strong>{formatNumber(managerSummary.converted)}</strong><span>购买事实自动归因</span></div>
             </>
           ) : (
             <>
-              <div><small>客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>覆盖全部可运营客户</span></div>
-              <div><small>高机会覆盖</small><strong>{formatNumber(modelCoveredCustomers)}</strong><span>A1 已完成机会评分</span></div>
-              <div><small>已转化</small><strong>{eventServiceAvailable ? formatNumber(summary?.events.responded_customers ?? summary?.events.responded) : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
+              <div><small>全局客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>全部可运营客户</span></div>
+              <div><small>规模化触达池</small><strong>{formatNumber(taskCounts.all)}</strong><span>不含经理 VIP 客户</span></div>
+              <div><small>规模化已转化</small><strong>{eventServiceAvailable ? formatNumber(taskCounts.converted) : "—"}</strong><span>{eventServiceAvailable ? "App、电话、短信归因" : "事件服务暂不可用"}</span></div>
               <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>数仓策略已就绪 {formatNumber(strategyReadyCount)} 人</span></div>
             </>
           )}
@@ -910,17 +908,17 @@ export function MarketingPage({
 
       <nav className="marketing-workspace-mode" aria-label="营销工作台模式">
         <button className={workspaceMode === "all" ? "on" : ""} onClick={() => changeWorkspace("all")}>
-          <b>全渠道运营</b><span>覆盖 App、电话、短信与经理渠道</span>
+          <b>规模化触达</b><span>App、电话、短信 · 排除经理池</span>
         </button>
         <button className={workspaceMode === "manager" ? "on" : ""} onClick={() => changeWorkspace("manager")}>
-          <b>经理 VIP 通道</b><span>Top200 动态池 · 今日最多 12 人</span>
+          <b>经理 VIP 通道</b><span>Top200 日批快照 · 今日最多 12 人</span>
         </button>
       </nav>
 
       <div className="manager-workspace">
         <aside className="task-pane">
           <header>
-            <div><small>{workspaceMode === "manager" ? "高价值专属通道" : "客户机会"}</small><h2>{workspaceMode === "manager" ? "客户经理渠道池" : "全量客户队列"}</h2></div>
+            <div><small>{workspaceMode === "manager" ? "高价值专属通道" : "规模化运营通道"}</small><h2>{workspaceMode === "manager" ? "客户经理渠道池" : "规模化触达队列"}</h2></div>
             <Status>{taskLoading ? "更新中" : `${formatNumber(taskTotal)} 人`}</Status>
           </header>
           {workspaceMode === "manager" ? (
@@ -937,7 +935,6 @@ export function MarketingPage({
                   </button>
                 ))}
               </nav>
-              <div className="manager-pool-note"><b>每日动态重算</b><span>未处理客户次日随新预测继续入池并重新排序，不做超时释放。</span></div>
             </>
           ) : (
             <>

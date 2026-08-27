@@ -218,7 +218,7 @@ class MarketingRulesTestCase(unittest.TestCase):
             self.base_context(channel="manager", manager_pool_member=False),
         )
         self.assertFalse(blocked.passed)
-        self.assertIn("未进入当日动态经理池", blocked.reason)
+        self.assertIn("未进入当日经理池快照", blocked.reason)
         ok = self.engine.evaluate(
             "channel_manager_quota",
             self.base_context(
