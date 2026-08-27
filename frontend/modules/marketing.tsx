@@ -7,6 +7,9 @@ import { channelNames, Status } from "../shared/ui";
 import { formatNumber, formatTime, metric, money, percent } from "../shared/format";
 
 type TaskStatus = "all" | "pending" | "follow_up" | "converted";
+type WorkspaceMode = "all" | "manager";
+type ManagerView = "today" | "pool";
+type ManagerTab = ManagerView | "follow_up" | "converted";
 type StrategyDetailTab = "why" | "compliance" | "script";
 type DrillLayer = "a1" | "a2" | "strategy";
 type ActionTab = "progress" | "attribution" | "lineage";
@@ -56,8 +59,8 @@ const ruleNames: Record<string, string> = {
   min_invest_affordable: "起投金额留痕",
   channel_app_requires_app: "App渠道资格",
   channel_call_complaint_block: "投诉与外呼限制",
-  channel_manager_quota: "客户经理渠道不限额",
-  channel_manager_eligible: "客户经理渠道无资格限制",
+  channel_manager_quota: "当日动态经理池",
+  channel_manager_eligible: "经理池资格",
   slot_in_enum: "联系时段合规",
   script_length: "话术长度检查",
   script_compliance_note: "风险提示完整",
@@ -88,6 +91,9 @@ interface MarketingTask {
   opportunity_product_name: string | null;
   opportunity_channel: string | null;
   opportunity_date: string | null;
+  manager_pool: boolean;
+  manager_pool_rank: number | null;
+  manager_today: boolean;
 }
 
 interface RosterRow {
@@ -195,7 +201,15 @@ interface GeneratedResult {
   customer_id: string;
   strategy_date: string;
   parameters: {
-    manager_quota: number;
+    manager_pool_size: number;
+    manager_pool_effective: boolean;
+    manager_daily_capacity: number;
+    manager_eligible: boolean;
+    manager_pool_member: boolean;
+    manager_priority_score: number;
+    manager_priority_rank: number | null;
+    assigned_channel: string;
+    channel_reason: string;
     top_n: number;
     disabled_constraints: ToggleableConstraint[];
     constraints: Record<ToggleableConstraint, boolean>;
@@ -207,6 +221,15 @@ interface GeneratedResult {
     a1_source?: string;
   };
   items: GeneratedItem[];
+}
+
+interface ManagerSummary {
+  pool_total: number;
+  pending: number;
+  today_count: number;
+  follow_up: number;
+  converted: number;
+  daily_capacity: number;
 }
 
 interface MarketingSummary {
@@ -271,6 +294,17 @@ export function MarketingPage({
   });
   const [taskStatus, setTaskStatus] = useState<TaskStatus>("all");
   const [taskCohort, setTaskCohort] = useState<"all" | "expiry">("all");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("all");
+  const [managerView, setManagerView] = useState<ManagerView>("today");
+  const [managerTab, setManagerTab] = useState<ManagerTab>("today");
+  const [managerSummary, setManagerSummary] = useState<ManagerSummary>({
+    pool_total: 0,
+    pending: 0,
+    today_count: 0,
+    follow_up: 0,
+    converted: 0,
+    daily_capacity: 12,
+  });
   const [taskPage, setTaskPage] = useState(1);
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskQuery, setTaskQuery] = useState("");
@@ -323,6 +357,8 @@ export function MarketingPage({
 
   const [generated, setGenerated] = useState<GeneratedResult | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [labManagerPoolSize, setLabManagerPoolSize] = useState(200);
+  const [labManagerDailyCapacity, setLabManagerDailyCapacity] = useState(12);
   const [constraintEnabled, setConstraintEnabled] = useState<
     Record<ToggleableConstraint, boolean>
   >({
@@ -383,6 +419,8 @@ export function MarketingPage({
     status: TaskStatus = taskStatus,
     keyword: string = taskQuery,
     cohort: "all" | "expiry" = taskCohort,
+    workspace: WorkspaceMode = workspaceMode,
+    nextManagerView: ManagerView = managerView,
   ) {
     const requestId = ++taskRequestId.current;
     setTaskLoading(true);
@@ -392,6 +430,9 @@ export function MarketingPage({
         size: String(TASK_PAGE_SIZE),
         status,
         cohort,
+        workspace,
+        manager_view: nextManagerView,
+        manager_daily_capacity: String(managerSummary.daily_capacity),
         business_date: businessDate,
       });
       if (keyword.trim()) params.set("keyword", keyword.trim());
@@ -401,6 +442,7 @@ export function MarketingPage({
         strategy_ready_customers: number;
         model_covered_customers: number;
         counts: Record<TaskStatus, number>;
+        manager_summary: ManagerSummary;
         tasks: MarketingTask[];
       }>(`/marketing/tasks?${params.toString()}`);
       if (requestId !== taskRequestId.current) return;
@@ -410,18 +452,23 @@ export function MarketingPage({
           status,
           keyword,
           cohort,
+          workspace,
+          nextManagerView,
         );
         return;
       }
       setTasks(data.tasks);
       setTaskTotal(data.total);
       setTaskCounts(data.counts);
+      setManagerSummary(data.manager_summary);
       setTaskPopulation(data.population_total);
       setStrategyReadyCount(data.strategy_ready_customers);
       setModelCoveredCustomers(data.model_covered_customers);
       setTaskPage(page);
       setTaskStatus(status);
       setTaskCohort(cohort);
+      setWorkspaceMode(workspace);
+      setManagerView(nextManagerView);
     } catch (error) {
       if (requestId === taskRequestId.current) {
         notify(`营销任务加载失败：${(error as Error).message}`);
@@ -440,6 +487,26 @@ export function MarketingPage({
   function changeTaskCohort(cohort: "all" | "expiry") {
     setTaskCohort(cohort);
     void loadTasks(1, taskStatus, taskQuery, cohort);
+  }
+
+  function changeWorkspace(mode: WorkspaceMode) {
+    if (taskSearchTimer.current) window.clearTimeout(taskSearchTimer.current);
+    const nextStatus: TaskStatus = mode === "manager" ? "pending" : "all";
+    setWorkspaceMode(mode);
+    setTaskStatus(nextStatus);
+    setTaskCohort("all");
+    setManagerTab("today");
+    setManagerView("today");
+    void loadTasks(1, nextStatus, taskQuery, "all", mode, "today");
+  }
+
+  function changeManagerTab(tab: ManagerTab) {
+    const nextStatus: TaskStatus = tab === "today" || tab === "pool" ? "pending" : tab;
+    const nextView: ManagerView = tab === "pool" ? "pool" : "today";
+    setManagerTab(tab);
+    setTaskStatus(nextStatus);
+    setManagerView(nextView);
+    void loadTasks(1, nextStatus, taskQuery, "all", "manager", nextView);
   }
 
   function changeTaskQuery(value: string) {
@@ -725,6 +792,8 @@ export function MarketingPage({
         body: JSON.stringify({
           customer_id: strategyCustomerId,
           business_date: businessDate,
+          manager_pool_size: labManagerPoolSize,
+          manager_daily_capacity: labManagerDailyCapacity,
           disabled_constraints: constraintOptions
             .filter((option) => !constraintEnabled[option.id])
             .map((option) => option.id),
@@ -748,6 +817,13 @@ export function MarketingPage({
     setGenerating(false);
     setGenerated(null);
     setConstraintEnabled((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function changeLabCapacity(kind: "pool" | "daily", value: number) {
+    generationRequestId.current += 1;
+    setGenerated(null);
+    if (kind === "pool") setLabManagerPoolSize(Math.max(0, Math.min(8000, value)));
+    else setLabManagerDailyCapacity(Math.max(1, Math.min(100, value)));
   }
 
   const selectedStrategy =
@@ -806,10 +882,21 @@ export function MarketingPage({
           <p>优先处理高机会客户，完成策略选择、客户触达与转化追踪。</p>
         </div>
         <div className="manager-kpis">
-          <div><small>客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>覆盖全部可运营客户</span></div>
-          <div><small>高机会覆盖</small><strong>{formatNumber(modelCoveredCustomers)}</strong><span>A1 已完成机会评分</span></div>
-          <div><small>已转化</small><strong>{eventServiceAvailable ? formatNumber(summary?.events.responded_customers ?? summary?.events.responded) : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
-          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>数仓策略已就绪 {formatNumber(strategyReadyCount)} 人</span></div>
+          {workspaceMode === "manager" ? (
+            <>
+              <div><small>高价值经理池</small><strong>{formatNumber(managerSummary.pool_total)}</strong><span>每日随最新画像动态重算</span></div>
+              <div><small>今日任务</small><strong>{formatNumber(managerSummary.today_count)}<i>/ {formatNumber(managerSummary.daily_capacity)}</i></strong><span>按机会分滚动补位</span></div>
+              <div><small>等待回流</small><strong>{formatNumber(managerSummary.follow_up)}</strong><span>已联系，等待购买回流</span></div>
+              <div className="target"><small>经理池已转化</small><strong>{formatNumber(managerSummary.converted)}</strong><span>购买事实自动归因</span></div>
+            </>
+          ) : (
+            <>
+              <div><small>客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>覆盖全部可运营客户</span></div>
+              <div><small>高机会覆盖</small><strong>{formatNumber(modelCoveredCustomers)}</strong><span>A1 已完成机会评分</span></div>
+              <div><small>已转化</small><strong>{eventServiceAvailable ? formatNumber(summary?.events.responded_customers ?? summary?.events.responded) : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
+              <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>数仓策略已就绪 {formatNumber(strategyReadyCount)} 人</span></div>
+            </>
+          )}
         </div>
         <div className="manager-head-actions">
           <button onClick={openOpportunityPool}><b>机会客户池</b><i>›</i></button>
@@ -821,38 +908,52 @@ export function MarketingPage({
       </header>
       {historical && <div className="historical-snapshot-note"><b>{businessDate} 历史快照</b><span>客户、机会和策略均按该日口径展示；触达、归因和实时策略操作已锁定。</span></div>}
 
+      <nav className="marketing-workspace-mode" aria-label="营销工作台模式">
+        <button className={workspaceMode === "all" ? "on" : ""} onClick={() => changeWorkspace("all")}>
+          <b>全渠道运营</b><span>覆盖 App、电话、短信与经理渠道</span>
+        </button>
+        <button className={workspaceMode === "manager" ? "on" : ""} onClick={() => changeWorkspace("manager")}>
+          <b>经理 VIP 通道</b><span>Top200 动态池 · 今日最多 12 人</span>
+        </button>
+      </nav>
+
       <div className="manager-workspace">
         <aside className="task-pane">
           <header>
-            <div><small>客户机会</small><h2>全量客户队列</h2></div>
+            <div><small>{workspaceMode === "manager" ? "高价值专属通道" : "客户机会"}</small><h2>{workspaceMode === "manager" ? "客户经理渠道池" : "全量客户队列"}</h2></div>
             <Status>{taskLoading ? "更新中" : `${formatNumber(taskTotal)} 人`}</Status>
           </header>
-          <nav className="task-status-tabs">
-            {(Object.keys(taskStatusNames) as TaskStatus[]).map((status) => (
-              <button
-                className={taskStatus === status ? "on" : ""}
-                key={status}
-                onClick={() => changeTaskStatus(status)}
-              >
-                <span>{taskStatusNames[status]}</span>
-                <b>{formatNumber(taskCounts[status])}</b>
-              </button>
-            ))}
-          </nav>
-          <div className="task-cohort">
-            <button
-              className={taskCohort === "all" ? "on" : ""}
-              onClick={() => changeTaskCohort("all")}
-            >
-              全部客户
-            </button>
-            <button
-              className={taskCohort === "expiry" ? "on" : ""}
-              onClick={() => changeTaskCohort("expiry")}
-            >
-              到期跟进
-            </button>
-          </div>
+          {workspaceMode === "manager" ? (
+            <>
+              <nav className="task-status-tabs manager-tabs">
+                {([
+                  ["today", "今日任务", managerSummary.today_count],
+                  ["pool", "候选池", managerSummary.pending],
+                  ["follow_up", "等待回流", managerSummary.follow_up],
+                  ["converted", "已转化", managerSummary.converted],
+                ] as Array<[ManagerTab, string, number]>).map(([tab, label, count]) => (
+                  <button className={managerTab === tab ? "on" : ""} key={tab} onClick={() => changeManagerTab(tab)}>
+                    <span>{label}</span><b>{formatNumber(count)}</b>
+                  </button>
+                ))}
+              </nav>
+              <div className="manager-pool-note"><b>每日动态重算</b><span>未处理客户次日随新预测继续入池并重新排序，不做超时释放。</span></div>
+            </>
+          ) : (
+            <>
+              <nav className="task-status-tabs">
+                {(Object.keys(taskStatusNames) as TaskStatus[]).map((status) => (
+                  <button className={taskStatus === status ? "on" : ""} key={status} onClick={() => changeTaskStatus(status)}>
+                    <span>{taskStatusNames[status]}</span><b>{formatNumber(taskCounts[status])}</b>
+                  </button>
+                ))}
+              </nav>
+              <div className="task-cohort">
+                <button className={taskCohort === "all" ? "on" : ""} onClick={() => changeTaskCohort("all")}>全部客户</button>
+                <button className={taskCohort === "expiry" ? "on" : ""} onClick={() => changeTaskCohort("expiry")}>到期跟进</button>
+              </div>
+            </>
+          )}
           <div className="task-search">
             <input
               aria-label="搜索营销任务"
@@ -863,8 +964,8 @@ export function MarketingPage({
           </div>
           <div className="task-list">
             {tasks.map((task) => {
-              const opportunityChannel = task.opportunity_channel
-                ? channelNames[task.opportunity_channel]
+              const executionChannel = task.recommended_channel
+                ? channelNames[task.recommended_channel]
                 : "暂无A1触达";
               return (
                 <button
@@ -877,6 +978,8 @@ export function MarketingPage({
                     <b>{task.customer_id}</b>
                     <span className="task-card-badges">
                       {task.strategy_ready && <em className="ready">Top3就绪</em>}
+                      {task.manager_today && <em className="manager-today">今日</em>}
+                      {task.manager_pool && !task.manager_today && <em className="manager-pool">经理池</em>}
                       {!task.strategy_ready && <em className="a2">待跑批</em>}
                       <em className={task.status}>{taskStatusNames[task.status]}</em>
                     </span>
@@ -891,7 +994,7 @@ export function MarketingPage({
                       <small>{task.opportunity_score == null ? "日批" : "机会分"}</small>
                     </em>
                   </span>
-                  <small className="task-card-meta">{task.vip_level} · {task.risk_appetite} · {opportunityChannel}</small>
+                  <small className="task-card-meta">{task.vip_level} · {task.risk_appetite} · {executionChannel}{task.manager_pool_rank ? ` · 池内 #${task.manager_pool_rank}` : ""}</small>
                   <span className="task-signal">
                     <i><b style={{ width: `${(task.opportunity_score ?? 0) * 100}%` }} /></i>
                     <em>{task.opportunity_score == null ? "等待策略批处理覆盖" : "A1 客户最高机会"}</em>
@@ -1313,6 +1416,10 @@ export function MarketingPage({
             {drawer === "lab" && (
               <div className="lab-drawer-body">
                 <div className="lab-controls">
+                  <div className="lab-policy-config">
+                    <label><span>经理候选池规模</span><input type="number" min="0" max="8000" value={labManagerPoolSize} onChange={(event) => changeLabCapacity("pool", Number(event.target.value))} /><small>决定哪些客户使用 manager</small></label>
+                    <label><span>经理每日处理容量</span><input type="number" min="1" max="100" value={labManagerDailyCapacity} onChange={(event) => changeLabCapacity("daily", Number(event.target.value))} /><small>只影响工作台今日任务数</small></label>
+                  </div>
                   <div className="lab-constraint-list">
                     {constraintOptions.map((option) => (
                       <label className="lab-constraint" key={option.id}>
@@ -1341,6 +1448,12 @@ export function MarketingPage({
                           : "全部约束生效"}
                       </Status>
                     </header>
+                    <div className="lab-manager-decision">
+                      <span><small>经理池结果</small><b>{generated.parameters.manager_pool_member ? `已入池 #${generated.parameters.manager_priority_rank}` : "未入池"}</b></span>
+                      <i>→</i>
+                      <span><small>本次执行渠道</small><b>{channelNames[generated.parameters.assigned_channel] ?? generated.parameters.assigned_channel}</b></span>
+                      <em>试算参数：候选池 {generated.parameters.manager_pool_size} 人、日容量 {generated.parameters.manager_daily_capacity} 人。{generated.parameters.channel_reason}</em>
+                    </div>
                     <div className="lab-channel-space">
                       <b>正式候选</b>
                       <span>{generated.parameters.baseline_channels.map((channel) => (
@@ -1367,7 +1480,7 @@ export function MarketingPage({
                         ? "候选空间已经变化，但新增候选的 A1 概率不足以进入 Top3；这同样说明最终结果由模型排序决定。"
                         : "本次约束配置没有改变候选空间，Top3 与正式日批一致。"} 试算不写入正式 ADS。</p>
                   </div>
-                ) : <div className="lab-waiting"><b>等待运行约束试算</b><p>关闭一项约束后运行，可与正式日批 Top3 对照产品和渠道差异。</p></div>}
+                ) : <div className="lab-waiting"><b>等待运行策略试算</b><p>可调整经理池规模和每日处理容量，观察客户是否进入经理渠道；产品 Top3 仍由 A1 排名决定。</p></div>}
               </div>
             )}
           </section>

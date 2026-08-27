@@ -66,7 +66,7 @@ class _ChannelAwarePredictor(_FakePredictor):
 
 
 class MarketingBatchTestCase(unittest.TestCase):
-    def test_manager_is_open_to_all_customers_and_quota_is_ignored(self):
+    def test_manager_pool_is_limited_and_ranked_by_profile(self):
         customers = [
             Customer(
                 customer_id=f"C{index}",
@@ -83,9 +83,16 @@ class MarketingBatchTestCase(unittest.TestCase):
             for index in range(3)
         ]
 
-        allocated = allocate_manager_customers(customers, manager_quota=0)
+        allocated = allocate_manager_customers(
+            customers,
+            manager_pool_size=2,
+        )
 
-        self.assertEqual(allocated, {"C0", "C1", "C2"})
+        self.assertEqual(allocated, {"C1", "C2"})
+        self.assertEqual(
+            allocate_manager_customers(customers, manager_quota=0),
+            set(),
+        )
 
     def test_context_excludes_customers_registered_after_strategy_date(self):
         eligible = Customer(
@@ -249,7 +256,7 @@ class MarketingBatchTestCase(unittest.TestCase):
         )
         self.assertTrue(risk_rule["passed"])
 
-    def test_product_ranking_keeps_best_executable_channel(self):
+    def test_product_ranking_keeps_best_signal_but_uses_one_portrait_channel(self):
         customer = Customer(
             customer_id="C000001",
             age_group="35-44",
@@ -297,7 +304,7 @@ class MarketingBatchTestCase(unittest.TestCase):
         self.assertEqual(score_channels["P002"], "sms")
         self.assertEqual(
             [(row[4], row[5]) for row in result.strategy_rows],
-            [("P001", "call"), ("P002", "sms"), ("P003", "sms")],
+            [("P001", "call"), ("P002", "call"), ("P003", "call")],
         )
 
     def test_disabling_app_constraint_allows_app_push_into_top3(self):

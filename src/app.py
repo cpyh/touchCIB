@@ -19,7 +19,8 @@ from .marketing.generate import (
     generate_customer_strategy,
 )
 from .marketing.models import (
-    DEFAULT_MANAGER_QUOTA,
+    DEFAULT_MANAGER_DAILY_CAPACITY,
+    DEFAULT_MANAGER_POOL_SIZE,
     DEFAULT_TOP_N,
 )
 from .marketing.roster import query_roster
@@ -366,6 +367,13 @@ def marketing_tasks():
                 status=request.args.get("status", "all"),
                 keyword=request.args.get("keyword"),
                 cohort=request.args.get("cohort", "all"),
+                workspace=request.args.get("workspace", "all"),
+                manager_view=request.args.get("manager_view", "today"),
+                manager_daily_capacity=int(
+                    request.args.get(
+                        "manager_daily_capacity", DEFAULT_MANAGER_DAILY_CAPACITY
+                    )
+                ),
                 business_date=parse_business_date(request.args.get("business_date")),
             )
         )
@@ -416,7 +424,14 @@ def marketing_strategy_generate():
     if not isinstance(payload, dict):
         return jsonify(error="request body must be a JSON object"), 400
     try:
-        manager_quota = int(payload.get("manager_quota", DEFAULT_MANAGER_QUOTA))
+        manager_pool_size = int(
+            payload.get("manager_pool_size", DEFAULT_MANAGER_POOL_SIZE)
+        )
+        manager_daily_capacity = int(
+            payload.get(
+                "manager_daily_capacity", DEFAULT_MANAGER_DAILY_CAPACITY
+            )
+        )
         top_n = int(payload.get("top_n", DEFAULT_TOP_N))
         if not 1 <= top_n <= 3:
             raise ValueError("top_n must be between 1 and 3")
@@ -428,7 +443,8 @@ def marketing_strategy_generate():
         return jsonify(
             generate_customer_strategy(
                 customer_id,
-                manager_quota=manager_quota,
+                manager_pool_size=manager_pool_size,
+                manager_daily_capacity=manager_daily_capacity,
                 top_n=top_n,
                 disabled_constraints=disabled_constraints,
                 response_predictor=get_mysql_predictor(),

@@ -3,6 +3,8 @@
 from .engine import Rule, RuleEngine
 from .models import (
     CHANNELS,
+    DEFAULT_MANAGER_DAILY_CAPACITY,
+    DEFAULT_MANAGER_POOL_SIZE,
     DEFAULT_MANAGER_QUOTA,
     DEFAULT_TOP_N,
     RISK_RANK,
@@ -10,6 +12,7 @@ from .models import (
     TIME_SLOTS,
     Customer,
     CustomerBehavior,
+    ChannelDecision,
     Product,
     RuleOutcome,
     StepRecord,
@@ -30,6 +33,8 @@ __all__ = [
     "CHANNELS",
     "COMPLIANCE_NOTE",
     "DEFAULT_MANAGER_QUOTA",
+    "DEFAULT_MANAGER_POOL_SIZE",
+    "DEFAULT_MANAGER_DAILY_CAPACITY",
     "DEFAULT_TOP_N",
     "OVERSHOOT_NOTE",
     "RISK_RANK",
@@ -38,6 +43,7 @@ __all__ = [
     "TIME_SLOTS",
     "Customer",
     "CustomerBehavior",
+    "ChannelDecision",
     "Product",
     "Rule",
     "RuleEngine",

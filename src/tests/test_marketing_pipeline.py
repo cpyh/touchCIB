@@ -144,7 +144,7 @@ class MarketingPipelineTestCase(unittest.TestCase):
             all(item.recommended_channel != "call" for item in result.items)
         )
 
-    def test_manager_is_open_to_all_customers_regardless_of_qualification(self):
+    def test_manager_pool_only_contains_eligible_customers(self):
         customers = [
             make_customer("CVIP1", vip_level="金卡", aum=600_000.0),
             make_customer("CVIP2", vip_level="钻石", aum=300_000.0),
@@ -159,16 +159,16 @@ class MarketingPipelineTestCase(unittest.TestCase):
             )
             for customer in customers
         ]
-        results = self.run_pipeline(requests, manager_quota=0)
+        results = self.run_pipeline(requests, manager_pool_size=3)
         manager_customers = {
             result.customer_id
             for result in results
             for item in result.items
             if item.recommended_channel == "manager"
         }
-        self.assertEqual(manager_customers, {"CVIP1", "CVIP2", "CPLN", "CORD"})
+        self.assertEqual(manager_customers, {"CVIP1", "CVIP2", "CPLN"})
 
-    def test_manager_quota_no_longer_limits_rows(self):
+    def test_manager_pool_size_limits_customers_not_strategy_rows(self):
         customers = [
             make_customer(f"CV{i:03d}", vip_level="金卡", aum=float(i))
             for i in range(5)
@@ -181,14 +181,14 @@ class MarketingPipelineTestCase(unittest.TestCase):
             )
             for customer in customers
         ]
-        results = self.run_pipeline(requests, manager_quota=0)
+        results = self.run_pipeline(requests, manager_pool_size=2)
         manager_rows = sum(
             1
             for result in results
             for item in result.items
             if item.recommended_channel == "manager"
         )
-        self.assertEqual(manager_rows, 5)
+        self.assertEqual(manager_rows, 6)
 
     def test_model_scores_drive_ranking(self):
         customer = make_customer("CMODEL", risk_appetite="R3")

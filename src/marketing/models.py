@@ -31,10 +31,13 @@ STRATEGY_COLUMNS = (
 
 RISK_RANK = {"R1": 1, "R2": 2, "R3": 3, "R4": 4, "R5": 5}
 
-# 旧 manager 资格/配额字段仅用于接口向后兼容，推荐逻辑已不再使用。
+# 经理渠道采用“每日动态候选池 + 当日处理容量”，不维护跨日静态池状态。
 MANAGER_ELIGIBLE_VIP = ("金卡", "钻石")
 MANAGER_ELIGIBLE_AUM = 500_000.0
+# 旧配额按策略行计数（600=200位客户×3条策略），仅保留接口兼容。
 DEFAULT_MANAGER_QUOTA = 600
+DEFAULT_MANAGER_POOL_SIZE = 200
+DEFAULT_MANAGER_DAILY_CAPACITY = 12
 DEFAULT_TOP_N = 3
 
 # 风险溢出上限（所有候选统一允许上浮的最大等级数）
@@ -91,6 +94,19 @@ class CustomerBehavior:
     complaint_count_90d: int = 0
     consult_count_90d: int = 0
     login_count_30d: int = 0
+
+
+@dataclass(frozen=True)
+class ChannelDecision:
+    """单客户当日执行渠道决策；由最新画像动态计算，不跨日持久化。"""
+
+    customer_id: str
+    assigned_channel: str
+    manager_eligible: bool
+    manager_pool_member: bool
+    manager_priority_score: float
+    manager_priority_rank: int | None
+    reason: str
 
 
 @dataclass(frozen=True)

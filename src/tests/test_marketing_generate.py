@@ -104,21 +104,25 @@ class MarketingGenerateTestCase(unittest.TestCase):
         )
         self.assertEqual(result["parameters"]["a1_candidate_count"], 16)
         self.assertEqual(result["parameters"]["baseline_candidate_count"], 16)
+        self.assertTrue(result["parameters"]["manager_pool_effective"])
+        self.assertTrue(result["parameters"]["manager_pool_member"])
+        self.assertEqual(result["parameters"]["assigned_channel"], "manager")
         for item in result["items"]:
             self.assertIn("model_prob", item)
             self.assertGreater(len(item["rule_trace"]), 0)
             self.assertTrue(10 <= len(item["marketing_script"]) <= 300)
 
     @patch("src.marketing.generate.load_marketing_context", return_value=context())
-    def test_manager_quota_is_compatibility_only(self, _mock_context):
+    def test_pool_size_changes_manager_membership_and_execution_channel(self, _mock_context):
         result = generate_customer_strategy(
-            "C000010", manager_quota=0, response_predictor=FakePredictor()
+            "C000010", manager_pool_size=0, response_predictor=FakePredictor()
         )
         self.assertEqual(
             {item["recommended_channel"] for item in result["items"]},
-            {"manager"},
+            {"app_push"},
         )
-        self.assertFalse(result["parameters"]["manager_quota_effective"])
+        self.assertFalse(result["parameters"]["manager_pool_member"])
+        self.assertEqual(result["parameters"]["manager_pool_size"], 0)
 
     @patch(
         "src.marketing.generate.load_marketing_context",
