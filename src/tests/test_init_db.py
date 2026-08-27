@@ -54,17 +54,29 @@ class InitDatabaseTestCase(unittest.TestCase):
             init_db.SCHEMA_FILE.read_text(encoding="utf-8")
         )
 
-        self.assertEqual(len(statements), len(init_db.TABLES) + 11)
-        self.assertIn(
-            "CREATE TABLE IF NOT EXISTS ads_marketing_response_score",
-            init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
-        )
+        self.assertEqual(len(statements), len(init_db.TABLES) + 14)
         self.assertIn(
             "CREATE TABLE IF NOT EXISTS app_demo_holding",
             init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
         )
         self.assertIn(
-            "CREATE TABLE IF NOT EXISTS app_marketing_strategy",
+            "CREATE TABLE IF NOT EXISTS ads_a1_customer_product_score",
+            init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS ads_a2_candidate_decision",
+            init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS ads_marketing_strategy",
+            init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS ads_portfolio_result",
+            init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS ads_portfolio_allocation",
             init_db.SCHEMA_FILE.read_text(encoding="utf-8"),
         )
         self.assertIn(

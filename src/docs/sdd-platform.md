@@ -14,8 +14,8 @@ flowchart TB
     ODS["ODS 原始层（贴源）<br/>ods_customer / ods_product / ods_holding<br/>ods_campaign / ods_event<br/>+ ref_product_correlation"]
     DWD["DWD 明细层（标准化 + CHECK 约束）<br/>dwd_dim_customer / dwd_dim_product<br/>dwd_fact_holding / dwd_fact_campaign / dwd_fact_event"]
     DWS["DWS 汇总层<br/>dws_customer_360（客户全景画像）"]
-    ADS["ADS 结果层<br/>ads_marketing_response_score（评分 + 解释 JSON）"]
-    APP["APP 业务状态<br/>app_portfolio_scenario（场景配置）<br/>app_marketing_strategy（非A2实时Top3快照）<br/>app_campaign_event（执行/归因事件）"]
+    ADS["ADS 结果层<br/>A1全量评分 / A2候选决策 / 营销Top3<br/>组合结果 / 组合明细"]
+    APP["APP 业务状态<br/>app_portfolio_scenario（场景配置）<br/>app_campaign_event（执行/归因事件）<br/>app_demo_holding（演示持仓）"]
     ODS --> DWD --> DWS
     DWD --> ADS
     DWS --> APP
@@ -28,10 +28,10 @@ flowchart TB
 |----|----|--------|
 | ODS | 5 张业务表 | 主键 + 联合索引（customer/date 类）+ `etl_batch_id` 批次溯源 + `loaded_at` |
 | REF | `ref_product_correlation` | 900 行 30×30 相关矩阵；CHECK correlation ∈ [-1,1] |
-| APP | `app_portfolio_scenario` / `app_marketing_strategy` / `app_campaign_event` | 场景配置、非A2 Top3快照、append-only执行与归因事件；与离线数仓分开 |
+| APP | `app_portfolio_scenario` / `app_campaign_event` / `app_demo_holding` | 场景配置、append-only执行归因事件与演示持仓；与离线数仓分开 |
 | DWD | 维度/事实 ×5 | CHECK 约束下沉到库：risk ∈ R1..R5、channel/liquidity/event_type 枚举、amount>0、responded ∈ {0,1}、aum ≥ 0 |
 | DWS | `dws_customer_360` | 客户画像 + 持仓/事件/营销聚合（含 response_rate） |
-| ADS | `ads_marketing_response_score` | contact 级概率 + `model_version` + `feature_version` + `feature_as_of_date` + `explanation_json`；CHECK prob ∈ [0,1] |
+| ADS | `ads_a1_customer_product_score` / `ads_a2_candidate_decision` / `ads_marketing_strategy` / `ads_portfolio_result` / `ads_portfolio_allocation` | 批次日期、模型/规则版本、逐候选轨迹与最终展示结果；同日期幂等覆盖 |
 
 ### 1.3 初始化与质量保障
 
@@ -58,22 +58,23 @@ flowchart TB
 | 方法 | 路径 | 用途 |
 |------|------|------|
 | GET | `/marketing/rules` | 规则元数据（引擎 `metadata()` 直出）→ Tab3 规则清单 |
-| POST | `/marketing/strategy/generate` | 生成单客户 Top3（含轨迹）→ Tab3 实时生成与干预对比 |
-| GET | `/marketing/tasks` | 8000位全量客户机会队列；A2 2000人仅作正式提交标识 |
-| GET | `/customers/<id>/strategies` | A2读取正式Top3；非A2首次生成并冻结Top3 |
+| POST | `/marketing/strategy/generate` | 单客户策略试算；复用 A1+规则逻辑但不覆盖正式 ADS |
+| GET | `/marketing/tasks` | 全量客户机会队列与 ADS 就绪状态 |
+| GET | `/customers/<id>/strategies` | 读取最新 `ads_marketing_strategy` Top3 与规则轨迹 |
 | POST | `/campaign/events` | 联系事实与购买响应归因事件 |
 | GET | `/dashboard/summary` | Tab4 聚合数据（KPI/分布/漏斗/分层行数） |
 
 ### 2.3 运行表设计（✅）
 
-**`app_marketing_strategy`**（仅保存非A2客户首次生成的可执行Top3快照）：
+**`ads_marketing_strategy`**（营销工作台唯一 Top3 来源）：
 
 | 字段 | 说明 |
 |------|------|
-| strategy_id / customer_id / strategy_rank / product_id | 单活动约定 `{customer_id}:{rank}`；每客户恰好rank 1-3 |
+| strategy_date / customer_id / strategy_rank / product_id | 同一批次每客户恰好 rank 1-3 |
 | recommended_channel / recommended_time / marketing_script | 与提交 CSV 同构 |
-| score / model_prob / cf_score / overshoot | 排序信号与溢出标记 |
-| strategy_date / created_at | 归因窗口起点与首次冻结时间；生成后不更新 |
+| a1_probability / a1_rank | A1 原始概率和过滤前排名 |
+| rule_trace_json / selection_reason | A2 规则证据与 Top3 选择说明 |
+| model_version / rule_version / batch_id | 可复现批次元数据 |
 
 **`app_campaign_event`**（Tab3 触达管理/执行归因）：
 
@@ -84,7 +85,7 @@ flowchart TB
 | product_id / amount | responded购买事实；sent时为空 |
 | responded_strategy_id | 生成列唯一约束，数据库级保证同一策略只归因一次 |
 
-A2正式2000人始终读取 `partA_strategy.csv`，不会写入运行快照表；其他客户首次读取Top3时使用A1在线推理生成并事务冻结3行。
+赛事 2000 人的 `partA_strategy.csv` 只用于自动评分；业务平台对符合 as-of 条件的全量客户执行日批，并统一读取 ADS。
 
 ---
 
@@ -92,7 +93,7 @@ A2正式2000人始终读取 `partA_strategy.csv`，不会写入运行快照表�
 
 | 项 | 现状 |
 |----|------|
-| 测试 | 55 个 unittest（服务、数据初始化、A1、A2 规则引擎、Part B） |
+| 测试 | unittest（服务、数据初始化、A1、A2 规则引擎、Part B） |
 | 依赖 | pyproject + requirements.txt 双轨；Python 3.12；MySQL 8 |
 | 可复现 | random_state=42；训练/推理特征版本化；Part B 多起点种子固定 |
 | 文档 | `src/docs/` + README 运行说明 |
@@ -137,25 +138,25 @@ flowchart LR
 
 | 功能点 | 数据源 / 实现 | 状态 |
 |--------|--------------|------|
-| 响应名单（按概率排序 + 筛选） | `partA_prediction.csv` 或 `ads_marketing_response_score` | ✅ 数据在 |
-| 客户营销策略（Top3 卡） | `partA_strategy.csv` / `app_marketing_strategy` | ✅ 正式/实时双路径 |
+| 响应名单（按概率排序 + 筛选） | `ads_a1_customer_product_score` | ✅ |
+| 客户营销策略（Top3 卡） | `ads_marketing_strategy` | ✅ |
 | **策略下钻**（为什么这么推） | 引擎 `rule_trace` + A1产品级在线复核与解释因子 | ✅ |
-| **运营干预** | 调 `w_cf` / manager 配额 → 重跑并与当前快照对比 | ✅ |
+| **策略试算** | 调整 manager 配额 → 复用 A1+规则逻辑试算，不覆盖正式日批 | ✅ |
 | 触达管理/执行追踪 | `app_campaign_event` 推导待执行→已触达→已响应 | ✅ |
 | 页面组件 | 全量客户队列、Top3、解释/合规/话术、归因、数据链路 | ✅ |
 
-**演示故事线**：名单按概率排序 → 下钻客户 → Top3 + 规则轨迹 + 解释因子（个性化+合规）→ 现场把 w_cf 从 0.3 调到 0.8 → Top3 变化（联动）→ 标记触达 → 状态流转到 Tab4 漏斗。
+**演示故事线**：名单按概率排序 → 下钻客户 → Top3 + 规则轨迹 + 解释因子（个性化+合规）→ 标记触达 → 购买回流自动归因 → 状态流转到看板漏斗。
 
 ### 4.4 Tab4 可视化看板
 
 | 图表 | 数据源 | 状态 |
 |------|--------|------|
-| KPI 卡：AUC/F1/Lift、预测覆盖、策略数、Part B 总效用 | `a1_validation_metrics.json` + 三份 CSV 汇总 | ✅ |
-| 响应概率分布直方图 | `partA_prediction.csv` | ✅ |
-| 资产配置分布（按风险等级/产品类型） | `partB_allocation.csv` 聚合 | ✅ |
+| KPI 卡：AUC/F1/Lift、预测覆盖、策略数、Part B 总效用 | A1 模型元数据 + ADS 汇总 | ✅ |
+| 响应概率分布直方图 | `ads_a1_customer_product_score` | ✅ |
+| 资产配置分布（按风险等级/产品类型） | `ads_portfolio_allocation` 聚合 | ✅ |
 | 营销转化漏斗（触达→响应） | `t_campaign` 历史漏斗；联动后加 `app_campaign_execution` 实时漏斗 | ✅/🟡 |
 | 数据分层全景（ODS→DWD→DWS→ADS 行数） | 现成 COUNT SQL | ✅ |
-| 渠道/时段分布 | `partA_strategy.csv` 聚合 | ✅ |
+| 渠道/时段分布 | `ads_marketing_strategy` 聚合 | ✅ |
 
 ### 4.5 实现分期与分工
 
@@ -172,7 +173,7 @@ flowchart LR
 1. **Tab4 看板**：全局 KPI + 数据分层行数 + 41 项质量检查全绿（架构工程性）
 2. **Tab1 进件**：现场录入客户 → 自动风险评估（展示依据）→ 画像生成
 3. **Tab2 投顾**：评级自动带出场景参数 → 求解 → 经理改约束 → 重算 + gap 证书
-4. **Tab3 营销**：响应名单 → 客户 Top3 + 规则轨迹 + 解释因子 → 调 w_cf/配额重跑对比 → 触达状态流转
+4. **Tab3 营销**：响应名单 → 客户 Top3 + 规则轨迹 + 解释因子 → 策略试算 → 触达与购买归因
 5. 收尾：回到 Tab4，漏斗联动更新（闭环）
 
 ---

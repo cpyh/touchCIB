@@ -8,6 +8,7 @@ from decimal import Decimal
 import pymysql
 
 from .database import database_connection
+from .business_date import DEFAULT_BUSINESS_DATE
 
 
 class CustomerProfileError(RuntimeError):
@@ -22,14 +23,20 @@ def json_value(value):
     return value
 
 
-def get_customer_profile(customer_id: str) -> dict | None:
+def get_customer_profile(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict | None:
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT * FROM dws_customer_360 WHERE customer_id = %s",
-                    (customer_id,),
+                    "SELECT customer_id, age_group, city, occupation, income_level, "
+                    "register_date, aum, risk_appetite, vip_level, has_app, "
+                    "%s AS snapshot_date FROM dwd_dim_customer "
+                    "WHERE customer_id = %s AND register_date <= %s",
+                    (business_date, customer_id, business_date),
                 )
                 row = cursor.fetchone()
         finally:

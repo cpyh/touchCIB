@@ -20,6 +20,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import pymysql
 from flask import Blueprint, jsonify, request
 
+from .business_date import DEFAULT_BUSINESS_DATE, parse_business_date
 from .database import database_connection
 
 # ----------------------------------------------------------------
@@ -148,6 +149,27 @@ def assess_risk(payload: dict) -> str:
     return "R5"
 
 
+def assess_risk_detail(payload: dict) -> dict:
+    """规则评估全过程：总分 + 分项因子 + 等级，供前端风险评估页展示。"""
+    age_score = AGE_SCORE[payload["age_group"]]
+    income_score = INCOME_SCORE[payload["income_level"]]
+    occupation_score = OCCUPATION_SCORE[payload["occupation"]]
+    aum_score = _aum_score(Decimal(str(payload["aum"])))
+    score = max(0, min(100, 50 + age_score + income_score + occupation_score + aum_score))
+    return {
+        "score": score,
+        "level": assess_risk(payload),
+        "label": risk_label(assess_risk(payload)),
+        "base_score": 50,
+        "factors": [
+            {"factor": "年龄", "value": payload["age_group"], "score": age_score},
+            {"factor": "收入", "value": payload["income_level"], "score": income_score},
+            {"factor": "职业", "value": payload["occupation"], "score": occupation_score},
+            {"factor": "资产规模", "value": f"{float(payload['aum']) / 10000:.0f}万", "score": aum_score},
+        ],
+    }
+
+
 def risk_label(level: str) -> str:
     return RISK_LABELS.get(level, level)
 
@@ -156,9 +178,7 @@ def risk_label(level: str) -> str:
 # 配置（AI 摘要模式与画像 as-of）
 # ----------------------------------------------------------------
 
-PROFILE_AS_OF_DATE = date.fromisoformat(
-    os.getenv("PROFILE_AS_OF_DATE", "2026-03-31")
-)
+PROFILE_AS_OF_DATE = DEFAULT_BUSINESS_DATE
 
 
 # ----------------------------------------------------------------
@@ -166,6 +186,7 @@ PROFILE_AS_OF_DATE = date.fromisoformat(
 # ----------------------------------------------------------------
 
 ZERO = Decimal("0")
+ONLINE_CUSTOMER_BATCH_ID = "online_customer_ingress"
 
 
 def _customer_id() -> str:
@@ -197,6 +218,7 @@ def list_customers(
     risk_appetite: str | None,
     vip_level: str | None,
     city: str | None,
+    business_date: date = DEFAULT_BUSINESS_DATE,
 ) -> dict:
     if not isinstance(page, int) or page < 1:
         raise ValidationError("page must be greater than or equal to 1")
@@ -207,8 +229,8 @@ def list_customers(
     if vip_level and vip_level not in VIP_LEVELS:
         raise ValidationError("invalid vip_level")
 
-    clauses: list[str] = []
-    params: list[object] = []
+    clauses: list[str] = ["register_date <= %s"]
+    params: list[object] = [business_date]
     if keyword:
         clauses.append(
             "(customer_id LIKE %s OR city LIKE %s OR occupation LIKE %s)"
@@ -276,8 +298,9 @@ def create_customer(raw_payload: object) -> dict:
                         """
                         INSERT INTO ods_customer (
                             customer_id, age_group, city, occupation, income_level,
-                            register_date, aum, risk_appetite, vip_level, has_app
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            register_date, aum, risk_appetite, vip_level, has_app,
+                            etl_batch_id
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             customer_id,
@@ -290,6 +313,7 @@ def create_customer(raw_payload: object) -> dict:
                             risk_appetite,
                             payload["vip_level"],
                             payload["has_app"],
+                            ONLINE_CUSTOMER_BATCH_ID,
                         ),
                     )
                 connection.commit()
@@ -409,7 +433,10 @@ def build_behavior_profile(
     }
 
 
-def get_customer_profile(customer_id: str) -> dict:
+def get_customer_profile(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
     try:
         connection = database_connection()
         try:
@@ -421,8 +448,10 @@ def get_customer_profile(customer_id: str) -> dict:
                 customer = cursor.fetchone()
                 if customer is None:
                     raise NotFoundError("customer not found")
+                if customer["register_date"] > business_date:
+                    raise NotFoundError("customer was not registered on business date")
 
-                as_of_date = max(PROFILE_AS_OF_DATE, customer["register_date"])
+                as_of_date = business_date
                 cursor.execute(
                     """
                     SELECT h.holding_id, h.product_id, h.amount, h.buy_date,
@@ -446,6 +475,17 @@ def get_customer_profile(customer_id: str) -> dict:
                     (customer_id, as_of_date),
                 )
                 events = cursor.fetchall()
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS contact_count,
+                           COALESCE(SUM(responded), 0) AS responded_count,
+                           MAX(contact_date) AS last_contact_date
+                    FROM ods_campaign
+                    WHERE customer_id = %s AND contact_date <= %s
+                    """,
+                    (customer_id, as_of_date),
+                )
+                campaign_row = cursor.fetchone()
         finally:
             connection.close()
     except NotFoundError:
@@ -458,15 +498,45 @@ def get_customer_profile(customer_id: str) -> dict:
         customer, events, asset_profile, as_of_date
     )
     basic = customer_dict(customer)
+    campaign = campaign_row or {}
+    contact_count = int(campaign.get("contact_count") or 0)
+    responded_count = int(campaign.get("responded_count") or 0)
     return {
         "as_of_date": as_of_date.isoformat(),
         "basic_info": basic,
+        "risk_assessment": assess_risk_detail(
+            {
+                "age_group": basic.get("age_group"),
+                "income_level": basic.get("income_level"),
+                "occupation": basic.get("occupation"),
+                "aum": basic.get("aum"),
+            }
+        ),
         "asset_profile": asset_profile,
         "behavior_profile": behavior_profile,
-        "ai_summary": parse_cached_analysis(customer.get("ai_summary")),
+        "campaign_summary": {
+            "contact_count": contact_count,
+            "responded_count": responded_count,
+            "response_rate": (
+                round(responded_count / contact_count, 4)
+                if contact_count
+                else None
+            ),
+            "last_contact_date": (
+                campaign["last_contact_date"].isoformat()
+                if campaign.get("last_contact_date")
+                else None
+            ),
+        },
+        "ai_summary": (
+            parse_cached_analysis(customer.get("ai_summary"))
+            if business_date == DEFAULT_BUSINESS_DATE
+            else None
+        ),
         "ai_summary_generated_at": (
             customer["ai_summary_generated_at"].isoformat()
-            if customer.get("ai_summary_generated_at")
+            if business_date == DEFAULT_BUSINESS_DATE
+            and customer.get("ai_summary_generated_at")
             else None
         ),
     }
@@ -696,8 +766,13 @@ def _deepseek_analysis(profile: dict) -> tuple[dict, str]:
     return analysis, model
 
 
-def generate_ai_summary(customer_id: str) -> dict:
-    profile = get_customer_profile(customer_id)
+def generate_ai_summary(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    if business_date != DEFAULT_BUSINESS_DATE:
+        raise ValidationError("历史业务日期仅支持回看，不能更新客户 AI 洞察")
+    profile = get_customer_profile(customer_id, business_date)
     if os.getenv("DEEPSEEK_API_KEY"):
         analysis, model = _deepseek_analysis(profile)
         provider = "deepseek"
@@ -744,8 +819,16 @@ def success(data, status: int = 200):
     return jsonify({"code": 0, "message": "success", "data": data}), status
 
 
+def _request_business_date() -> date:
+    try:
+        return parse_business_date(request.args.get("business_date"))
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
 @customers_bp.get("")
 def customers_list():
+    business_date = _request_business_date()
     return success(
         list_customers(
             page=request.args.get("page", default=1, type=int),
@@ -754,6 +837,7 @@ def customers_list():
             risk_appetite=request.args.get("risk_appetite"),
             vip_level=request.args.get("vip_level"),
             city=request.args.get("city"),
+            business_date=business_date,
         )
     )
 
@@ -765,12 +849,14 @@ def customer_create():
 
 @customers_bp.get("/<customer_id>/profile")
 def customer_profile(customer_id: str):
-    return success(get_customer_profile(customer_id))
+    business_date = _request_business_date()
+    return success(get_customer_profile(customer_id, business_date))
 
 
 @customers_bp.post("/<customer_id>/ai-summary")
 def customer_ai_summary(customer_id: str):
-    return success(generate_ai_summary(customer_id))
+    business_date = _request_business_date()
+    return success(generate_ai_summary(customer_id, business_date))
 
 
 @customers_bp.errorhandler(ValidationError)

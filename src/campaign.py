@@ -9,27 +9,20 @@
 
 from __future__ import annotations
 
+import json
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import pandas as pd
 import pymysql
 
+from .business_date import DEFAULT_BUSINESS_DATE
 from .database import database_connection
 from .marketing.attribution import DEFAULT_WINDOW_DAYS, attribute_purchase
 from .marketing.templates import COMPLIANCE_NOTE
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
-STRATEGY_CUSTOMERS_CSV = (
-    PROJECT_DIR / "src" / "data" / "raw" / "partA_strategy_customers.csv"
-)
-CUSTOMER_CSV = PROJECT_DIR / "src" / "data" / "raw" / "t_customer.csv"
 
 STRATEGY_ID_PATTERN = re.compile(r"^(?P<customer_id>[^:]+):(?P<rank>[123])$")
 
@@ -54,98 +47,97 @@ def _event_json(row: dict) -> dict:
     return {key: _json_value(value) for key, value in row.items()}
 
 
-@lru_cache(maxsize=1)
-def load_strategy_frame() -> pd.DataFrame:
-    frame = pd.read_csv(STRATEGY_CSV, dtype=str)
-    expected = [
-        "customer_id",
-        "rank",
-        "product_id",
-        "recommended_channel",
-        "recommended_time",
-        "marketing_script",
-    ]
-    if list(frame.columns) != expected:
-        raise CampaignStoreError(
-            f"策略文件列名不符：{list(frame.columns)}"
-        )
+def load_strategy_frame(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> pd.DataFrame:
+    """兼容分析/导出调用方：返回指定业务日的提交形状。"""
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT customer_id, strategy_rank AS `rank`, product_id, "
+                    "recommended_channel, recommended_time, marketing_script "
+                    "FROM ads_marketing_strategy WHERE strategy_date = %s "
+                    "ORDER BY customer_id, strategy_rank",
+                    (business_date,),
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise CampaignStoreError("unable to query ADS strategies") from exc
+    frame = pd.DataFrame(rows)
+    if not frame.empty:
+        frame["rank"] = frame["rank"].astype(str)
     return frame
 
 
-@lru_cache(maxsize=1)
-def strategy_top3() -> dict[str, tuple[str, str, str]]:
-    """customer_id -> (rank1, rank2, rank3) 产品元组。"""
-    frame = load_strategy_frame()
-    official_ids = set(_official_strategy_dates())
-    submitted_ids = set(frame["customer_id"])
-    if submitted_ids != official_ids:
-        missing = sorted(official_ids - submitted_ids)[:3]
-        extra = sorted(submitted_ids - official_ids)[:3]
-        raise CampaignStoreError(
-            f"正式策略客户与A2目标名单不一致：missing={missing}, extra={extra}"
-        )
+def strategy_top3(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict[str, tuple[str, str, str]]:
+    """指定ADS批次的 customer_id -> (rank1, rank2, rank3)。"""
+    frame = load_strategy_frame(business_date)
     result: dict[str, tuple[str, str, str]] = {}
     for customer_id, group in frame.groupby("customer_id", sort=False):
         ranks = group["rank"].tolist()
         ordered = group.sort_values("rank")["product_id"].tolist()
         if len(group) != 3 or set(ranks) != {"1", "2", "3"}:
             raise CampaignStoreError(
-                f"A2客户 {customer_id} 的正式策略必须恰好包含rank 1/2/3"
+                f"客户 {customer_id} 的ADS策略必须恰好包含rank 1/2/3"
             )
         if len(set(ordered)) != 3:
             raise CampaignStoreError(
-                f"A2客户 {customer_id} 的正式Top3产品不得重复"
+                f"客户 {customer_id} 的ADS Top3产品不得重复"
             )
         result[customer_id] = tuple(ordered)
     return result
 
 
-@lru_cache(maxsize=1)
-def strategy_date() -> date:
-    frame = pd.read_csv(
-        STRATEGY_CUSTOMERS_CSV, dtype={"customer_id": str}
-    )
-    dates = pd.to_datetime(frame["strategy_date"], errors="raise").dt.date
-    return max(dates)
-
-
-@lru_cache(maxsize=1)
-def _official_strategy_dates() -> dict[str, date]:
-    frame = pd.read_csv(
-        STRATEGY_CUSTOMERS_CSV, dtype={"customer_id": str}
-    )
-    frame["strategy_date"] = pd.to_datetime(
-        frame["strategy_date"], errors="raise"
-    ).dt.date
-    return dict(zip(frame["customer_id"], frame["strategy_date"], strict=True))
-
-
-@lru_cache(maxsize=1)
-def _known_customer_ids() -> frozenset[str]:
-    frame = pd.read_csv(CUSTOMER_CSV, dtype={"customer_id": str})
-    return frozenset(frame["customer_id"])
-
-
-@lru_cache(maxsize=512)
-def _live_strategy_payload(customer_id: str) -> dict:
-    """为非A2客户稳定生成Top3；进程内缓存避免重复在线打分。"""
-    if customer_id not in _known_customer_ids():
-        raise CampaignInputError(f"客户 {customer_id} 不存在")
+def strategy_date(business_date: date = DEFAULT_BUSINESS_DATE) -> date:
     try:
-        from .marketing.generate import generate_customer_strategy
-        from .partA1serving.runtime import get_mysql_predictor
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT strategy_date FROM ads_marketing_strategy "
+                    "WHERE strategy_date=%s LIMIT 1",
+                    (business_date,),
+                )
+                row = cursor.fetchone() or {}
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise CampaignStoreError("unable to query latest strategy date") from exc
+    value = row.get("strategy_date")
+    if value is None:
+        raise CampaignStoreError("营销ADS批处理尚未生成策略")
+    return value if isinstance(value, date) else date.fromisoformat(str(value))
 
-        return generate_customer_strategy(
-            customer_id,
-            response_predictor=get_mysql_predictor(),
-        )
-    except CampaignInputError:
-        raise
-    except (ImportError, OSError, RuntimeError, ValueError) as exc:
-        raise CampaignStoreError("unable to generate live customer strategy") from exc
+
+def _known_customer_ids(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> frozenset[str]:
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT customer_id FROM dwd_dim_customer WHERE register_date <= %s",
+                    (business_date,),
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise CampaignStoreError("unable to query DWD customers") from exc
+    return frozenset(str(row["customer_id"]) for row in rows)
 
 
-def _stored_live_strategy_rows(customer_id: str) -> list[dict]:
+def _stored_strategy_rows(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> list[dict]:
     try:
         connection = database_connection()
         try:
@@ -153,133 +145,68 @@ def _stored_live_strategy_rows(customer_id: str) -> list[dict]:
                 cursor.execute(
                     "SELECT strategy_id, customer_id, strategy_rank AS `rank`, strategy_date, "
                     "product_id, recommended_channel, recommended_time, "
-                    "marketing_script, score, model_prob, cf_score, overshoot, "
-                    "created_at FROM app_marketing_strategy "
-                    "WHERE customer_id = %s ORDER BY strategy_rank",
-                    (customer_id,),
+                    "marketing_script, a1_probability AS model_prob, "
+                    "a1_rank, rule_trace_json, selection_reason, model_version, "
+                    "rule_version, batch_id, generated_at AS created_at "
+                    "FROM ads_marketing_strategy "
+                    "WHERE customer_id = %s AND strategy_date = %s "
+                    "ORDER BY strategy_rank",
+                    (customer_id, business_date),
                 )
                 rows = cursor.fetchall()
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError) as exc:
-        raise CampaignStoreError("unable to query live strategy snapshot") from exc
+        raise CampaignStoreError("unable to query ADS strategy snapshot") from exc
     return list(rows)
 
 
-def _ensure_live_strategy_rows(customer_id: str) -> list[dict]:
-    """首次生成后冻结非A2客户Top3，确保后续事件与归因不会漂移。"""
-    if customer_id in _official_strategy_dates():
-        raise CampaignStoreError(f"A2客户 {customer_id} 禁止写入运行策略快照")
-    rows = _stored_live_strategy_rows(customer_id)
-    if rows:
-        if len(rows) != 3:
-            raise CampaignStoreError(
-                f"客户 {customer_id} 的运行策略快照不完整：{len(rows)}/3"
-            )
-        return rows
-
-    payload = _live_strategy_payload(customer_id)
-    items = payload.get("items", [])
-    ranks = {int(item["rank"]) for item in items}
-    products = [str(item["product_id"]) for item in items]
-    if len(items) != 3 or ranks != {1, 2, 3}:
-        raise CampaignStoreError(f"客户 {customer_id} 实时策略必须恰好包含rank 1/2/3")
-    if len(set(products)) != 3:
-        raise CampaignStoreError(f"客户 {customer_id} 实时Top3产品不得重复")
-    values = [
-        (
-            f"{customer_id}:{int(item['rank'])}",
-            customer_id,
-            int(item["rank"]),
-            payload["strategy_date"],
-            item["product_id"],
-            item["recommended_channel"],
-            item["recommended_time"],
-            item["marketing_script"],
-            item["score"],
-            item["model_prob"],
-            item["cf_score"],
-            int(bool(item.get("overshoot", False))),
-        )
-        for item in items
-    ]
-
-    connection = None
-    try:
-        connection = database_connection()
-        with connection.cursor() as cursor:
-            cursor.executemany(
-                "INSERT INTO app_marketing_strategy "
-                "(strategy_id, customer_id, strategy_rank, strategy_date, product_id, "
-                "recommended_channel, recommended_time, marketing_script, "
-                "score, model_prob, cf_score, overshoot) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                values,
-            )
-        connection.commit()
-    except pymysql.IntegrityError as exc:
-        if connection is not None:
-            connection.rollback()
-        if not exc.args or exc.args[0] != 1062:
-            raise CampaignStoreError("unable to freeze live strategy snapshot") from exc
-        # 并发请求可能已经完成同一客户的首次冻结；回读获胜快照。
-        rows = _stored_live_strategy_rows(customer_id)
-        if len(rows) == 3:
-            return rows
-        raise CampaignStoreError("concurrent live strategy snapshot is incomplete")
-    except (pymysql.MySQLError, OSError, ValueError) as exc:
-        if connection is not None:
-            connection.rollback()
-        raise CampaignStoreError("unable to freeze live strategy snapshot") from exc
-    finally:
-        if connection is not None:
-            connection.close()
-
-    rows = _stored_live_strategy_rows(customer_id)
+def _require_strategy_rows(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> list[dict]:
+    """读取客户ADS批处理结果，并校验Top3已完整生成。"""
+    if customer_id not in _known_customer_ids(business_date):
+        raise CampaignInputError(f"客户 {customer_id} 不存在")
+    rows = _stored_strategy_rows(customer_id, business_date)
     if len(rows) != 3:
-        raise CampaignStoreError("frozen live strategy snapshot was not found")
+        raise CampaignStoreError(
+            f"客户 {customer_id} 的ADS Top3未就绪，请先运行营销批处理"
+        )
     return rows
 
 
-def customer_strategy_date(customer_id: str) -> date:
-    """官方客户使用输入日期，其他客户使用当前活动统一日期。"""
-    if customer_id not in _known_customer_ids():
+def customer_strategy_date(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> date:
+    """读取客户指定ADS策略日期。"""
+    if customer_id not in _known_customer_ids(business_date):
         raise CampaignInputError(f"客户 {customer_id} 不存在")
-    official = _official_strategy_dates().get(customer_id)
-    if official is not None:
-        return official
-    rows = _ensure_live_strategy_rows(customer_id)
+    rows = _require_strategy_rows(customer_id, business_date)
     value = rows[0]["strategy_date"]
     return value if isinstance(value, date) else date.fromisoformat(str(value))
 
 
-def customer_top3(customer_id: str) -> tuple[str, str, str]:
-    """取得客户当前Top3：A2读取提交版，其他客户按需实时生成。"""
-    if customer_id in _official_strategy_dates():
-        official = strategy_top3().get(customer_id)
-        if official is None:
-            raise CampaignStoreError(f"A2客户 {customer_id} 缺少正式Top3")
-        return official
-    rows = _ensure_live_strategy_rows(customer_id)
+def customer_top3(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> tuple[str, str, str]:
+    """取得客户指定ADS批处理Top3。"""
+    rows = _require_strategy_rows(customer_id, business_date)
     products = tuple(row["product_id"] for row in rows)
     if len(products) != 3:
-        raise CampaignStoreError(f"客户 {customer_id} 实时策略没有恰好3个产品")
+        raise CampaignStoreError(f"客户 {customer_id} 的ADS策略没有恰好3个产品")
     return products
 
 
-def customer_strategy_channel(customer_id: str, rank: int) -> str:
+def customer_strategy_channel(
+    customer_id: str,
+    rank: int,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> str:
     """取得某条策略的执行渠道，供KPI与演示归因共用。"""
-    if customer_id in _official_strategy_dates():
-        strategy_top3()  # 先验证提交版与A2名单及Top3完整性。
-        official = load_strategy_frame()
-        rows = official[
-            (official["customer_id"] == customer_id)
-            & (official["rank"] == str(rank))
-        ]
-        if rows.empty:
-            raise CampaignStoreError(f"A2策略不存在：{customer_id}:{rank}")
-        return str(rows.iloc[0]["recommended_channel"])
-    for item in _ensure_live_strategy_rows(customer_id):
+    for item in _require_strategy_rows(customer_id, business_date):
         if int(item["rank"]) == rank:
             return str(item["recommended_channel"])
     raise CampaignInputError(f"策略不存在：{customer_id}:{rank}")
@@ -295,7 +222,7 @@ def _parse_strategy_id(strategy_id: str) -> tuple[str, int]:
     rank = int(match.group("rank"))
     if customer_id not in _known_customer_ids():
         raise CampaignInputError(f"策略不存在：{strategy_id}（客户不存在）")
-    # 非A2客户会在首次执行前按需生成并缓存Top3；由此保证rank确实存在。
+    # 批处理必须已生成完整Top3；请求阶段不再执行算法。
     customer_top3(customer_id)
     return customer_id, rank
 
@@ -362,8 +289,18 @@ def create_sent_event(
     strategy_id: str,
     occurred_at: datetime | None = None,
 ) -> dict:
-    """标记"已触达"：写入 sent 事件。"""
-    _parse_strategy_id(strategy_id)
+    """标记"已触达"：写入 sent 事件。
+
+    口径：工作面板面向客户，一客户一次触达。
+    strategy_id 仅标注本次执行的首选策略，同一客户重复触达被拒绝。
+    """
+    customer_id, _ = _parse_strategy_id(strategy_id)
+    existing = list_campaign_events(customer_id=customer_id)
+    if any(event["event_type"] == "sent" for event in existing):
+        raise CampaignInputError(
+            f"客户 {customer_id} 已触达：按客户口径一次营销活动只触达一次，"
+            "请直接跟进后续动作"
+        )
     return _record_event(
         strategy_id=strategy_id,
         event_type="sent",
@@ -564,10 +501,13 @@ def simulate_holding_purchase(
 def list_campaign_events(
     customer_id: str | None = None,
     strategy_id: str | None = None,
+    business_date: date = DEFAULT_BUSINESS_DATE,
 ) -> list[dict]:
     """查询事件（按客户或按策略过滤），按发生时间排序。"""
     conditions: list[str] = []
-    params: list[str] = []
+    params: list[object] = []
+    conditions.append("occurred_at < %s")
+    params.append(datetime.combine(business_date + timedelta(days=1), time.min))
     if customer_id:
         conditions.append(
             "strategy_id IN (%s, %s, %s)"
@@ -597,60 +537,61 @@ def list_campaign_events(
 
 
 # ----------------------------------------------------------------
-# 客户策略查询（Tab3 策略卡 + 规则轨迹 + 执行状态）
+# 客户策略查询（Tab3 策略卡 + 批处理规则轨迹 + 执行状态）
 # ----------------------------------------------------------------
 
-# 对外部提交行（队友生成）只做"校验型"规则轨迹；manager 配额等生成期规则不适用
-TRACE_RULE_IDS = (
-    "risk_match",
-    "product_launched",
-    "customer_registered",
-    "duration_valid",
-    "channel_app_requires_app",
-    "channel_call_complaint_block",
-    "slot_in_enum",
-    "script_length",
-    "script_compliance_note",
-)
+
+def _customer_profile_and_products(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> tuple[dict, dict[str, dict]]:
+    """从DWD读取展示字段；不在请求时重算规则或回读原始文件。"""
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT customer_id, risk_appetite, vip_level, aum "
+                    "FROM dwd_dim_customer WHERE customer_id=%s "
+                    "AND register_date <= %s",
+                    (customer_id, business_date),
+                )
+                customer = cursor.fetchone()
+                cursor.execute(
+                    "SELECT product_id, product_name, risk_level, "
+                    "expected_return, product_type FROM dwd_dim_product"
+                )
+                products = {
+                    str(row["product_id"]): row for row in cursor.fetchall()
+                }
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise CampaignStoreError("unable to query DWD strategy dimensions") from exc
+    if customer is None:
+        raise CampaignInputError(f"客户 {customer_id} 不存在")
+    return customer, products
 
 
-@lru_cache(maxsize=1)
-def _trace_context():
-    """装载轨迹求值所需上下文（客户/产品/行为/引擎/策略日期）。"""
-    from .marketing.io import (
-        build_behaviors,
-        load_customers,
-        load_products,
-    )
-    from .marketing.rules import build_default_engine
-    from .marketing.models import RISK_RANK
-
-    raw = PROJECT_DIR / "src" / "data" / "raw"
-    customers = load_customers(raw / "t_customer.csv")
-    products = {p.product_id: p for p in load_products(raw / "t_product.csv")}
-    events = pd.read_csv(raw / "t_event.csv", dtype={"customer_id": str})
-    holdings = pd.read_csv(
-        raw / "t_holding.csv",
-        dtype={"customer_id": str, "product_id": str},
-    )
-    strategy_dates_frame = pd.read_csv(
-        STRATEGY_CUSTOMERS_CSV, dtype={"customer_id": str}
-    )
-    strategy_dates = {
-        row.customer_id: pd.to_datetime(row.strategy_date).date()
-        for row in strategy_dates_frame.itertuples()
-    }
-    activity_date = max(strategy_dates.values())
-    strategy_dates = {
-        customer_id: strategy_dates.get(customer_id, activity_date)
-        for customer_id in customers
-    }
-    behaviors = build_behaviors(customers, events, holdings, strategy_dates)
-    engine = build_default_engine()
-    return customers, products, behaviors, engine, strategy_dates, RISK_RANK
+def _parse_rule_trace(value: Any) -> list[dict]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise CampaignStoreError("ADS策略规则轨迹不是合法JSON") from exc
+    else:
+        parsed = value
+    if not isinstance(parsed, list):
+        raise CampaignStoreError("ADS策略规则轨迹缺失")
+    return [dict(item) for item in parsed]
 
 
 def _derive_status(strategy_id: str, events: list[dict]) -> str:
+    """状态按客户口径推导：触达一次即全客户策略进入已触达。
+
+    响应仍按 strategy_id 归因（购买产品 ∈ Top3 命中对应 rank）。
+    """
+    customer_id = str(strategy_id).partition(":")[0]
     responded = any(
         event["event_type"] == "responded"
         and event["strategy_id"] == strategy_id
@@ -659,7 +600,8 @@ def _derive_status(strategy_id: str, events: list[dict]) -> str:
     if responded:
         return "已响应"
     sent = any(
-        event["event_type"] == "sent" and event["strategy_id"] == strategy_id
+        event["event_type"] == "sent"
+        and str(event["strategy_id"]).partition(":")[0] == customer_id
         for event in events
     )
     return "已触达" if sent else "待执行"
@@ -671,7 +613,7 @@ def _execution_script(marketing_script: str) -> tuple[str, bool]:
     if COMPLIANCE_NOTE in script:
         return script, False
 
-    # 队友提交文件使用了较短的旧版尾注。执行出口替换为统一文本，
+    # 历史批次可能使用较短的旧版尾注。执行出口替换为统一文本，
     # 避免把两个近似风险提示连续展示给客户。
     for legacy_note in (
         "理财非存款、产品有风险。",
@@ -688,45 +630,18 @@ def _execution_script(marketing_script: str) -> tuple[str, bool]:
     return f"{script}{separator}{COMPLIANCE_NOTE}", True
 
 
-def customer_strategies(customer_id: str) -> dict:
-    """返回某客户 Top3 策略卡数据：策略行 + 规则轨迹 + 事件状态。
-
-    A2客户读取正式提交版；其他客户首次访问时生成并冻结运行快照。
-    未触达不存储事件——无事件即推导为"待执行"。
-    """
-    frame = load_strategy_frame()
-    customers, products, behaviors, engine, strategy_dates, risk_rank = (
-        _trace_context()
+def customer_strategies(
+    customer_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    """返回ADS日批Top3、批处理时冻结的规则轨迹与执行状态。"""
+    source_rows = _require_strategy_rows(customer_id, business_date)
+    customer, products = _customer_profile_and_products(customer_id, business_date)
+    as_of = customer_strategy_date(customer_id, business_date)
+    events = list_campaign_events(
+        customer_id=customer_id,
+        business_date=business_date,
     )
-    if customer_id not in customers:
-        raise CampaignInputError(f"客户 {customer_id} 不存在")
-
-    official_target = customer_id in _official_strategy_dates()
-    official_rows = frame[frame["customer_id"] == customer_id].sort_values("rank")
-    if official_target:
-        strategy_top3()  # fail fast：A2客户必须完整存在于正式提交版。
-        source_rows = [
-            {
-                "strategy_id": f"{row.customer_id}:{row.rank}",
-                "rank": int(row.rank),
-                "product_id": row.product_id,
-                "recommended_channel": row.recommended_channel,
-                "recommended_time": row.recommended_time,
-                "marketing_script": row.marketing_script,
-                "score": None,
-                "model_prob": None,
-                "cf_score": None,
-                "overshoot": False,
-            }
-            for row in official_rows.itertuples()
-        ]
-    else:
-        source_rows = _ensure_live_strategy_rows(customer_id)
-
-    customer = customers[customer_id]
-    behavior = behaviors[customer_id]
-    as_of = customer_strategy_date(customer_id)
-    events = list_campaign_events(customer_id=customer_id)
 
     items: list[dict] = []
     for row in source_rows:
@@ -740,59 +655,40 @@ def customer_strategies(customer_id: str) -> dict:
         execution_script, script_adjusted = _execution_script(
             str(row["marketing_script"])
         )
-        context = {
-            "customer": customer,
-            "behavior": behavior,
-            "product": product,
-            "strategy_date": as_of,
-            "channel": row["recommended_channel"],
-            "recommended_time": row["recommended_time"],
-            "marketing_script": execution_script,
-            "max_allowed_risk": risk_rank[customer.risk_appetite] + 1,
-            "overshoot": bool(row.get("overshoot", False)),
-        }
-        trace = [
-            outcome
-            for outcome in engine.evaluate_all(context)
-            if outcome.rule_id in TRACE_RULE_IDS
-        ]
+        trace = _parse_rule_trace(row.get("rule_trace_json"))
         items.append(
             {
                 "strategy_id": strategy_id,
                 "rank": int(row["rank"]),
                 "product_id": product_id,
-                "product_name": product.product_name,
-                "risk_level": product.risk_level,
-                "expected_return": round(float(product.expected_return), 4),
-                "product_type": product.product_type,
+                "product_name": product["product_name"],
+                "risk_level": product["risk_level"],
+                "expected_return": round(float(product["expected_return"]), 4),
+                "product_type": product["product_type"],
                 "recommended_channel": row["recommended_channel"],
                 "recommended_time": row["recommended_time"],
                 "marketing_script": execution_script,
                 "script_adjusted": script_adjusted,
-                "score": _json_value(row.get("score")),
                 "model_prob": _json_value(row.get("model_prob")),
-                "cf_score": _json_value(row.get("cf_score")),
+                "a1_rank": int(row["a1_rank"]),
+                "selection_reason": row["selection_reason"],
+                "model_version": row["model_version"],
+                "rule_version": row["rule_version"],
+                "batch_id": row["batch_id"],
                 "status": _derive_status(strategy_id, events),
-                "execution_enabled": all(outcome.passed for outcome in trace),
-                "rule_trace": [
-                    {
-                        "rule_id": outcome.rule_id,
-                        "passed": outcome.passed,
-                        "reason": outcome.reason,
-                    }
-                    for outcome in trace
-                ],
+                "execution_enabled": all(bool(outcome.get("passed")) for outcome in trace),
+                "rule_trace": trace,
             }
         )
     return {
         "customer_id": customer_id,
         "strategy_date": as_of.isoformat(),
-        "official_target": official_target,
-        "strategy_source": (
-            "official_submission" if official_target else "live_generated"
-        ),
-        "risk_appetite": customer.risk_appetite,
-        "vip_level": customer.vip_level,
-        "aum": round(float(customer.aum), 2),
+        "strategy_source": "warehouse_batch",
+        "risk_appetite": customer["risk_appetite"],
+        "vip_level": customer["vip_level"],
+        "aum": round(float(customer["aum"]), 2),
+        "batch_id": source_rows[0]["batch_id"],
+        "model_version": source_rows[0]["model_version"],
+        "rule_version": source_rows[0]["rule_version"],
         "items": items,
     }

@@ -1,26 +1,20 @@
-"""Tab4 看板聚合：KPI + 分布 + 漏斗（内存计算 + 事件表统计，零新表）。
+"""Tab4 看板聚合：KPI + 分布 + 漏斗。
 
 设计（docs/demo-design.md §4）：
 - KPI 目标配置在代码常量中（演示口径：固定经理 MGR001）；
-- 事实来自 app_campaign_event 事件表与三份正式 CSV；
+- 客户、触达和营销策略均来自 DWD/ADS 与事件表；
 - 数据分层行数来自 MySQL 各层 COUNT（DB 不可用时返回 None）。
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-from pathlib import Path
+from datetime import date, timedelta
 
 import pandas as pd
 
-from .dashboard_api import _a1_performance, _a2_performance
+from .business_date import DEFAULT_BUSINESS_DATE
+from .dashboard_api import _a1_performance, _a2_performance, _portfolio_summary
 from .database import database_connection
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
-PARTB_AUDIT_CSV = (
-    PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
-)
 
 TOTAL_CUSTOMERS = 8000
 DEMO_MANAGER_ID = "MGR001"
@@ -54,13 +48,20 @@ KPI_TARGETS = [
 ]
 
 
-def _strategy_frame() -> pd.DataFrame:
-    return pd.read_csv(STRATEGY_CSV, dtype=str)
+def _strategy_frame(business_date: date = DEFAULT_BUSINESS_DATE) -> pd.DataFrame:
+    from .campaign import load_strategy_frame
+
+    return load_strategy_frame(business_date)
 
 
-def _channel_of(strategy_id: str) -> str | None:
+def _channel_of(
+    strategy_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> str | None:
     customer_id, _, rank = strategy_id.partition(":")
-    frame = _strategy_frame()
+    frame = _strategy_frame(business_date)
+    if not {"customer_id", "rank", "recommended_channel"}.issubset(frame.columns):
+        return None
     rows = frame[
         (frame["customer_id"] == customer_id) & (frame["rank"] == rank)
     ]
@@ -69,12 +70,12 @@ def _channel_of(strategy_id: str) -> str | None:
     try:
         from .campaign import customer_strategy_channel
 
-        return customer_strategy_channel(customer_id, int(rank))
+        return customer_strategy_channel(customer_id, int(rank), business_date)
     except (RuntimeError, ValueError):
         return None
 
 
-def _event_summary() -> dict:
+def _event_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     """事件表统计：sent/responded 数量 + manager 渠道口径。"""
     sent = responded = 0
     manager_sent = manager_responded = 0
@@ -87,7 +88,9 @@ def _event_summary() -> dict:
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT strategy_id, event_type, COUNT(*) AS count "
-                    "FROM app_campaign_event GROUP BY strategy_id, event_type"
+                    "FROM app_campaign_event WHERE occurred_at < %s "
+                    "GROUP BY strategy_id, event_type",
+                    (business_date + timedelta(days=1),),
                 )
                 rows = cursor.fetchall()
         finally:
@@ -111,12 +114,12 @@ def _event_summary() -> dict:
         if event_type == "sent":
             sent += count
             sent_customers.add(str(strategy_id).partition(":")[0])
-            if _channel_of(strategy_id) == "manager":
+            if _channel_of(strategy_id, business_date) == "manager":
                 manager_sent += count
         elif event_type == "responded":
             responded += count
             responded_customers.add(str(strategy_id).partition(":")[0])
-            if _channel_of(strategy_id) == "manager":
+            if _channel_of(strategy_id, business_date) == "manager":
                 manager_responded += count
                 manager_responded_customers.add(str(strategy_id).partition(":")[0])
     return {
@@ -137,8 +140,11 @@ def _layer_counts() -> dict:
         "dwd": ["dwd_dim_customer", "dwd_dim_product", "dwd_fact_holding", "dwd_fact_campaign", "dwd_fact_event"],
         "dws": ["dws_customer_360"],
         "ads": [
-            "ads_marketing_response_score",
-            "app_marketing_strategy",
+            "ads_a1_customer_product_score",
+            "ads_a2_candidate_decision",
+            "ads_marketing_strategy",
+            "ads_portfolio_result",
+            "ads_portfolio_allocation",
             "app_portfolio_scenario",
             "app_campaign_event",
         ],
@@ -161,51 +167,76 @@ def _layer_counts() -> dict:
     return counts
 
 
-@lru_cache(maxsize=1)
-def _customer_stats() -> dict:
-    customers = pd.read_csv(
-        PROJECT_DIR / "src" / "data" / "raw" / "t_customer.csv",
-        dtype={"customer_id": str},
-    )
+def _customer_stats(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) AS total, COALESCE(SUM(aum),0) AS total_aum "
+                "FROM dwd_dim_customer WHERE register_date <= %s",
+                (business_date,),
+            )
+            summary = cursor.fetchone()
+            cursor.execute(
+                "SELECT risk_appetite AS label, COUNT(*) AS count "
+                "FROM dwd_dim_customer WHERE register_date <= %s "
+                "GROUP BY risk_appetite",
+                (business_date,),
+            )
+            risk_rows = cursor.fetchall()
+            cursor.execute(
+                "SELECT vip_level AS label, COUNT(*) AS count "
+                "FROM dwd_dim_customer WHERE register_date <= %s "
+                "GROUP BY vip_level",
+                (business_date,),
+            )
+            vip_rows = cursor.fetchall()
+    finally:
+        connection.close()
     return {
-        "total": int(len(customers)),
-        "total_aum": round(float(customers["aum"].sum()), 2),
-        "risk_distribution": {
-            risk: int(count)
-            for risk, count in customers["risk_appetite"].value_counts().items()
-        },
-        "vip_distribution": {
-            vip: int(count)
-            for vip, count in customers["vip_level"].value_counts().items()
-        },
+        "total": int(summary["total"]),
+        "total_aum": round(float(summary["total_aum"]), 2),
+        "risk_distribution": {row["label"]: int(row["count"]) for row in risk_rows},
+        "vip_distribution": {row["label"]: int(row["count"]) for row in vip_rows},
     }
 
 
-@lru_cache(maxsize=1)
-def _channel_stats() -> dict:
-    campaigns = pd.read_csv(
-        PROJECT_DIR / "src" / "data" / "raw" / "t_campaign.csv",
-        dtype={"customer_id": str},
-    )
-    grouped = campaigns.groupby("channel")["responded"].agg(["count", "mean"])
+def _channel_stats(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    connection = database_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT channel, COUNT(*) AS contacts, AVG(responded) AS response_rate "
+                "FROM dwd_fact_campaign WHERE contact_date <= %s GROUP BY channel",
+                (business_date,),
+            )
+            rows = cursor.fetchall()
+            cursor.execute(
+                "SELECT COUNT(*) AS contacts, AVG(responded) AS response_rate "
+                "FROM dwd_fact_campaign WHERE contact_date <= %s",
+                (business_date,),
+            )
+            summary = cursor.fetchone()
+    finally:
+        connection.close()
     channels = {
-        channel: {
-            "contacts": int(row["count"]),
-            "response_rate": round(float(row["mean"]), 4),
+        row["channel"]: {
+            "contacts": int(row["contacts"]),
+            "response_rate": round(float(row["response_rate"]), 4),
         }
-        for channel, row in grouped.iterrows()
+        for row in rows
     }
     return {
         "channels": channels,
-        "overall_contacts": int(len(campaigns)),
-        "overall_response_rate": round(float(campaigns["responded"].mean()), 4),
+        "overall_contacts": int(summary["contacts"]),
+        "overall_response_rate": round(float(summary["response_rate"] or 0), 4),
     }
 
 
-def dashboard_summary() -> dict:
+def dashboard_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     """Tab4 全部聚合数据，前端零计算。"""
     # ---- A1 模型指标与预测分布（dashboard_api 统一口径）----
-    a1 = _a1_performance()
+    a1 = _a1_performance(business_date)
     probability_counts = {
         item["bucket"]: item["count"]
         for item in a1["probability_distribution"]
@@ -219,8 +250,8 @@ def dashboard_summary() -> dict:
     }
 
     # ---- 策略分布 ----
-    strategies = _strategy_frame()
-    a2 = _a2_performance()
+    strategies = _strategy_frame(business_date)
+    a2 = _a2_performance(business_date)
     total_strategies = int(len(strategies))
     strategy_stats = {
         "status": a2["status"],
@@ -228,29 +259,37 @@ def dashboard_summary() -> dict:
         "customers": a2["generated_customer_count"],
         "channel_distribution": {
             channel: int(count)
-            for channel, count in strategies["recommended_channel"].value_counts().items()
+            for channel, count in (
+                strategies["recommended_channel"].value_counts().items()
+                if "recommended_channel" in strategies
+                else []
+            )
         },
         "time_distribution": {
             slot: int(count)
-            for slot, count in strategies["recommended_time"].value_counts().items()
+            for slot, count in (
+                strategies["recommended_time"].value_counts().items()
+                if "recommended_time" in strategies
+                else []
+            )
         },
     }
 
     # ---- Part B ----
-    partb_stats: dict = {}
-    if PARTB_AUDIT_CSV.is_file():
-        audit = pd.read_csv(PARTB_AUDIT_CSV)
-        partb_stats = {
-            "scenarios": int(len(audit)),
-            "total_utility": round(float(audit["utility"].sum()), 12),
-        }
+    partb = _portfolio_summary(business_date)
+    partb_stats = {
+        "scenarios": partb["scenario_count"],
+        "total_utility": partb["total_utility"],
+    }
 
     # ---- 漏斗与 KPI ----
-    events = _event_summary()
-    pending = max(0, TOTAL_CUSTOMERS - events["sent_customers"])
+    events = _event_summary(business_date)
+    customer_stats = _customer_stats(business_date)
+    total_customers = customer_stats["total"]
+    pending = max(0, total_customers - events["sent_customers"])
     funnel = {
         "stages": [
-            {"stage": "全量客户", "count": TOTAL_CUSTOMERS},
+            {"stage": "全量客户", "count": total_customers},
             {"stage": "已触达客户", "count": events["sent_customers"]},
             {"stage": "已响应客户", "count": events["responded_customers"]},
         ],
@@ -268,7 +307,7 @@ def dashboard_summary() -> dict:
                 else 0.0
             )
         else:  # campaign_touch_progress
-            actual = events["sent_customers"] / TOTAL_CUSTOMERS
+            actual = events["sent_customers"] / total_customers if total_customers else 0
         target_value = target["target"]
         completion = actual / target_value if target_value else 0.0
         kpis.append(
@@ -280,6 +319,7 @@ def dashboard_summary() -> dict:
         )
 
     return {
+        "business_date": business_date.isoformat(),
         "model_metrics": {
             "auc": a1.get("auc"),
             "best_f1": a1.get("f1"),
@@ -288,8 +328,8 @@ def dashboard_summary() -> dict:
         "prediction_stats": prediction_stats,
         "strategy_stats": strategy_stats,
         "partb_stats": partb_stats,
-        "customer_stats": _customer_stats(),
-        "channel_stats": _channel_stats(),
+        "customer_stats": customer_stats,
+        "channel_stats": _channel_stats(business_date),
         "events": {
             "available": events["available"],
             "sent": events["sent"],

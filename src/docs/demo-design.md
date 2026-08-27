@@ -19,7 +19,7 @@
    └─────────── 指标看板(KPI/漏斗) ← 事件回流(归因 responded) ←┘
 ```
 
-- 环一 数仓与离线 pipeline：14 张分层表 + 批次溯源 + 41 项质量门禁 + **run_all 一键复现**
+- 环一 数仓与离线 pipeline：20 张业务与分层表 + 批次溯源 + 41 项质量门禁 + **run_all 一键复现**
 - 环二 算法层：A1 模型 / A2 规则引擎 / Part B 优化器（各有数字锚点）
 - 环三 运营闭环：触达事件化 → 响应归因 → KPI 目标管理（本稿新增设计）
 - 环四 四 Tab 平台：官方功能底线 → 验收载体（个性化/合规性/联动）
@@ -31,7 +31,7 @@
 | 验收点 | 演示落点 |
 |--------|---------|
 | 个性化 | Tab3 策略卡 + A1 解释因子 |
-| 合规性 | Tab3 规则轨迹（13 条规则命中/拦截） |
+| 合规性 | Tab3 规则轨迹（14 条规则命中/拦截） |
 | 平台联动 | Tab2 改约束重算 + Tab3 调参重跑 + 埋点/归因/KPI 实时变化 |
 
 ---
@@ -133,7 +133,7 @@ app_campaign_event
 ### 5.2 必须打磨的演示动作（4 + 1）
 
 1. Tab2 改约束 → 秒级重算（API 已就绪）
-2. Tab3 调 `w_cf`/manager 配额 → Top3 变化（引擎现成，包 generate 端点）
+2. Tab3 调整 manager 配额 → 推荐渠道变化（generate 试算端点，不覆盖 ADS）
 3. Tab3 标记已触达/已响应 → 状态流转（事件表 + 埋点 API）
 4. Tab4 KPI 进度 +1、漏斗数字变化（dashboard 聚合）
 5. **改源文件 → run_all 一键复跑 → 全链路产物更新 + 41 项质量门禁全绿**（工程分证据）
@@ -144,7 +144,6 @@ app_campaign_event
 
 - Tab1 完整进件落库（静态展示 + 口头讲流程）
 - Kafka、多经理维度、declined 事件、鉴权审计
-- 策略落库表（继续 CSV/内存 + 轨迹快照 JSON）
 - **AI/LLM 接入（讲而不做**：话术模板可升级为 LLM 生成，规则引擎保证合规底线）
 
 ### 5.4 风险预案
@@ -159,7 +158,7 @@ app_campaign_event
 |---|------|------|------|
 | 1 | `src/sql/schema.sql` | 追加 `app_campaign_event` DDL | 小 |
 | 2 | `src/marketing/attribution.py`（新） | 归因模块：窗口/匹配/边界规则 | 中 |
-| 3 | `src/marketing/pipeline.py` | 轨迹快照输出 `a2_strategy_trace.json` | 小 |
+| 3 | `src/marketing/pipeline.py` | 审计轨迹输出 `src/data/outputs/a2_strategy_audit.csv` | 小 |
 | 4 | `src/campaign.py`（新）+ `src/app.py` | 埋点 API + 策略状态查询 | 中 |
 | 5 | `src/dashboard.py`（新）+ `src/app.py` | `/dashboard/summary`：KPI + 漏斗 + 分布 | 中 |
 | 6 | `src/tests/test_marketing_attribution.py`（新） | 归因规则测试（窗口/匹配/边界） | 小 |

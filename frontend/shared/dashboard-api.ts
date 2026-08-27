@@ -12,6 +12,7 @@ interface ApiEnvelope<T> {
 
 export interface DashboardOverview {
   generated_at: string;
+  business_date: string;
   business_metrics: {
     customer_count: number;
     total_aum: number;
@@ -76,6 +77,70 @@ export interface DashboardOverview {
     sent_strategy_count?: number;
     responded_strategy_count?: number;
   };
+  action_items?: {
+    conversion: {
+      actual: number;
+      target: number;
+      gap: number;
+      label: string;
+    };
+    touch: {
+      total_customers: number;
+      sent_customers: number;
+      strategy_ready_customers: number;
+      sent_strategies: number;
+      total_strategies: number;
+      high_intent_untouched: number;
+    };
+    channel: {
+      manager_sent: number;
+      manager_responded: number;
+      manager_response_rate: number | null;
+      manager_target: number;
+    };
+  };
+  expiry_warning?: {
+    available: boolean;
+    as_of: string;
+    window_days: number;
+    holding_count: number;
+    customer_count: number;
+    amount: number;
+    items: Array<{
+      customer_id: string;
+      product_id: string;
+      product_name: string;
+      maturity_date: string;
+      amount: number;
+    }>;
+  };
+  capability?: {
+    dimensions: Array<{
+      key: string;
+      label: string;
+      note: string;
+      score: number;
+      advice: string;
+    }>;
+    weakest: {
+      key: string;
+      label: string;
+      note: string;
+      score: number;
+      advice: string;
+    };
+  };
+  opportunity?: {
+    golden: { count: number; expected_responses: number };
+    products: Array<{ product_id: string; count: number }>;
+    expiry: {
+      available: boolean;
+      holding_count: number;
+      customer_count: number;
+      amount: number;
+      window_days: number;
+    };
+  };
 }
 
 export interface PortfolioResult {
@@ -131,7 +196,14 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return envelope.data;
 }
 
-export function getDashboardOverview(scenarioId: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ scenario_id: scenarioId });
+export function getDashboardOverview(
+  scenarioId: string,
+  businessDate: string,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    scenario_id: scenarioId,
+    business_date: businessDate,
+  });
   return request<DashboardOverview>(`/api/v1/dashboard/overview?${query}`, signal);
 }

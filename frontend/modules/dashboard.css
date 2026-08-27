@@ -1259,3 +1259,109 @@
     font-size: 17px;
   }
 }
+/* 今日行动：运营指令卡（红黄绿三级语义） */
+.action-section .action-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.action-card{min-width:0;display:flex;flex-direction:column;gap:8px;padding:14px 15px;border:1px solid #dde6ed;border-left-width:4px;border-radius:10px;background:#fff;box-shadow:0 4px 12px #112d4b0a}
+.action-card.level-red{border-left-color:#c0523f}
+.action-card.level-amber{border-left-color:#d39b36}
+.action-card.level-green{border-left-color:#26906f}
+.action-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.action-card>header b{color:var(--navy);font-size:12px}
+.action-card>header span{color:#8b99a4;font-size:9px;font-weight:600}
+.action-card.level-red>header span{color:#b34837}
+.action-card.level-amber>header span{color:#966922}
+.action-card.level-green>header span{color:#1d7a5c}
+.action-card>strong{color:var(--navy);font:700 22px Georgia,serif}
+.action-card>strong i{color:#9fb0bd;margin:0 6px;font:500 12px PingFang SC,sans-serif}
+.action-card>strong em{color:var(--navy2);font:600 13px PingFang SC,sans-serif}
+.action-card>p{margin:0;color:#6b7f90;font-size:10px;line-height:1.6}
+.action-card>p b{color:#966922}
+.action-card .primary{min-height:34px;padding:7px 10px;font-size:10px}
+.action-hint{color:#93a2ad;font-size:9px}
+@media(max-width:1100px){.action-section .action-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.action-section .action-grid{grid-template-columns:1fr}}
+
+/* 到期预警条：固定期限持仓到期 → 再配置机会 */
+.expiry-strip{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center;margin-top:10px;padding:11px 14px;border:1px solid #ecd9ae;border-left-width:4px;border-left-color:#d39b36;border-radius:9px;background:#fdf8ec}
+.expiry-strip>b{color:#8f6726;font-size:12px;white-space:nowrap}
+.expiry-strip>span{color:#5d7181;font-size:11px}
+.expiry-strip>span strong{color:#966922}
+.expiry-strip>ul{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 18px;margin:0;padding:0;list-style:none}
+.expiry-strip li{color:#5d7181;font-size:10px}
+.expiry-strip li em{color:#254b6d;font-style:normal;font-weight:600}
+.expiry-strip li b{color:#b34837;font-weight:600}
+.expiry-strip .primary{grid-column:1/-1;justify-self:start;min-height:32px;padding:6px 12px;font-size:10px}
+@media(max-width:620px){.expiry-strip{grid-template-columns:1fr}.expiry-strip>ul{flex-direction:column;gap:4px}}
+
+/* 运营参考：背景信息卡（比行动卡更轻的视觉权重） */
+.reference-section .reference-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.reference-card{min-width:0;display:flex;flex-direction:column;gap:10px;padding:14px 15px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.reference-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.reference-card>header b{color:var(--navy2);font-size:12px}
+.reference-card>header span{color:#8b99a4;font-size:9px;font-weight:600}
+.reference-fact{display:grid;gap:3px}
+.reference-fact span{color:#7c8f9e;font-size:10px}
+.reference-fact strong{color:var(--navy);font:600 14px "PingFang SC","Microsoft YaHei",sans-serif}
+.reference-fact small{color:#94a2ad;font-size:9px}
+.reference-card .secondary{align-self:flex-start;min-height:32px;padding:6px 11px;font-size:10px}
+@media(max-width:850px){.reference-section .reference-grid{grid-template-columns:1fr}}
+
+/* 能力提升：教练式评分卡 */
+.capability-section .capability-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.capability-bar{min-width:0;padding:11px 13px;border:1px solid #e3eaf0;border-radius:9px;background:#fff}
+.capability-bar.weak{border-color:#e8cd9d;background:#fdf9f0}
+.capability-bar header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.capability-bar header span{color:#5d7181;font-size:11px}
+.capability-bar header strong{color:var(--navy);font:700 15px Georgia}
+.capability-bar.weak header strong{color:#966922}
+.capability-bar>i{display:block;height:6px;margin:7px 0 5px;border-radius:6px;background:#e9eef2;overflow:hidden}
+.capability-bar>i b{display:block;height:100%;background:linear-gradient(90deg,#2d6896,#b98b3e);border-radius:6px}
+.capability-bar small{color:#94a2ad;font-size:9px}
+.capability-diagnose{grid-column:1/-1;display:flex;align-items:center;gap:14px;margin-top:2px;padding:12px 15px;border:1px solid #ecd9ae;border-left-width:4px;border-left-color:var(--gold);border-radius:9px;background:#fdf8ec}
+.capability-diagnose>span{white-space:nowrap}
+.capability-diagnose>span b{color:#8f6726;font-size:11px}
+.capability-diagnose strong{color:var(--navy);font-size:13px;white-space:nowrap}
+.capability-diagnose p{margin:0;flex:1;color:#6c7e8c;font-size:11px}
+.capability-diagnose .primary{min-height:32px;padding:7px 12px;font-size:10px;white-space:nowrap}
+.capability-footnote{margin:8px 0 0;color:#94a2ad;font-size:9px}
+@media(max-width:850px){.capability-section .capability-grid{grid-template-columns:1fr 1fr}.capability-diagnose{flex-wrap:wrap}}
+
+/* 转化机会挖掘 */
+.opportunity-section .opportunity-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.opportunity-card{min-width:0;display:flex;flex-direction:column;gap:9px;padding:14px 15px;border:1px solid #e3eaf0;border-radius:10px;background:#fff}
+.opportunity-card.lead{border-color:#e8cd9d;background:#fdf9f0}
+.opportunity-card>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.opportunity-card>header b{color:var(--navy);font-size:12px}
+.opportunity-card>header span{color:#966922;font-size:9px;font-weight:600}
+.opportunity-card>strong{color:var(--navy);font:700 24px "PingFang SC","Microsoft YaHei",sans-serif}
+.opportunity-card>strong i{margin-left:5px;color:#8b99a4;font:500 11px "PingFang SC","Microsoft YaHei",sans-serif}
+.opportunity-card>p{margin:0;color:#6b7f90;font-size:10px;line-height:1.6}
+.opportunity-card>p b{color:#966922}
+.opportunity-card .primary{align-self:flex-start;min-height:32px;padding:6px 12px;font-size:10px}
+.opportunity-products{display:grid;gap:5px;margin:0;padding:0;list-style:none}
+.opportunity-products li{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fbfcfd;font-size:10px}
+.opportunity-products li span{color:var(--navy2);font-weight:600}
+.opportunity-products li em{color:#6c8293;font-style:normal}
+@media(max-width:850px){.opportunity-section .opportunity-grid{grid-template-columns:1fr}}
+
+/* 投放概览：账户级 KPI 条 */
+.campaign-section .campaign-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.campaign-kpis article{padding:12px 13px;border:1px solid #e3eaf0;border-radius:9px;background:#fff;text-align:left}
+.campaign-kpis article.gold{border-color:#e8cd9d;background:#fdf9f0}
+.campaign-kpis small,.campaign-kpis strong,.campaign-kpis span{display:block}
+.campaign-kpis small{color:#82919d;font-size:10px}
+.campaign-kpis strong{margin:4px 0 2px;color:var(--navy);font:700 20px "PingFang SC","Microsoft YaHei",sans-serif}
+.campaign-kpis article.gold strong{color:#966922}
+.campaign-kpis span{color:#94a2ad;font-size:9px}
+@media(max-width:1100px){.campaign-section .campaign-kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:620px){.campaign-section .campaign-kpis{grid-template-columns:repeat(2,1fr)}}
+
+/* 营销转化漏斗（纯 CSS） */
+.funnel-panel{display:grid;justify-items:center;gap:0;margin-top:12px;padding:14px 0 2px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.funnel-stage{display:flex;align-items:center;justify-content:center;gap:8px;height:36px;color:#fff;font-size:11px;clip-path:polygon(5% 0,95% 0,100% 100%,0 100%)}
+.funnel-stage span{opacity:.85;font-size:10px}
+.funnel-stage b{font:700 13px "PingFang SC","Microsoft YaHei",sans-serif}
+.funnel-stage.s1{background:linear-gradient(90deg,#0d3d6b,#286b9f)}
+.funnel-stage.s2{background:linear-gradient(90deg,#286b9f,#5a91b8)}
+.funnel-stage.s3{background:linear-gradient(90deg,#b48435,#d6ba74)}
+.funnel-rate{color:#82919d;font-size:9px;margin:3px 0;font-style:normal}

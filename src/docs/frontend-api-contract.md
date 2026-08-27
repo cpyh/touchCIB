@@ -14,8 +14,8 @@
 | 4 | `GET /customers/<id>/strategies` | 任意客户Top3：A2正式版 / 非A2实时冻结版 + 推荐依据 |
 | 5 | `POST /campaign/events` + `POST /campaign/demo-holdings` | 执行追踪：已触达 / 模拟新增持仓与自动归因 |
 | 6 | `GET /dashboard/summary` | 经营看板：全部 KPI 与图表 |
-| 7 | `POST /marketing/strategy/generate` | 运营干预：调 w_cf / manager 配额 → 重跑 Top3（不落库） |
-| 8 | `GET /marketing/rules` | 规则引擎元数据（13 条规则清单） |
+| 7 | `POST /marketing/strategy/generate` | 单客户 A1+规则试算（不覆盖 ADS 日批） |
+| 8 | `GET /marketing/rules` | 规则引擎元数据（14 条规则清单） |
 | 9 | `POST /marketing/response/predict` | A1数据库在线推理：客户×产品×渠道概率与解释 |
 | 10-13 | `/api/v1/customers*`（客户画像服务，已统一到 5001） | 列表/新建+风险评估/画像/AI 摘要，envelope 格式 `{code, message, data}` |
 | 14-15 | `/api/v1/dashboard/overview` + `/portfolio`（队友看板骨架，已用真实数据填满） | 业务指标/A1/A2/组合实时求解/营销漏斗 |
@@ -70,12 +70,11 @@
 ```json
 { "total": 8000, "population_total": 8000, "page": 1, "size": 12,
   "counts": { "all": 8000, "pending": 7968, "follow_up": 8, "converted": 24 },
-  "official_target_customers": 2000, "model_covered_customers": 5031,
-  "unscored_customers": 2969, "coverage_rate": 0.628875,
+  "strategy_ready_customers": 8000, "model_covered_customers": 8000,
+  "unscored_customers": 0, "coverage_rate": 1.0,
   "tasks": [ { "customer_id": "C000116", "vip_level": "钻石",
     "risk_appetite": "R4", "aum": 1530000,
-    "official_target": true, "strategy_ready": true,
-    "strategy_source": "official_submission",
+    "strategy_ready": true, "strategy_source": "batch_generated",
     "strategy_id": "C000116:1", "product_id": "P001",
     "product_name": "混合001号", "recommended_channel": "manager",
     "recommended_time": "工作日09:00-12:00", "status": "follow_up",
@@ -85,8 +84,8 @@
 
 - `status`：`pending`（待联系）/ `follow_up`（已联系、等待购买回流）/ `converted`（任一 Top3 已响应）
 - `opportunity_score` 是该客户在 A1 触达集中的最高机会分，不是Top3产品概率；产品级复核调用 `/marketing/response/predict`
-- 主队列固定覆盖 `t_customer` 的8000位客户；2000位A2客户用 `official_target=true` 标识，不再作为主队列过滤条件
-- A1的8000是触达记录，实际覆盖5031位客户。其余2969位客户保留空分并排在末尾，不伪造概率；仍可按需在线计算Top3
+- 主队列固定覆盖 `dwd_dim_customer` 的全量客户，按 A1 最高响应概率降序展示
+- A1/A2 日批对全量客户生成结果；页面只读 ADS，不在请求时临时生成策略
 
 ## 3a. GET /marketing/roster?page=1&size=50&sort=prob_desc
 
@@ -103,7 +102,7 @@
 
 ```json
 { "customer_id": "C000010", "strategy_date": "2026-04-15",
-  "official_target": true, "strategy_source": "official_submission", "risk_appetite": "R2",
+  "strategy_source": "warehouse_batch", "risk_appetite": "R2",
   "vip_level": "金卡", "aum": 1234567.0,
   "items": [ { "strategy_id": "C000010:1", "rank": 1, "product_id": "P012",
     "product_name": "混合012号", "recommended_channel": "manager",
@@ -116,8 +115,8 @@
 ```
 
 - `status` ∈ 待执行 / 已触达 / 已响应（由事件表推导）
-- A2客户始终读取 `partA_strategy.csv`；其他客户首次请求时在线生成3行并写入 `app_marketing_strategy`，后续请求和服务重启均复用该快照
-- `rule_trace` 是"推荐依据"区块的数据源：9 条规则的命中/拦截原因，逐条展示即可（合规性验收点）
+- 所有客户统一读取最新 `ads_marketing_strategy`；请求阶段不读取提交 CSV，也不临时固化策略
+- `rule_trace` 是"推荐依据"区块的数据源：批处理时冻结的规则命中/拦截原因
 - `script_adjusted=true` 表示平台执行出口补齐了标准风险提示；赛事提交 CSV 保持不变
 
 ## 5. POST /campaign/events
@@ -189,29 +188,32 @@
 ## 7. POST /marketing/strategy/generate（运营干预，不落库）
 
 ```json
-// 请求（w_cf ∈ [0,1]，manager_quota ≥ 0，top_n 默认 3）
-{ "customer_id": "C002690", "w_cf": 0.8, "manager_quota": 600, "top_n": 3 }
+// 请求（manager_quota ≥ 0，top_n 为 1~3）
+{ "customer_id": "C002690", "manager_quota": 600, "top_n": 3 }
 ```
 
 ```json
 // 响应（节选）
 { "customer_id": "C002690", "strategy_date": "2026-04-15",
-  "parameters": { "w_cf": 0.8, "manager_quota": 600, "top_n": 3 },
+  "parameters": { "manager_quota": 600, "top_n": 3,
+    "ranking_source": "a1_probability", "a1_source": "mysql_dwd_online" },
   "items": [ { "rank": 1, "product_id": "P012", "product_name": "混合012号",
     "risk_level": "R2", "expected_return": 0.0369, "recommended_channel": "manager",
     "recommended_time": "工作日09:00-12:00", "marketing_script": "...",
-    "score": 0.83, "model_prob": 0.79, "cf_score": 0.05, "overshoot": false,
+    "model_prob": 0.79, "a1_rank": 1,
+    "selection_reason": "A1原始排名第1，通过全部规则，进入过滤后Top3第1位",
     "rule_trace": [ { "rule_id": "risk_match", "passed": true, "reason": "..." } ] } ] }
 ```
 
-> **演示建议**：w_cf 干预在**有持仓的客户**上效果最明显（已验证：C002690 / C003040 调 w_cf 后 Top3 会换产品）；manager_quota 600→0 会把 manager 渠道换成 app_push/call/sms。
+> **演示建议**：用该接口说明“试算不覆盖正式 ADS”；manager_quota 600→0
+> 会把 manager 渠道换成 app_push/call/sms，产品仍保持 A1 概率顺序。
 
 ## 8. GET /marketing/rules
 
 ```json
 { "rules": [ { "rule_id": "risk_match", "name": "适当性匹配（风险等级）",
   "category": "compliance", "description": "产品风险等级不得超过客户风险偏好…",
-  "hard": true }, ...13 条 ] }
+  "hard": true }, ...14 条 ] }
 ```
 
 ## 9. POST /marketing/response/predict

@@ -1,8 +1,10 @@
 @import "tailwindcss";
+@import "../modules/home.css";
 @import "../modules/customer.css";
 @import "../modules/portfolio.css";
 @import "../modules/marketing.css";
 @import "../modules/dashboard.css";
+@import "../modules/pipeline.css";
 :root{--navy:#0b2948;--navy2:#143d64;--blue:#25608f;--gold:#b18439;--ink:#1c2b38;--muted:#748492;--line:#dde5eb;--bg:#f2f5f7;--green:#187356;--shadow:0 10px 28px rgba(12,39,65,.08)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"PingFang SC","Microsoft YaHei",Arial,sans-serif;-webkit-font-smoothing:antialiased}button,input,select{font:inherit}button{cursor:pointer}.app{display:flex;min-height:100vh}.sidebar{width:252px;flex:0 0 252px;position:sticky;top:0;height:100vh;padding:25px 17px 20px;color:#fff;background:radial-gradient(circle at 20% -5%,#275c8a 0,transparent 34%),linear-gradient(180deg,#0c2d50,#071c32);display:flex;flex-direction:column;z-index:20}.brand{display:flex;gap:12px;align-items:center;padding:0 9px 26px;border-bottom:1px solid #ffffff20}.brand>b{width:42px;height:42px;display:grid;place-items:center;border:1px solid #d9b86d88;border-radius:12px 12px 12px 3px;color:#e6ce99;font:700 21px Georgia}.brand span,.brand strong,.brand small{display:block}.brand strong{font-size:15px;letter-spacing:.08em}.brand small{margin-top:4px;color:#92a8ba;font-size:10px;letter-spacing:.32em}.sidebar nav{display:grid;gap:7px;margin-top:23px}.sidebar nav button{display:flex;align-items:center;gap:11px;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:#afc0cf;text-align:left}.sidebar nav button:hover{background:#ffffff0c}.sidebar nav button.on{background:linear-gradient(90deg,#386e9b55,#ffffff08);color:#fff;box-shadow:inset 3px 0 #c69b4d}.sidebar nav button>b{width:34px;height:34px;display:grid;place-items:center;border:1px solid #ffffff24;border-radius:8px;color:#dec589;font-size:12px}.sidebar nav span,.sidebar nav strong,.sidebar nav small{display:block}.sidebar nav strong{font-size:13px}.sidebar nav small{margin-top:3px;color:#8399ab;font-size:9px}.safe{margin-top:auto;display:flex;align-items:center;gap:9px;padding:12px;border:1px solid #ffffff1d;border-radius:9px;background:#ffffff08}.safe>b{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:#c5964220;color:#d8ba78;font-size:10px}.safe span,.safe strong,.safe small{display:block}.safe strong{font-size:11px}.safe small{margin-top:2px;color:#8298aa;font-size:8px}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}.main>header{position:sticky;top:0;z-index:15;height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 32px;border-bottom:1px solid var(--line);background:#ffffffef;backdrop-filter:blur(12px);font-size:11px;color:var(--muted)}.main>header i{margin:0 7px;font-style:normal;color:#aab5be}.main>header>div b{color:var(--navy2)}.main>header section{display:flex;align-items:center;gap:8px}.main>header section>span{display:block}.main>header section small,.main>header section b{display:block}.main>header section small{font-size:8px;color:#8d99a3}.main>header section b{font-size:10px;color:var(--navy2)}.user{width:33px;height:33px;margin-left:13px;display:grid;place-items:center;border-radius:8px;background:var(--navy2);color:#e2c483}.main>main{width:100%;max-width:1500px;margin:auto;padding:32px 34px 48px}.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:25px}.page-head>div>span{color:var(--gold);font-size:9px;font-weight:700;letter-spacing:.18em}.page-head h1{margin:7px 0 6px;color:var(--navy);font-size:26px}.page-head p{margin:0;color:var(--muted);font-size:12px}.primary,.secondary{padding:9px 15px;border-radius:7px;font-size:11px;font-weight:600}.primary{border:1px solid #144974;background:linear-gradient(#1d5a8b,#123d68);color:#fff;box-shadow:0 5px 14px #174a7828}.secondary{border:1px solid #cad6df;background:#fff;color:var(--navy2)}.full{width:100%}.card{border:1px solid #e0e7ec;border-radius:11px;background:#fff;box-shadow:var(--shadow)}.block{padding:21px;margin-bottom:20px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:15px}.section-head h2{margin:0;color:var(--navy);font-size:14px}.section-head h2 i{display:inline-grid;place-items:center;width:25px;height:25px;margin-right:7px;border-radius:6px;background:#eaf1f6;color:var(--blue);font-size:8px;font-style:normal}.section-head p{margin:4px 0 0;color:#85939e;font-size:10px}.status{display:inline-flex;align-items:center;gap:5px;width:max-content;padding:4px 8px;border-radius:99px;background:#eaf7f2;color:var(--green);font-size:8px;font-weight:600;white-space:nowrap}.status i{width:5px;height:5px;border-radius:50%;background:#26906f}.status.warn{background:#f9f0df;color:#94651e}.notice{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 13px;border:1px solid #b8ddcd;border-radius:8px;background:#eff9f4;color:#266c56;font-size:9px}.notice>b{width:24px;height:24px;display:grid;place-items:center;border-radius:50%;background:#2c8669;color:#fff}.notice span{flex:1}.notice button{border:0;background:transparent;color:#4f7c6e;font-size:9px}
@@ -61,3 +63,32 @@ b,strong{font-weight:600}
 .toast-box p { margin-top: 4px; font-size: .85rem; color: #444; line-height: 1.6; }
 .muted-note { color: #999; font-size: .9rem; padding: 16px; }
 .warn-text { color: #c0392b; margin-top: 4px; }
+
+/* ============================================================
+   数字呈现统一阶梯（视觉收敛）
+   L1 指标卡大数 21px · L2 卡片核心数 19px · L3 行内强调 13px
+   ============================================================ */
+:root { --number-font:"SF Pro Display","Helvetica Neue","PingFang SC","Microsoft YaHei",Arial,sans-serif; }
+body,button,input,select,textarea { font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+.metric strong { font:700 21px var(--number-font); color:var(--navy); }
+.metric.gold strong { color:#946921; }
+.business-kpis strong,.campaign-kpis strong { font:700 21px var(--number-font); }
+.action-card>strong { font:700 19px var(--number-font); }
+.action-card>strong i { font:500 11px var(--number-font); color:#9fb0bd; }
+.action-card>strong em { font:600 12px var(--number-font); color:var(--navy2); }
+.linkage-fact strong,.behavior-metrics strong { font:700 19px var(--number-font); }
+.aum strong,.risk strong { font:700 18px var(--number-font); }
+.stats b,.prob b { font:700 13px var(--number-font); }
+.source>span>em { font:600 22px var(--number-font); }
+.expiry-strip>span strong { font:700 12px var(--number-font); }
+.money-cell,.money input,.donut b,.product em strong,.steps b,
+.allocation-visual-head>strong,.bridge-core strong,.execution-summary strong,.ai-advice-summary strong,
+.manager-kpis strong,.task-card-opportunity>em b,.signal-cards strong,.personal-kpi strong,
+.model-metrics-proof strong,.lab-compare article>em,.capability-bar header strong,
+.opportunity-card>strong,.reference-fact strong { font-family:var(--number-font); font-variant-numeric:tabular-nums lining-nums; }
+
+/* 全局业务日期：所有业务页共享同一日批快照 */
+.global-business-date,.snapshot-mode{display:flex!important;align-items:center;gap:8px;height:42px;padding:5px 10px;border:1px solid #dbe4ea;border-radius:9px;background:#f8fafb}
+.global-business-date{cursor:pointer}.global-business-date small,.snapshot-mode small{white-space:nowrap}.global-business-date input{width:118px;padding:0;border:0;outline:0;background:transparent;color:var(--navy2);font-size:12px;font-weight:600}.snapshot-mode{min-width:112px}.snapshot-mode b{white-space:nowrap}.snapshot-mode.historical{border-color:#e8cfaa;background:#fff8eb}.snapshot-mode.historical b{color:#94651e}
+.historical-snapshot-note{display:flex;align-items:center;gap:9px;margin:-7px 0 14px;padding:9px 12px;border:1px solid #ecd5b4;border-radius:8px;background:#fff9ef;color:#7b5a2a;font-size:12px}.historical-snapshot-note b{color:#8d6425}.historical-snapshot-note p{margin:0}
+@media(max-width:900px){.snapshot-mode{display:none!important}.main>header{padding:0 18px}.main>header>div{display:none}}

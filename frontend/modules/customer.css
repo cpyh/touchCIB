@@ -1,9 +1,18 @@
 .competition-strip { margin-bottom: 18px; }
 .customer-query-bar { grid-template-columns: minmax(320px, 1fr) auto; }
 .customer-query-bar .primary { min-width: 150px; }
+.customer-directory-head{align-items:flex-end}
+.customer-directory-head>div:first-child{display:grid;gap:3px}
+.customer-section-kicker{color:var(--gold);font-size:9px;font-weight:700;letter-spacing:.08em}
+.customer-directory-head h2{margin-top:1px}
+.customer-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px}
+.customer-head-actions .secondary{min-height:36px;padding:8px 13px}
+.page-customer .customer-records{margin-top:0}
 
 @media (max-width: 620px) {
   .customer-query-bar { grid-template-columns: 1fr; }
+  .customer-directory-head{align-items:flex-start}
+  .customer-head-actions{width:100%;justify-content:space-between}
 }
 
 /* liantiao 客户画像真实接口与进件流程样式 */
@@ -22,3 +31,113 @@
 
 /* AI 客户画像结构化输出与安全关键词高亮 */
 .ai-analysis{display:grid;gap:10px;min-height:118px;margin:11px 0;padding:13px 0;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c}.ai-analysis section{display:grid;gap:4px}.ai-analysis section>b{color:#e2c47e;font-size:10px;letter-spacing:.04em}.ai-analysis p{margin:0;color:#d5e0e8;font-size:11px;line-height:1.75}.ai-highlight{padding:0 2px;border-radius:3px;background:#d7aa4b24;color:#f1d18b;font-weight:700}.ai-empty{min-height:118px;display:grid;place-items:center;margin:11px 0;padding:13px 4px;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c;color:#adc0cf;font-size:11px;line-height:1.8;text-align:center}
+
+/* 平台联动面板：客户在投顾/营销链路中的位置 */
+.profile-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.linkage-panel{margin:0 0 14px;padding:13px 15px 15px;border:1px solid #dde6ed;border-radius:11px;background:#fff;box-shadow:0 4px 12px #112d4b0a;transition:opacity .2s}
+.linkage-panel.is-loading{opacity:.55}
+.linkage-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:11px}
+.linkage-head small{color:var(--gold);font-size:8px;font-weight:700;letter-spacing:.14em}
+.linkage-head h3{margin:2px 0 0;color:var(--navy);font-size:14px}
+.linkage-head p{margin:0;color:#7b8d9b;font-size:10px}
+.linkage-grid{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:10px}
+.linkage-card{min-width:0;padding:12px 13px;border:1px solid #e3eaf0;border-radius:9px;background:#fbfcfd}
+.linkage-card>b{display:flex;justify-content:space-between;color:var(--navy2);font-size:12px}
+.linkage-card>b small{color:#96a5b1;font-size:9px;font-weight:500}
+.linkage-fact{margin-top:9px}
+.linkage-fact span,.linkage-fact strong,.linkage-fact em{display:block}
+.linkage-fact span{color:#7c8f9e;font-size:10px}
+.linkage-fact strong{margin:2px 0;color:var(--navy);font:700 18px Georgia,serif}
+.linkage-fact em{color:#5f7687;font-size:10px;font-style:normal}
+.linkage-top3{display:grid;gap:6px;margin:9px 0 0;padding:0;list-style:none}
+.linkage-top3 li{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;padding:7px 9px;border:1px solid #e7edf2;border-radius:7px;background:#fff;font-size:10px}
+.linkage-top3 li b{color:#966922;font:700 9px Georgia}
+.linkage-top3 li span{color:#254b6d}
+.linkage-top3 li em{color:#6c8293;font-style:normal}
+.linkage-empty{margin-top:9px;padding:10px;border-radius:7px;background:#f6f8fa;color:#8a99a5;font-size:10px}
+.linkage-note{margin:8px 0;color:#75889a;font-size:10px;line-height:1.6}
+.linkage-card .secondary{min-height:32px;padding:6px 11px;font-size:10px}
+@media(max-width:850px){.linkage-grid{grid-template-columns:1fr}.profile-actions{margin-left:0}}
+
+/* 风险评估标签页 */
+.risk-assessment{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;padding:18px}
+.risk-score-card{padding:16px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.risk-score-card small,.risk-score-card strong,.risk-score-card span,.risk-score-card p{display:block}
+.risk-score-card small{color:#82919d;font-size:10px}
+.risk-score-card strong{margin:4px 0;color:var(--navy);font:700 32px Georgia}
+.risk-score-card span{color:#5d7181;font-size:11px}
+.risk-score-card span b{color:#966922}
+.risk-score-card p{margin:9px 0 0;color:#94a2ad;font-size:9px;line-height:1.5}
+.risk-band{display:flex;gap:4px;margin-top:12px}
+.risk-band i{flex:1;display:grid;place-items:center;height:26px;border-radius:6px;background:#e9eef2;color:#82919d;font-style:normal}
+.risk-band i em{font:700 9px Georgia}
+.risk-band i.on{background:linear-gradient(135deg,#2d6896,#b98b3e);color:#fff}
+.risk-factors{padding:16px;border:1px solid #e3eaf0;border-radius:10px;background:#fbfcfd}
+.risk-factors>b{color:var(--navy2);font-size:11px}
+.risk-factors ul{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.risk-factors li{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;border:1px solid #e7edf2;border-radius:7px;background:#fff;font-size:10px}
+.risk-factors li span{color:#4b6478}
+.risk-factors li em{color:var(--navy2);font-style:normal;font-weight:600}
+.risk-factors li.total{border-color:#e8cd9d;background:#fdf9f0}
+.risk-factors li.total span,.risk-factors li.total em{color:#8f6726;font-weight:700}
+@media(max-width:850px){.risk-assessment{grid-template-columns:1fr}}
+
+/* 客户经理服务流：定位客户 → 核验画像 → 发起业务动作 */
+.page-customer .customer-page-head>div>small{display:block;margin-bottom:5px;color:var(--gold);font-size:10px;font-weight:700;letter-spacing:.14em}
+.page-customer .customer-service-flow{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:10px 14px;border:1px solid #dfe7ee;border-radius:9px;background:#f7f9fb}
+.page-customer .customer-service-flow span{display:grid;grid-template-columns:25px auto;align-items:center;column-gap:8px;min-width:145px;color:#8998a4}
+.page-customer .customer-service-flow span i{grid-row:1/3;width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#e4eaf0;color:#81909c;font-size:10px;font-style:normal;font-weight:700}
+.page-customer .customer-service-flow span b{font-size:11px}.page-customer .customer-service-flow span small{font-size:9px}
+.page-customer .customer-service-flow span.on{color:var(--navy2)}.page-customer .customer-service-flow span.on i{background:var(--navy2);color:#f0cd7d}
+.page-customer .customer-service-flow>em{color:#aeb9c1;font-style:normal}
+
+/* 客户名录只保留决策相关字段，桌面端不再横向滚动 */
+.page-customer .customer-toolbar.api-toolbar{grid-template-columns:minmax(250px,1fr) repeat(3,minmax(105px,145px)) auto;gap:9px}
+.page-customer .customer-table{overflow-x:hidden}
+.page-customer .customer-table table{width:100%;min-width:0;table-layout:fixed}
+.page-customer .customer-table th:nth-child(1){width:16%}.page-customer .customer-table th:nth-child(2){width:20%}.page-customer .customer-table th:nth-child(3){width:18%}.page-customer .customer-table th:nth-child(4){width:13%}.page-customer .customer-table th:nth-child(5){width:20%}.page-customer .customer-table th:nth-child(6){width:13%}
+.page-customer .customer-table td{vertical-align:middle}.page-customer .customer-table td:last-child{text-align:right}
+.page-customer .customer-id span{min-width:0}.page-customer .customer-id span b,.page-customer .customer-id span small{display:block}
+.page-customer .customer-aum-inline{color:var(--navy2);font-size:13px;white-space:nowrap}
+.page-customer .customer-table .vip-tag{margin-top:1px;padding:3px 7px}
+.page-customer .customer-table .row-action{padding:8px 10px;border:1px solid #cddae4;border-radius:7px;background:#fff;color:var(--navy2);font-weight:600}
+.page-customer .customer-table tr:hover .row-action{border-color:#7fa0b8;background:#f0f6fa}
+
+/* 客户详情：摘要、证据和行动台三段式 */
+.page-customer .service-profile-bar{display:grid;grid-template-columns:minmax(270px,1fr) minmax(430px,1.45fr);gap:14px;margin-bottom:14px;padding:15px 17px;border:1px solid #d9e3ea;border-radius:11px;background:linear-gradient(120deg,#f9fbfc,#eef4f8)}
+.page-customer .service-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.page-customer .service-identity>span{min-width:0}.page-customer .service-identity small,.page-customer .service-identity h3,.page-customer .service-identity p{display:block;margin:0}
+.page-customer .service-identity small{color:#7b8d9b;font-size:10px}.page-customer .service-identity h3{margin:2px 0;color:var(--navy);font-size:19px}.page-customer .service-identity p{overflow:hidden;color:#687d8d;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.page-customer .service-profile-metrics{display:grid;grid-template-columns:1.15fr 1fr 1fr;align-items:center}
+.page-customer .service-profile-metrics>span{min-width:0;padding:2px 14px;border-left:1px solid #d6e0e7}
+.page-customer .service-profile-metrics small,.page-customer .service-profile-metrics strong,.page-customer .service-profile-metrics em{display:block}
+.page-customer .service-profile-metrics small{color:#81919e;font-size:9px}.page-customer .service-profile-metrics strong{margin:4px 0;color:var(--navy);font-size:14px;white-space:nowrap}.page-customer .service-profile-metrics em{overflow:hidden;color:#738695;font-size:9px;font-style:normal;text-overflow:ellipsis;white-space:nowrap}
+.page-customer .service-profile-tags{grid-column:1/-1;display:flex;gap:6px;padding-top:10px;border-top:1px solid #dce4ea}
+.page-customer .service-profile-tags i{padding:4px 8px;border:1px solid #d8e2e9;border-radius:99px;background:#fff;color:#587084;font-size:9px;font-style:normal}
+.page-customer .customer-service-layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px;align-items:start}
+.page-customer .service-evidence-panel{min-width:0;min-height:430px}
+.page-customer .api-overview article{min-height:172px}.page-customer .api-overview article:nth-child(n+3){border-bottom:0}
+
+.page-customer .manager-next-step{max-height:640px;overflow:auto;padding:18px;border-radius:12px;color:#fff;background:radial-gradient(circle at 100% 0,#d3a44b38,transparent 33%),linear-gradient(150deg,#153e66,#092540);box-shadow:0 12px 30px #0a25412b;transition:opacity .2s}
+.page-customer .manager-next-step.is-loading{opacity:.7}
+.page-customer .manager-next-step>header{padding-bottom:14px;border-bottom:1px solid #ffffff1d}.page-customer .manager-next-step>header small{color:#e0c27d;font-size:9px;font-weight:700;letter-spacing:.12em}.page-customer .manager-next-step>header h3{margin:6px 0 5px;color:#fff;font-size:16px}.page-customer .manager-next-step>header p{margin:0;color:#aabccc;font-size:10px;line-height:1.55}
+.page-customer .service-signal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:13px 0}.page-customer .service-signal-grid span{padding:10px 8px;border:1px solid #ffffff1a;border-radius:8px;background:#ffffff0a}.page-customer .service-signal-grid small,.page-customer .service-signal-grid strong{display:block}.page-customer .service-signal-grid small{color:#93a9ba;font-size:8px}.page-customer .service-signal-grid strong{margin-top:4px;color:#f0cf83;font-size:15px}
+.page-customer .primary-strategy{display:grid;gap:4px;padding:11px;border-left:3px solid #d3a34b;border-radius:0 8px 8px 0;background:#ffffff0b}.page-customer .primary-strategy small{color:#e1c37c;font-size:8px}.page-customer .primary-strategy b{font-size:11px}.page-customer .primary-strategy span{color:#a8bac8;font-size:9px}
+.page-customer .manager-actions{display:grid;gap:7px;margin:13px 0}.page-customer .manager-actions button{width:100%;min-height:39px;font-size:11px}.page-customer .manager-actions .secondary{border-color:#ffffff30;background:#ffffff0c;color:#fff}
+.page-customer .service-ai-block{padding-top:14px;border-top:1px solid #ffffff1d}.page-customer .service-ai-block>button{width:100%;margin-top:11px;padding:8px;border:1px solid #ffffff30;border-radius:7px;background:#ffffff0a;color:#fff;font-size:10px}.page-customer .service-ai-block>em{display:block;margin-top:7px;color:#8096a8;font-size:8px;font-style:normal;text-align:center}
+.page-customer .service-ai-block .ai-analysis{min-height:0;margin:10px 0}.page-customer .service-ai-block .ai-analysis p{font-size:10px;line-height:1.65}
+
+@media(max-width:1180px){
+  .page-customer .customer-toolbar.api-toolbar{grid-template-columns:minmax(220px,1fr) repeat(3,105px) auto}
+  .page-customer .customer-service-layout{grid-template-columns:minmax(0,1fr) 315px}
+  .page-customer .service-profile-bar{grid-template-columns:1fr}.page-customer .service-profile-metrics>span:first-child{border-left:0;padding-left:0}
+}
+@media(max-width:900px){
+  .page-customer .customer-toolbar.api-toolbar{grid-template-columns:1fr 1fr}.page-customer .customer-toolbar.api-toolbar .customer-search{grid-column:1/-1}.page-customer .customer-toolbar.api-toolbar .reset-filter{grid-column:auto;justify-self:stretch}
+  .page-customer .customer-table{overflow-x:auto}.page-customer .customer-table table{min-width:820px}
+  .page-customer .customer-service-layout{grid-template-columns:1fr}.page-customer .manager-next-step{max-height:none}
+}
+@media(max-width:620px){
+  .page-customer .customer-service-flow{overflow-x:auto}.page-customer .customer-service-flow span{min-width:130px}
+  .page-customer .service-profile-metrics{grid-template-columns:1fr 1fr}.page-customer .service-profile-metrics>span{padding:8px}.page-customer .service-profile-metrics>span:nth-child(3){grid-column:1/-1;border-top:1px solid #d6e0e7}
+}

@@ -27,7 +27,7 @@ npm run dev
 
 默认访问 `http://localhost:3000`，后端默认地址为
 `http://127.0.0.1:5001`。如需修改，可设置
-`NEXT_PUBLIC_API_BASE_URL`。
+`VITE_API_BASE_URL`。
 
 ## 目录
 

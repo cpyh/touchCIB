@@ -13,12 +13,13 @@ from src.marketing.templates import COMPLIANCE_NOTE
 
 
 class FakeCursor:
-    """模拟 pymysql 游标：记录执行语句与参数，按序返回 fetchone 结果。"""
+    """模拟 pymysql 游标：记录执行语句与参数，按序返回 fetchone/fetchall 结果。"""
 
-    def __init__(self, fetchone_results=None):
+    def __init__(self, fetchone_results=None, fetchall_results=None):
         self.statements: list[str] = []
         self.params_list: list[tuple] = []
         self._fetchone_results = list(fetchone_results or [])
+        self._fetchall_results = list(fetchall_results or [])
 
     def execute(self, statement, params=None):
         self.statements.append(statement)
@@ -29,9 +30,12 @@ class FakeCursor:
             return self._fetchone_results.pop(0)
         return None
 
+    def fetchall(self):
+        return self._fetchall_results
 
-def fake_connection(fetchone_results=None):
-    cursor = FakeCursor(fetchone_results)
+
+def fake_connection(fetchone_results=None, fetchall_results=None):
+    cursor = FakeCursor(fetchone_results, fetchall_results)
     connection = MagicMock()
     connection.cursor.return_value.__enter__.return_value = cursor
     return connection, cursor
@@ -39,12 +43,18 @@ def fake_connection(fetchone_results=None):
 
 class CampaignEventTestCase(unittest.TestCase):
     def setUp(self):
-        # 用真实策略文件做校验（strategy_top3 与 strategy_date 来自仓库根 CSV）
-        from src.campaign import strategy_top3
-
-        self.top3 = strategy_top3()
-        self.customer_id = next(iter(self.top3))
+        self.customer_id = "C000001"
+        self.top3 = {self.customer_id: ("P001", "P002", "P003")}
         self.strategy_id = f"{self.customer_id}:1"
+        patchers = (
+            patch("src.campaign._known_customer_ids", return_value=frozenset({self.customer_id})),
+            patch("src.campaign.customer_top3", return_value=self.top3[self.customer_id]),
+            patch("src.campaign.customer_strategy_date", return_value=date(2026, 4, 15)),
+            patch("src.campaign.customer_strategy_channel", return_value="manager"),
+        )
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _top3_of_first_customer(self):
         return self.top3[self.customer_id]
@@ -71,10 +81,13 @@ class CampaignEventTestCase(unittest.TestCase):
     @patch("src.campaign.database_connection")
     def test_sent_event_recorded(self, mock_db):
         connection, cursor = fake_connection(
-            [{"campaign_event_id": 1, "strategy_id": self.strategy_id,
-              "event_type": "sent", "occurred_at": datetime(2026, 4, 16, 10, 0),
-              "product_id": None, "amount": None,
-              "created_at": datetime(2026, 4, 16, 10, 0)}]
+            fetchone_results=[
+                {"campaign_event_id": 1, "strategy_id": self.strategy_id,
+                 "event_type": "sent", "occurred_at": datetime(2026, 4, 16, 10, 0),
+                 "product_id": None, "amount": None,
+                 "created_at": datetime(2026, 4, 16, 10, 0)}
+            ],
+            fetchall_results=[],
         )
         mock_db.return_value = connection
         event = create_sent_event(self.strategy_id)
@@ -88,6 +101,26 @@ class CampaignEventTestCase(unittest.TestCase):
         with self.assertRaises(CampaignInputError):
             create_sent_event("C999999:1")
         mock_db.assert_not_called()
+
+    @patch("src.campaign.database_connection")
+    def test_sent_dedupe_customer_level(self, mock_db):
+        """同一客户已有任意 rank 的 sent 事件时，重复触达被拒绝（客户口径）。"""
+        connection, _ = fake_connection(
+            fetchall_results=[
+                {
+                    "strategy_id": f"{self.customer_id}:2",
+                    "event_type": "sent",
+                    "occurred_at": datetime(2026, 4, 15, 9, 0),
+                    "product_id": None,
+                    "amount": None,
+                    "created_at": datetime(2026, 4, 15, 9, 0),
+                }
+            ]
+        )
+        mock_db.return_value = connection
+        with self.assertRaises(CampaignInputError) as ctx:
+            create_sent_event(self.strategy_id)
+        self.assertIn("只触达一次", str(ctx.exception))
 
     @patch("src.campaign.database_connection")
     def test_responded_attribution_rejected_outside_top3(self, mock_db):

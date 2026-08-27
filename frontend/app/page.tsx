@@ -4,28 +4,34 @@ import { useState } from "react";
 
 import { CustomerPage } from "../modules/customer";
 import { DashboardPage } from "../modules/dashboard";
+import { HomePage } from "../modules/home";
 import { MarketingPage } from "../modules/marketing";
 import { PortfolioPage } from "../modules/portfolio";
 
-type Module = "customer" | "portfolio" | "marketing" | "dashboard";
+type Module = "home" | "customer" | "portfolio" | "marketing" | "dashboard";
+const DEFAULT_BUSINESS_DATE = "2026-04-15";
 
 const navigation: [Module, string, string, string][] = [
-  ["customer", "客", "客户360", "画像与风险证据"],
-  ["portfolio", "投", "智能投顾", "客户适配与组合优化"],
-  ["marketing", "营", "营销运营", "响应预测与策略执行"],
-  ["dashboard", "览", "Part C/D看板", "工程与运营闭环"],
+  ["home", "今", "今日工作台", "经理的一天与目标"],
+  ["customer", "客", "客户进件与风险评估", "全景画像与风险证据"],
+  ["portfolio", "投", "智能投顾推荐", "组合配置优化"],
+  ["marketing", "营", "营销运营工作台", "响应预测与策略执行"],
+  ["dashboard", "览", "可视化看板", "经营指标与算法证据"],
 ];
 
 const titles: Record<Module, string> = {
-  customer: "客户360与风险画像",
-  portfolio: "智能投顾组合配置优化",
-  marketing: "精准营销运营工作台",
-  dashboard: "Part C/D经营与工程看板",
+  home: "今日工作台",
+  customer: "客户进件与风险评估",
+  portfolio: "智能投顾推荐",
+  marketing: "营销运营工作台",
+  dashboard: "可视化看板",
 };
 
 export default function Home() {
-  const [active, setActive] = useState<Module>("marketing");
+  const [active, setActive] = useState<Module>("home");
   const [customerId, setCustomerId] = useState("");
+  const [marketingCohort, setMarketingCohort] = useState<"all" | "expiry">("all");
+  const [businessDate, setBusinessDate] = useState(DEFAULT_BUSINESS_DATE);
   const [toast, setToast] = useState("");
 
   function notify(message: string) {
@@ -33,8 +39,22 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 4000);
   }
 
+  function openModule(module: Module) {
+    setActive(module);
+  }
+
   function openMarketing(nextCustomerId: string) {
     setCustomerId(nextCustomerId);
+    setMarketingCohort("all");
+    setActive("marketing");
+  }
+
+  function openMarketingWithCohort(
+    nextCustomerId: string,
+    cohort: "all" | "expiry"
+  ) {
+    setCustomerId(nextCustomerId);
+    setMarketingCohort(cohort);
     setActive("marketing");
   }
 
@@ -42,6 +62,13 @@ export default function Home() {
     setCustomerId(nextCustomerId);
     setActive("customer");
   }
+
+  function openPortfolio(nextCustomerId: string) {
+    setCustomerId(nextCustomerId);
+    setActive("portfolio");
+  }
+
+  const historical = businessDate < DEFAULT_BUSINESS_DATE;
 
   return (
     <div className="app">
@@ -60,17 +87,30 @@ export default function Home() {
         <header>
           <div>智能财富管理运营平台 <i>›</i> <b>{titles[active]}</b></div>
           <section>
-            <span><small>统一分析基准日</small><b>2026-03-31</b></span>
+            <label className="global-business-date">
+              <small>全局业务日期</small>
+              <input
+                type="date"
+                value={businessDate}
+                max={DEFAULT_BUSINESS_DATE}
+                onChange={(event) => setBusinessDate(event.target.value || DEFAULT_BUSINESS_DATE)}
+                aria-label="全局业务日期"
+              />
+            </label>
+            <span className={historical ? "snapshot-mode historical" : "snapshot-mode"}>
+              <small>数据模式</small><b>{historical ? "历史快照 · 只读" : "当前运营日"}</b>
+            </span>
             <div className="user">李</div>
             <span><b>李经理</b><small>财富运营部</small></span>
           </section>
         </header>
 
         <main className={`page-${active}`}>
-          {active === "customer" && <CustomerPage initialCustomerId={customerId} onOpenMarketing={openMarketing} notify={notify} />}
-          {active === "portfolio" && <PortfolioPage initialCustomerId={customerId} notify={notify} />}
-          {active === "marketing" && <MarketingPage initialCustomerId={customerId} onOpenCustomer={openCustomer} notify={notify} />}
-          {active === "dashboard" && <DashboardPage />}
+          {active === "home" && <HomePage key={businessDate} businessDate={businessDate} onOpenModule={openModule} onOpenExpiry={(nextCustomerId) => openMarketingWithCohort(nextCustomerId, "expiry")} />}
+          {active === "customer" && <CustomerPage key={businessDate} businessDate={businessDate} historical={historical} initialCustomerId={customerId} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} notify={notify} />}
+          {active === "portfolio" && <PortfolioPage key={businessDate} businessDate={businessDate} initialCustomerId={customerId} notify={notify} onOpenMarketing={openMarketing} />}
+          {active === "marketing" && <MarketingPage key={businessDate} businessDate={businessDate} historical={historical} initialCustomerId={customerId} initialCohort={marketingCohort} onOpenCustomer={openCustomer} onOpenDashboard={() => setActive("dashboard")} notify={notify} />}
+          {active === "dashboard" && <DashboardPage key={businessDate} businessDate={businessDate} onBusinessDateChange={setBusinessDate} onOpenMarketing={openMarketing} onOpenPortfolio={openPortfolio} />}
         </main>
 
         <footer>

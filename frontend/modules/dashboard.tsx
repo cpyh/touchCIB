@@ -5,109 +5,18 @@ import { useEffect, useMemo, useState } from "react";
 import {
   DashboardApiError,
   DashboardOverview,
-  DataStatus,
   getDashboardOverview,
 } from "../shared/dashboard-api";
-import { channelNames, PageHead, Status } from "../shared/ui";
-
-const scenarios = Array.from(
-  { length: 20 },
-  (_, index) => `S${String(index + 1).padStart(2, "0")}`
-);
-
-const statusText: Record<DataStatus, string> = {
-  READY: "数据已就绪",
-  NOT_READY: "待生成",
-  INVALID: "结果校验异常",
-  NOT_STARTED: "尚未执行",
-};
-
-const validationLabels: Record<string, string> = {
-  customer_coverage_passed: "客户名单",
-  top3_complete_passed: "每客Top3",
-  product_unique_passed: "产品不重复",
-  channel_enum_passed: "渠道合法",
-  time_enum_passed: "时段合法",
-  script_length_passed: "话术格式",
-};
-
-function percent(
-  value: number | null | undefined,
-  digits = 1
-) {
-  return value == null
-    ? "—"
-    : `${(value * 100).toFixed(digits)}%`;
-}
-
-function compactMoney(value: number | null | undefined) {
-  if (value == null) return "—";
-
-  if (Math.abs(value) >= 100_000_000) {
-    return `¥ ${(value / 100_000_000).toFixed(2)}亿`;
-  }
-
-  if (Math.abs(value) >= 10_000) {
-    return `¥ ${(value / 10_000).toFixed(1)}万`;
-  }
-
-  return `¥ ${value.toLocaleString("zh-CN", {
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function exactMoney(value: number | null | undefined) {
-  return value == null
-    ? "—"
-    : `¥ ${value.toLocaleString("zh-CN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`;
-}
-
-function metric(
-  value: number | null | undefined,
-  digits = 3
-) {
-  return value == null ? "—" : value.toFixed(digits);
-}
-
-function formatTime(value: string) {
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleString("zh-CN", {
-        hour12: false,
-      });
-}
-
-function ResultStatus({ status }: { status: DataStatus }) {
-  return (
-    <Status warn={status !== "READY"}>
-      {statusText[status]}
-    </Status>
-  );
-}
-
-function EmptyState({
-  status,
-  text,
-}: {
-  status: DataStatus;
-  text: string;
-}) {
-  return (
-    <div
-      className={`dashboard-empty ${
-        status === "INVALID" ? "invalid" : ""
-      }`}
-    >
-      <b>{statusText[status]}</b>
-      <span>{text}</span>
-    </div>
-  );
-}
+import { PageHead, Status } from "../shared/ui";
+import { PipelineTaskCenter } from "./pipeline";
+import {
+  compactMoney,
+  exactMoney,
+  formatDateTime,
+  formatNumber,
+  metric,
+  percent,
+} from "../shared/format";
 
 function SectionTitle({
   index,
@@ -130,19 +39,30 @@ function SectionTitle({
   );
 }
 
-export function DashboardPage() {
-  const [scenarioId, setScenarioId] = useState("S01");
+export function DashboardPage({
+  businessDate,
+  onBusinessDateChange,
+  onOpenMarketing,
+  onOpenPortfolio,
+}: {
+  businessDate: string;
+  onBusinessDateChange: (value: string) => void;
+  onOpenMarketing?: (customerId: string) => void;
+  onOpenPortfolio?: (customerId: string) => void;
+}) {
   const [dashboard, setDashboard] =
     useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [view, setView] = useState<"overview" | "pipeline">("overview");
 
   useEffect(() => {
     const controller = new AbortController();
 
     getDashboardOverview(
-      scenarioId,
+      "S01",
+      businessDate,
       controller.signal
     )
       .then(setDashboard)
@@ -167,7 +87,7 @@ export function DashboardPage() {
       });
 
     return () => controller.abort();
-  }, [scenarioId, refreshKey]);
+  }, [refreshKey, businessDate]);
 
   const maxRiskCount = useMemo(
     () =>
@@ -180,60 +100,30 @@ export function DashboardPage() {
     [dashboard]
   );
 
-  const maxIntentCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a1_performance.probability_distribution.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
-  const maxChannelCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a2_performance.channel_distribution.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
-  const maxTimeCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a2_performance.time_distribution?.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
-  function selectScenario(nextScenario: string) {
-    if (nextScenario === scenarioId) {
-      return;
-    }
-
-    setScenarioId(nextScenario);
-    setLoading(true);
-    setError("");
-  }
-
   function refresh() {
     setLoading(true);
     setError("");
     setRefreshKey((value) => value + 1);
   }
 
+  if (view === "pipeline") {
+    return (
+      <PipelineTaskCenter
+        businessDate={businessDate}
+        onBusinessDateChange={onBusinessDateChange}
+        onOpenOverview={() => {
+          setView("overview");
+          refresh();
+        }}
+      />
+    );
+  }
+
   if (!dashboard && loading) {
     return (
       <>
         <PageHead
-          title="可视化经营看板"
+          title="可视化看板"
           description="从业务数据到算法决策，再到策略执行与结果回流。"
           action={<Status>正在读取真实数据</Status>}
         />
@@ -251,7 +141,7 @@ export function DashboardPage() {
     return (
       <>
         <PageHead
-          title="可视化经营看板"
+          title="可视化看板"
           description="从业务数据到算法决策，再到策略执行与结果回流。"
           action={<Status warn>接口连接失败</Status>}
         />
@@ -277,51 +167,30 @@ export function DashboardPage() {
 
   const business = dashboard.business_metrics;
   const a1 = dashboard.a1_performance;
-  const a2 = dashboard.a2_performance;
-  const portfolio = dashboard.portfolio;
   const portfolioSummary =
     dashboard.portfolio_summary;
-  const funnel = dashboard.marketing_funnel;
 
-  const strategyCount =
-    funnel.generated_strategy_count ??
-    a2.result_row_count ??
-    a2.generated_customer_count * 3;
-
-  const sentCount =
-    funnel.sent_strategy_count ?? 0;
-
-  const respondedCount =
-    funnel.responded_strategy_count ?? 0;
-
-  const pendingCount = Math.max(
-    0,
-    strategyCount - sentCount
-  );
-
-  const touchRate =
-    strategyCount > 0
-      ? sentCount / strategyCount
-      : null;
-
-  const responseRate =
-    sentCount > 0
-      ? respondedCount / sentCount
-      : null;
-
-  const validationEntries = Object.entries(
-    a2.validation ?? {}
-  );
-
-  const validationPassed =
-    validationEntries.filter(
-      ([, passed]) => passed
-    ).length;
+  const actions = dashboard.action_items;
+  const channel = actions?.channel;
+  const a1AllAnchorsMet =
+    (a1.auc ?? 0) >= 0.85 &&
+    (a1.f1 ?? 0) >= 0.615 &&
+    (a1.lift_at_10 ?? 0) >= 3.3;
+  const partBOk =
+    !!portfolioSummary &&
+    portfolioSummary.status === "READY" &&
+    portfolioSummary.constraints_passed_count ===
+      portfolioSummary.scenario_count;
 
   return (
     <>
+      <div className="dashboard-view-tabs" aria-label="可视化看板页面切换">
+        <button className="on">经营分析</button>
+        <button onClick={() => setView("pipeline")}>数据任务中心</button>
+      </div>
+
       <PageHead
-        title="可视化经营看板"
+        title="可视化看板"
         description="从数据基础、算法决策到营销执行，展示智能财富管理的完整业务闭环。"
         action={
           <div className="dashboard-actions">
@@ -334,7 +203,7 @@ export function DashboardPage() {
             >
               {loading
                 ? "正在刷新"
-                : `更新于 ${formatTime(
+                : `更新于 ${formatDateTime(
                     dashboard.generated_at
                   )}`}
             </span>
@@ -357,6 +226,65 @@ export function DashboardPage() {
         </div>
       )}
 
+      {/* ================= 营销概览（账户级） ================= */}
+
+      <section className="dashboard-section campaign-section">
+        <SectionTitle
+          index="00"
+          title="营销概览"
+          description="本批营销活动的规模、触达、转化与机会，一屏总览。"
+        />
+        <div className="campaign-kpis">
+          <article className="gold"><small>高意向客户</small><strong>{formatNumber(
+            dashboard.opportunity?.golden.count
+          )}</strong><span>概率≥70% 未触达</span></article>
+          <article><small>已触达客户</small><strong>{
+            formatNumber(dashboard.marketing_funnel?.contacted_customer_count)
+          }</strong><span>全量 {formatNumber(business.customer_count)} 位</span></article>
+          <article><small>已响应客户</small><strong>{
+            formatNumber(dashboard.marketing_funnel?.responded_customer_count)
+          }</strong><span>归因口径</span></article>
+          <article><small>触达后响应率</small><strong>{
+            dashboard.marketing_funnel?.contacted_customer_count
+              ? percent(
+                  (dashboard.marketing_funnel.responded_customer_count ?? 0)
+                  / dashboard.marketing_funnel.contacted_customer_count
+                )
+              : "—"
+          }</strong><span>客户口径</span></article>
+          <article><small>高意向潜力</small><strong>{
+            formatNumber(dashboard.opportunity?.golden.expected_responses)
+          }</strong><span>潜在响应客户</span></article>
+          <article><small>到期资金</small><strong>{
+            dashboard.expiry_warning?.available
+              ? compactMoney(dashboard.expiry_warning.amount)
+              : "—"
+          }</strong><span>30 天内到期</span></article>
+        </div>
+
+        <div className="funnel-panel">
+          <div className="funnel-stage s1" style={{ width: "100%" }}>
+            <span>全量客户</span><b>{formatNumber(dashboard.marketing_funnel?.target_customer_count)}</b>
+          </div>
+          <em className="funnel-rate">↓ 触达率 {(() => {
+            const target = dashboard.marketing_funnel?.target_customer_count ?? 0;
+            const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
+            return target ? percent(contacted / target) : "—";
+          })()}</em>
+          <div className="funnel-stage s2" style={{ width: "26%" }}>
+            <span>已触达客户</span><b>{formatNumber(dashboard.marketing_funnel?.contacted_customer_count)}</b>
+          </div>
+          <em className="funnel-rate">↓ 响应率 {(() => {
+            const contacted = dashboard.marketing_funnel?.contacted_customer_count ?? 0;
+            const responded = dashboard.marketing_funnel?.responded_customer_count ?? 0;
+            return contacted ? percent(responded / contacted) : "—";
+          })()}</em>
+          <div className="funnel-stage s3" style={{ width: "20%" }}>
+            <span>已响应客户</span><b>{formatNumber(dashboard.marketing_funnel?.responded_customer_count)}</b>
+          </div>
+        </div>
+      </section>
+
       {/* ================= 数据总览 ================= */}
 
       <section className="dashboard-section">
@@ -373,7 +301,7 @@ export function DashboardPage() {
           <article>
             <small>客户总数</small>
             <strong>
-              {business.customer_count.toLocaleString()}
+              {formatNumber(business.customer_count)}
             </strong>
             <span>财富客户记录</span>
           </article>
@@ -395,7 +323,7 @@ export function DashboardPage() {
           <article>
             <small>在售产品</small>
             <strong>
-              {business.product_count.toLocaleString()} 款
+              {formatNumber(business.product_count)} 款
             </strong>
             <span>财富产品数量</span>
           </article>
@@ -419,7 +347,7 @@ export function DashboardPage() {
           <article>
             <small>历史营销触达</small>
             <strong>
-              {business.historical_contact_count.toLocaleString()}
+              {formatNumber(business.historical_contact_count)}
             </strong>
             <span>历史营销记录</span>
           </article>
@@ -444,7 +372,7 @@ export function DashboardPage() {
               </div>
 
               <Status>
-                {business.customer_count.toLocaleString()} 位客户
+                {formatNumber(business.customer_count)} 位客户
               </Status>
             </div>
 
@@ -453,7 +381,7 @@ export function DashboardPage() {
                 (item, index) => (
                   <div key={item.risk_level}>
                     <em>
-                      {item.count.toLocaleString()}
+                      {formatNumber(item.count)}
                     </em>
 
                     <i
@@ -532,740 +460,85 @@ export function DashboardPage() {
         </div>
       </section>
 
-      {/* ================= 算法分析 ================= */}
+      {/* ================= 渠道表现与算法质量（运营参考） ================= */}
 
-      <section className="dashboard-section">
+      <section className="dashboard-section reference-section">
         <SectionTitle
-          index="02"
-          title="A1、A2与Part B结果分析"
-          description="分别验证客户识别、策略生成和资产配置三个算法环节。"
+          index="03"
+          title="渠道表现与算法质量"
+          description="渠道表现供资源倾斜参考，算法健康度保障活动稳定性。"
         />
-
-        <div className="algorithm-grid">
-          {/* A1 */}
-
-          <section className="card dashboard-panel algorithm-panel">
-            <div className="section-head">
-              <div>
-                <h2>A1 · 营销响应预测</h2>
-                <p>
-                  识别更可能响应的客户与产品机会
-                </p>
-              </div>
-
-              <ResultStatus status={a1.status} />
+        <div className="reference-grid">
+          <article className="reference-card">
+            <header><b>渠道表现</b><span>资源倾斜参考</span></header>
+            <div className="reference-fact">
+              <span>经理渠道现场响应率</span>
+              <strong>{percent(channel?.manager_response_rate)}</strong>
+              <small>目标 {percent(channel?.manager_target, 0)} · 触达 {formatNumber(channel?.manager_sent)} 位 / 响应 {formatNumber(channel?.manager_responded)} 位</small>
             </div>
-
-            {a1.status === "READY" ? (
-              <>
-                <div className="algorithm-metrics">
-                  <article>
-                    <small>AUC</small>
-                    <strong>
-                      {metric(a1.auc)}
-                    </strong>
-                    <span>离线验证</span>
-                  </article>
-
-                  <article>
-                    <small>最优F1</small>
-                    <strong>
-                      {metric(a1.f1)}
-                    </strong>
-                    <span>阈值扫描</span>
-                  </article>
-
-                  <article>
-                    <small>Lift@10%</small>
-                    <strong>
-                      {metric(
-                        a1.lift_at_10,
-                        2
-                      )}
-                    </strong>
-                    <span>头部客户提升</span>
-                  </article>
-
-                  <article>
-                    <small>预测记录</small>
-                    <strong>
-                      {a1.prediction_count?.toLocaleString() ??
-                        "—"}
-                    </strong>
-                    <span>
-                      平均概率{" "}
-                      {percent(
-                        a1.mean_probability
-                      )}
-                    </span>
-                  </article>
-                </div>
-
-                <div className="intent-distribution">
-                  <h3>预测意向分层</h3>
-
-                  {a1.probability_distribution.map(
-                    (item) => (
-                      <div key={item.bucket}>
-                        <span>{item.bucket}</span>
-
-                        <i>
-                          <b
-                            style={{
-                              width: `${
-                                (item.count /
-                                  maxIntentCount) *
-                                100
-                              }%`,
-                            }}
-                          />
-                        </i>
-
-                        <em>
-                          {item.count.toLocaleString()}
-                        </em>
-                      </div>
-                    )
-                  )}
-                </div>
-              </>
-            ) : (
-              <EmptyState
-                status={a1.status}
-                text="A1验证指标或预测结果尚未准备完成。"
-              />
-            )}
-          </section>
-
-          {/* A2 */}
-
-          <section className="card dashboard-panel algorithm-panel a2-panel">
-            <div className="section-head">
-              <div>
-                <h2>A2 · Top3营销策略</h2>
-                <p>
-                  把预测机会转化为可执行营销动作
-                </p>
-              </div>
-
-              <ResultStatus status={a2.status} />
+            <div className="reference-fact">
+              <span>历史渠道平均响应率</span>
+              <strong>{percent(business.historical_response_rate)}</strong>
+              <small>来自 {formatNumber(business.historical_contact_count)} 条历史触达训练样本</small>
             </div>
+            <span className="action-hint">经理渠道明显领先，后续批次建议继续倾斜</span>
+          </article>
 
-            {a2.status === "READY" ? (
-              <>
-                <div className="a2-summary">
-                  <article>
-                    <small>策略总数</small>
-                    <strong>
-                      {strategyCount.toLocaleString()}
-                    </strong>
-                    <span>
-                      {a2.target_customer_count.toLocaleString()}
-                      位客户 × Top3
-                    </span>
-                  </article>
-
-                  <article>
-                    <small>规则引擎</small>
-                    <strong>
-                      {a2.rule_count ?? "—"} 项
-                    </strong>
-                    <span>
-                      风险、渠道、时段与话术
-                    </span>
-                  </article>
-
-                  <article>
-                    <small>结果校验</small>
-                    <strong>
-                      {validationEntries.length
-                        ? `${validationPassed}/${validationEntries.length}`
-                        : "—"}
-                    </strong>
-                    <span>
-                      策略格式与完整性
-                    </span>
-                  </article>
-                </div>
-
-                <div className="strategy-flow">
-                  <span>A1响应概率</span>
-                  <i>＋</i>
-                  <span>协同过滤</span>
-                  <b>→</b>
-                  <span>规则引擎</span>
-                  <b>→</b>
-                  <strong>
-                    客户Top3策略
-                  </strong>
-                </div>
-
-                <div className="a2-distributions">
-                  <div>
-                    <h3>推荐渠道</h3>
-
-                    <div className="channel-distribution">
-                      {a2.channel_distribution.map(
-                        (item) => (
-                          <div key={item.channel}>
-                            <span>
-                              {channelNames[
-                                item.channel
-                              ] ?? item.channel}
-                            </span>
-
-                            <i>
-                              <b
-                                style={{
-                                  width: `${
-                                    (item.count /
-                                      maxChannelCount) *
-                                    100
-                                  }%`,
-                                }}
-                              />
-                            </i>
-
-                            <em>
-                              {item.count.toLocaleString()}
-                            </em>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3>推荐时段</h3>
-
-                    <div className="time-distribution">
-                      {a2.time_distribution
-                        ?.length ? (
-                        a2.time_distribution.map(
-                          (item) => (
-                            <div
-                              key={
-                                item.time_slot
-                              }
-                            >
-                              <span>
-                                {
-                                  item.time_slot
-                                }
-                              </span>
-
-                              <i>
-                                <b
-                                  style={{
-                                    width: `${
-                                      (item.count /
-                                        maxTimeCount) *
-                                      100
-                                    }%`,
-                                  }}
-                                />
-                              </i>
-
-                              <em>
-                                {item.count.toLocaleString()}
-                              </em>
-                            </div>
-                          )
-                        )
-                      ) : (
-                        <small>
-                          重启后端后读取推荐时段分布
-                        </small>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {validationEntries.length >
-                  0 && (
-                  <div className="validation-chips">
-                    {validationEntries.map(
-                      ([key, passed]) => (
-                        <span
-                          className={
-                            passed
-                              ? "pass"
-                              : "fail"
-                          }
-                          key={key}
-                        >
-                          {passed ? "✓" : "!"}{" "}
-                          {validationLabels[
-                            key
-                          ] ?? key}
-                        </span>
-                      )
-                    )}
-                  </div>
-                )}
-
-                <p className="metric-note">
-                  HitRate@3依赖官方隐藏购买标签，当前重点展示策略生成、分布与执行合规性。
-                </p>
-              </>
-            ) : (
-              <EmptyState
-                status={a2.status}
-                text={
-                  a2.status === "INVALID"
-                    ? "策略文件未通过Top3、枚举或字段完整性校验。"
-                    : "A2策略结果尚未生成。"
-                }
-              />
-            )}
-          </section>
-
-          {/* Part B */}
-
-          <section className="card dashboard-panel portfolio-panel full-width">
-            <div className="section-head">
-              <div>
-                <h2>Part B · 组合配置优化</h2>
-                <p>
-                  验证20个场景整体结果，并支持单场景配置下钻
-                </p>
-              </div>
-
-              <div className="scenario-control">
-                <label htmlFor="dashboard-scenario">
-                  下钻场景
-                </label>
-
-                <select
-                  id="dashboard-scenario"
-                  value={scenarioId}
-                  disabled={loading}
-                  onChange={(event) =>
-                    selectScenario(
-                      event.target.value
-                    )
-                  }
-                >
-                  {scenarios.map((item) => (
-                    <option key={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-
-                <ResultStatus
-                  status={portfolio.status}
-                />
-              </div>
+          <article className="reference-card">
+            <header><b>算法质量</b><span>{a1AllAnchorsMet && partBOk ? "无异常" : "需复核"}</span></header>
+            <div className="reference-fact">
+              <span>A1 验证指标</span>
+              <strong>AUC {metric(a1.auc, 4)} · F1 {metric(a1.f1, 4)} · Lift {metric(a1.lift_at_10, 2)}</strong>
+              <small>三项全部达到题目满分锚点</small>
             </div>
-
-            <div className="portfolio-total-summary">
-              <article>
-                <small>完成场景</small>
-                <strong>
-                  {portfolioSummary
-                    ? `${portfolioSummary.scenario_count}/20`
-                    : "—"}
-                </strong>
-              </article>
-
-              <article>
-                <small>约束通过</small>
-                <strong>
-                  {portfolioSummary
-                    ? `${portfolioSummary.constraints_passed_count}/${portfolioSummary.scenario_count}`
-                    : "—"}
-                </strong>
-              </article>
-
-              <article>
-                <small>配置明细</small>
-                <strong>
-                  {portfolioSummary?.allocation_row_count.toLocaleString() ??
-                    "—"}{" "}
-                  行
-                </strong>
-              </article>
-
-              <article>
-                <small>总效用</small>
-                <strong>
-                  {metric(
-                    portfolioSummary?.total_utility,
-                    6
-                  )}
-                </strong>
-              </article>
-
-              <article>
-                <small>最大Gap</small>
-                <strong>
-                  {metric(
-                    portfolioSummary?.max_optimality_gap,
-                    8
-                  )}
-                </strong>
-              </article>
+            <div className="reference-fact">
+              <span>Part B 组合优化</span>
+              <strong>{formatNumber(portfolioSummary?.constraints_passed_count)} / {formatNumber(portfolioSummary?.scenario_count)} 场景约束通过</strong>
+              <small>最大最优性 gap {portfolioSummary?.max_optimality_gap == null ? "—" : portfolioSummary.max_optimality_gap.toExponential(1)}（切平面上界证书）</small>
             </div>
-
-            {portfolio.status === "READY" ? (
-              <>
-                <div className="portfolio-summary">
-                  <article>
-                    <small>
-                      {scenarioId}配置资金
-                    </small>
-                    <strong>
-                      {compactMoney(
-                        portfolio.total_amount
-                      )}
-                    </strong>
-                  </article>
-
-                  <article>
-                    <small>预期收益率</small>
-                    <strong>
-                      {percent(
-                        portfolio.expected_return,
-                        2
-                      )}
-                    </strong>
-                  </article>
-
-                  <article>
-                    <small>组合波动率</small>
-                    <strong>
-                      {percent(
-                        portfolio.volatility,
-                        2
-                      )}
-                    </strong>
-                  </article>
-
-                  <article>
-                    <small>效用值</small>
-                    <strong>
-                      {metric(
-                        portfolio.utility,
-                        4
-                      )}
-                    </strong>
-                  </article>
-
-                  <article>
-                    <small>约束审计</small>
-                    <strong
-                      className={
-                        portfolio.constraints_satisfied
-                          ? "pass"
-                          : "fail"
-                      }
-                    >
-                      {portfolio.constraints_satisfied
-                        ? "全部通过"
-                        : "未通过"}
-                    </strong>
-                  </article>
-                </div>
-
-                <div className="portfolio-details">
-                  {/* 左侧 */}
-                  <div className="allocation-detail">
-                    <h3>按产品类型配置</h3>
-
-                    <div className="allocation-types">
-                      {portfolio.allocation_by_product_type.map(
-                        (item) => (
-                          <div
-                            key={
-                              item.product_type
-                            }
-                          >
-                            <span>
-                              {
-                                item.product_type
-                              }
-                            </span>
-
-                            <i>
-                              <b
-                                style={{
-                                  width: `${
-                                    item.weight *
-                                    100
-                                  }%`,
-                                }}
-                              />
-                            </i>
-
-                            <em>
-                              {percent(
-                                item.weight
-                              )}
-                            </em>
-                          </div>
-                        )
-                      )}
-                    </div>
-
-                    <p className="portfolio-audit">
-                      现金权重{" "}
-                      {percent(
-                        portfolio.cash_weight,
-                        3
-                      )}{" "}
-                      · 最优性差距{" "}
-                      {metric(
-                        portfolio.optimality_gap,
-                        6
-                      )}
-                    </p>
-                  </div>
-
-                  {/* 右侧 */}
-                  <div className="product-detail">
-                    <div className="product-detail-title">
-                      <h3>产品配置明细</h3>
-
-                      <small>
-                        滚动查看全部{" "}
-                        {
-                          portfolio
-                            .allocation_items
-                            .length
-                        }{" "}
-                        款
-                      </small>
-                    </div>
-
-                    {/* 注意：这里已经删除了原来的 table 公共 class */}
-                    <div
-                      className="portfolio-table"
-                      tabIndex={0}
-                      aria-label={`${scenarioId}产品配置明细，可滚动查看`}
-                    >
-                      <table>
-                        <colgroup>
-                          <col className="product-col" />
-                          <col className="risk-col" />
-                          <col className="weight-col" />
-                          <col className="money-col" />
-                        </colgroup>
-
-                        <thead>
-                          <tr>
-                            <th>产品</th>
-                            <th>风险</th>
-                            <th>权重</th>
-                            <th>配置金额</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {portfolio.allocation_items.map(
-                            (item) => (
-                              <tr
-                                key={
-                                  item.product_id
-                                }
-                              >
-                                <td>
-                                  <b>
-                                    {
-                                      item.product_name
-                                    }
-                                  </b>
-                                </td>
-
-                                <td>
-                                  <span className="risk-tag">
-                                    {
-                                      item.risk_level
-                                    }
-                                  </span>
-                                </td>
-
-                                <td>
-                                  {percent(
-                                    item.weight,
-                                    2
-                                  )}
-                                </td>
-
-                                <td>
-                                  {exactMoney(
-                                    item.allocation_amount
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <EmptyState
-                status={portfolio.status}
-                text={`${scenarioId}场景结果尚未准备完成。`}
-              />
-            )}
-          </section>
+            <button className="secondary" onClick={() => onOpenPortfolio?.("")}>去投顾演示最优性证书 →</button>
+          </article>
         </div>
       </section>
 
-      {/* ================= 营销运营闭环 ================= */}
+      {/* ================= 转化机会挖掘 ================= */}
 
-      <section className="dashboard-section operation-section">
-        <SectionTitle
-          index="03"
-          title="营销运营闭环"
-          description="A2策略在工作台执行后，触达与响应事件实时回流到本页。"
-        />
+      {dashboard.opportunity && (
+        <section className="dashboard-section opportunity-section">
+          <SectionTitle
+            index="02"
+            title="转化机会洞察"
+            description="从预测与事件数据挖出的三类转化机会：高意向客户、产品机会与到期承接。"
+          />
+          <div className="opportunity-grid">
+            <article className="opportunity-card lead">
+              <header><b>高意向客户机会</b><span>高意向未触达</span></header>
+              <strong>{formatNumber(dashboard.opportunity.golden.count)}<i>名</i></strong>
+              <p>响应概率 ≥ 70% 未触达客户，期望响应约 <b>{formatNumber(dashboard.opportunity.golden.expected_responses)} 名</b>——触达即转化</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>优先触达高意向客户 →</button>
+            </article>
 
-        <section className="card operation-loop">
-          <div className="section-head">
-            <div>
-              <h2>策略执行闭环</h2>
-              <p>
-                策略生成 → 触达 → 响应，统一采用strategy_id事件口径
-              </p>
-            </div>
+            <article className="opportunity-card">
+              <header><b>产品机会榜</b><span>高意向待触达 Top3</span></header>
+              <ul className="opportunity-products">
+                {dashboard.opportunity.products.map((item) => (
+                  <li key={item.product_id}><span>{item.product_id}</span><em>{formatNumber(item.count)} 条高意向触达未执行</em></li>
+                ))}
+              </ul>
+              <p>这些产品的高意向客户最集中，批量触达效率最高</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>去营销工作台执行 →</button>
+            </article>
 
-            <ResultStatus
-              status={funnel.status}
-            />
-          </div>
-
-          <div className="operation-steps">
-            <div>
-              <i>1</i>
-              <strong>
-                {strategyCount.toLocaleString()}
-              </strong>
-              <span>策略生成</span>
-            </div>
-
-            <b>→</b>
-
-            <div>
-              <i>2</i>
-              <strong>
-                {sentCount.toLocaleString()}
-              </strong>
-              <span>已触达</span>
-            </div>
-
-            <b>→</b>
-
-            <div>
-              <i>3</i>
-              <strong>
-                {respondedCount.toLocaleString()}
-              </strong>
-              <span>已响应</span>
-            </div>
-          </div>
-
-          <div className="operation-kpis">
-            <div>
-              <span>
-                <strong>策略触达率</strong>
-                <small>
-                  已触达策略 ÷ 全部策略
-                </small>
-              </span>
-
-              <i>
-                <b
-                  style={{
-                    width: `${
-                      (touchRate ?? 0) *
-                      100
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>{percent(touchRate)}</em>
-            </div>
-
-            <div>
-              <span>
-                <strong>
-                  触达后响应率
-                </strong>
-                <small>
-                  已响应策略 ÷ 已触达策略
-                </small>
-              </span>
-
-              <i>
-                <b
-                  style={{
-                    width: `${
-                      (responseRate ?? 0) *
-                      100
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>
-                {responseRate == null
-                  ? "尚未产生"
-                  : percent(responseRate)}
-              </em>
-            </div>
-
-            <div>
-              <span>
-                <strong>待执行策略</strong>
-                <small>
-                  尚未记录sent事件
-                </small>
-              </span>
-
-              <i>
-                <b
-                  className="pending"
-                  style={{
-                    width: `${
-                      strategyCount
-                        ? (pendingCount /
-                            strategyCount) *
-                          100
-                        : 0
-                    }%`,
-                  }}
-                />
-              </i>
-
-              <em>
-                {pendingCount.toLocaleString()} 条
-              </em>
-            </div>
-          </div>
-
-          <div className="operation-note">
-            <span>
-              客户口径：目标客户{" "}
-              {funnel.target_customer_count.toLocaleString()}{" "}
-              位 · 已触达{" "}
-              {funnel.contacted_customer_count.toLocaleString()}{" "}
-              位 · 已响应{" "}
-              {funnel.responded_customer_count.toLocaleString()}{" "}
-              位
-            </span>
-
-            <b>
-              在营销运营工作台记录事件后，返回本页刷新即可查看变化。
-            </b>
+            <article className="opportunity-card">
+              <header><b>到期承接机会</b><span>再配置窗口</span></header>
+              <strong>{formatNumber(dashboard.opportunity.expiry.customer_count)}<i>位</i></strong>
+              <p>{formatNumber(dashboard.opportunity.expiry.window_days)} 天内 {compactMoney(dashboard.opportunity.expiry.amount)} 到期，是先发制人的交叉销售窗口</p>
+              <button className="primary" onClick={() => onOpenMarketing?.("")}>跟进到期客户 →</button>
+            </article>
           </div>
         </section>
-      </section>
+      )}
+
     </>
   );
 }

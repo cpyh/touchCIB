@@ -1,41 +1,25 @@
 """可视化看板 API（由 liantiao backend/app/services/dashboard_service.py 统一而来）。
 
 契约：envelope {code, message, data}，路径 /api/v1/dashboard/overview 与 /portfolio。
-数据边界：A1 预测读取 MySQL，A2 读取正式策略 CSV，Part B 读取正式配置 CSV
-及其审计文件，营销漏斗读取 app_campaign_event。看板请求本身不运行算法。
+数据边界：A1/A2 业务结果读取 MySQL ADS，营销漏斗读取
+app_campaign_event。赛事提交 CSV 仅供离线评分，不进入营销页请求链路。
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from pathlib import Path
 
 import pymysql
 from flask import Blueprint, jsonify, request
 
+from .business_date import DEFAULT_BUSINESS_DATE, parse_business_date
 from .customer_api import RISK_LABELS, ServiceError, ValidationError
 from .database import database_connection
 from .marketing.models import CHANNELS, TIME_SLOTS
 from .marketing.rules import RULES
 from .partA1serving.metrics import load_validation_metrics
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-METRICS_JSON = (
-    PROJECT_DIR / "src" / "data" / "outputs" / "a1_validation_metrics.json"
-)
-PREDICTION_CSV = PROJECT_DIR / "partA_prediction.csv"
-STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
-STRATEGY_TARGET_CSV = (
-    PROJECT_DIR / "src" / "data" / "raw" / "partA_strategy_customers.csv"
-)
-ALLOCATION_CSV = PROJECT_DIR / "partB_allocation.csv"
-PARTB_AUDIT_CSV = (
-    PROJECT_DIR / "src" / "data" / "outputs" / "partB_optimality_audit.csv"
-)
-PRODUCT_CSV = PROJECT_DIR / "src" / "data" / "raw" / "t_product.csv"
-SCENARIO_CSV = PROJECT_DIR / "src" / "data" / "raw" / "partB_scenarios.csv"
 
 ZERO = Decimal("0")
 RISK_LEVELS = ("R1", "R2", "R3", "R4", "R5")
@@ -87,40 +71,35 @@ def build_holding_distribution(
     ]
 
 
-def _a1_performance() -> dict:
-    """A1 指标取 partA1serving 验证口径，预测分布读正式提交 CSV。"""
-    import pandas as pd
-
+def _a1_performance(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """A1离线评估指标 + 指定ADS批次的客户最高机会分布。"""
     try:
         metrics = load_validation_metrics()
     except (FileNotFoundError, KeyError, TypeError, ValueError):
-        if not METRICS_JSON.is_file():
-            return {
-                "status": "NOT_READY",
-                "data_source": "CSV",
-                "auc": None,
-                "f1": None,
-                "lift_at_10": None,
-                "prediction_count": 0,
-                "mean_probability": None,
-                "probability_distribution": [],
-            }
-        metrics = json.loads(METRICS_JSON.read_text(encoding="utf-8"))
+        metrics = {}
     try:
-        probabilities = pd.to_numeric(
-            pd.read_csv(PREDICTION_CSV)["response_prob"]
-        )
-    except (OSError, ValueError) as exc:
-        raise ServiceError("unable to read A1 prediction results") from exc
-    prediction = {
-        "total": int(len(probabilities)),
-        "mean_prob": float(probabilities.mean()),
-        "high_intent": int((probabilities >= 0.7).sum()),
-        "mid_intent": int(
-            ((probabilities >= 0.3) & (probabilities < 0.7)).sum()
-        ),
-        "low_intent": int((probabilities < 0.3).sum()),
-    }
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total, AVG(max_prob) AS mean_prob,
+                           SUM(max_prob >= 0.7) AS high_intent,
+                           SUM(max_prob >= 0.3 AND max_prob < 0.7) AS mid_intent,
+                           SUM(max_prob < 0.3) AS low_intent
+                    FROM (
+                        SELECT customer_id, MAX(response_prob) AS max_prob
+                        FROM ads_a1_customer_product_score
+                        WHERE strategy_date = %s
+                        GROUP BY customer_id
+                    ) customer_best
+                    """
+                , (business_date,))
+                prediction = cursor.fetchone() or {}
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise ServiceError("unable to query A1 ADS results") from exc
     total = int(prediction["total"])
     distribution = [
         {"bucket": "高意向(≥70%)", "count": int(prediction["high_intent"] or 0)},
@@ -132,7 +111,7 @@ def _a1_performance() -> dict:
     ]
     return {
         "status": "READY" if total else "NOT_READY",
-        "data_source": "CSV",
+        "data_source": "ADS",
         "metric_scope": "OFFLINE_VALIDATION",
         "auc": metrics.get("auc"),
         "f1": metrics.get("best_f1"),
@@ -147,90 +126,80 @@ def _a1_performance() -> dict:
     }
 
 
-def _a2_performance() -> dict:
-    """A2 使用正式提交 CSV；隐藏标签不可用，因此 HitRate 保持为空。"""
-    import pandas as pd
-
-    if not STRATEGY_CSV.is_file() or not STRATEGY_TARGET_CSV.is_file():
-        return {
-            "status": "NOT_READY",
-            "data_source": "CSV",
-            "result_row_count": 0,
-            "target_customer_count": 0,
-            "generated_customer_count": 0,
-            "coverage_rate": None,
-            "hit_rate_at_3": None,
-            "rule_count": len(RULES),
-            "channel_distribution": [],
-            "time_distribution": [],
-            "validation": {},
-        }
+def _a2_performance(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """A2为A1排名后的基础规则过滤；读取指定ADS日批。"""
     try:
-        strategies = pd.read_csv(STRATEGY_CSV, dtype=str)
-        targets = pd.read_csv(STRATEGY_TARGET_CSV, dtype=str)
-    except (OSError, ValueError) as exc:
-        raise ServiceError("unable to read A2 strategy results") from exc
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS count FROM dwd_dim_customer "
+                    "WHERE register_date <= %s",
+                    (business_date,),
+                )
+                total_target = int(cursor.fetchone()["count"])
+                cursor.execute(
+                    "SELECT strategy_date, customer_id, strategy_rank, product_id, "
+                    "recommended_channel, recommended_time, marketing_script, "
+                    "rule_trace_json FROM ads_marketing_strategy "
+                    "WHERE strategy_date=%s",
+                    (business_date,),
+                )
+                strategies = list(cursor.fetchall())
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise ServiceError("unable to query A2 ADS results") from exc
 
-    required = {
-        "customer_id",
-        "rank",
-        "product_id",
-        "recommended_channel",
-        "recommended_time",
-        "marketing_script",
-    }
-    if not required.issubset(strategies.columns) or "customer_id" not in targets:
-        raise ServiceError("invalid A2 strategy file columns")
-
-    target_ids = set(targets["customer_id"].dropna())
-    strategy_ids = set(strategies["customer_id"].dropna())
-    valid_customers = 0
-    for customer_id, rows in strategies.groupby("customer_id"):
-        ranks = set(rows["rank"])
-        products = set(rows["product_id"])
-        if len(rows) == 3 and ranks == {"1", "2", "3"} and len(products) == 3:
-            valid_customers += 1
-    total_target = len(target_ids)
-    generated = valid_customers
-    channel_counts = strategies["recommended_channel"].value_counts().to_dict()
+    grouped: dict[str, list[dict]] = {}
+    for row in strategies:
+        grouped.setdefault(str(row["customer_id"]), []).append(row)
+    valid_customers = sum(
+        len(rows) == 3
+        and {int(row["strategy_rank"]) for row in rows} == {1, 2, 3}
+        and len({row["product_id"] for row in rows}) == 3
+        for rows in grouped.values()
+    )
+    generated = int(valid_customers)
+    channel_counts: dict[str, int] = {}
+    time_counts: dict[str, int] = {}
+    traces_valid = True
+    for row in strategies:
+        channel_counts[row["recommended_channel"]] = channel_counts.get(row["recommended_channel"], 0) + 1
+        time_counts[row["recommended_time"]] = time_counts.get(row["recommended_time"], 0) + 1
+        try:
+            trace = json.loads(row["rule_trace_json"]) if isinstance(row["rule_trace_json"], str) else row["rule_trace_json"]
+            traces_valid = traces_valid and isinstance(trace, list) and all(item.get("passed") for item in trace)
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            traces_valid = False
     channel_distribution = [
         {"channel": channel, "count": int(channel_counts.get(channel, 0))}
         for channel in CHANNELS
     ]
-    time_counts = strategies["recommended_time"].value_counts().to_dict()
     time_distribution = [
         {"time_slot": time_slot, "count": int(time_counts.get(time_slot, 0))}
         for time_slot in TIME_SLOTS
     ]
-    grouped = strategies.groupby("customer_id")
     validation = {
-        "customer_coverage_passed": strategy_ids == target_ids,
-        "top3_complete_passed": bool(
-            len(grouped) == total_target
-            and all(len(rows) == 3 and set(rows["rank"]) == {"1", "2", "3"}
-                    for _, rows in grouped)
-        ),
-        "product_unique_passed": bool(
-            len(grouped) == total_target
-            and all(rows["product_id"].nunique() == 3 for _, rows in grouped)
-        ),
-        "channel_enum_passed": set(strategies["recommended_channel"].dropna()).issubset(CHANNELS),
-        "time_enum_passed": set(strategies["recommended_time"].dropna()).issubset(TIME_SLOTS),
-        "script_length_passed": bool(
-            strategies["marketing_script"].notna().all()
-            and strategies["marketing_script"].str.len().between(10, 300).all()
-        ),
+        "customer_coverage_passed": generated == total_target,
+        "top3_complete_passed": generated == len(grouped),
+        "product_unique_passed": all(len({row["product_id"] for row in rows}) == 3 for rows in grouped.values()),
+        "channel_enum_passed": {row["recommended_channel"] for row in strategies}.issubset(CHANNELS),
+        "time_enum_passed": {row["recommended_time"] for row in strategies}.issubset(TIME_SLOTS),
+        "script_length_passed": all(10 <= len(str(row["marketing_script"])) <= 300 for row in strategies),
+        "rule_trace_passed": traces_valid,
     }
-    unknown_customers = strategy_ids - target_ids
     status = (
         "READY"
-        if generated == total_target and not unknown_customers and all(validation.values())
+        if total_target and generated == total_target and all(validation.values())
         else "INVALID"
+        if strategies
+        else "NOT_READY"
     )
     return {
         "status": status,
-        "data_source": "CSV",
-        "result_row_count": int(len(strategies)),
+        "data_source": "ADS",
+        "result_row_count": len(strategies),
         "target_customer_count": total_target,
         "generated_customer_count": generated,
         "coverage_rate": round(generated / total_target, 4) if total_target else None,
@@ -242,50 +211,57 @@ def _a2_performance() -> dict:
     }
 
 
-def _portfolio_summary() -> dict:
-    """汇总正式 Part B 结果，供看板展示 20 个场景的整体质量。"""
-    import pandas as pd
-
-    if not ALLOCATION_CSV.is_file() or not PARTB_AUDIT_CSV.is_file():
-        return {
-            "status": "NOT_READY",
-            "scenario_count": 0,
-            "constraints_passed_count": 0,
-            "allocation_row_count": 0,
-            "total_utility": None,
-            "max_optimality_gap": None,
-        }
+def _portfolio_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """汇总指定ADS组合优化批次。"""
     try:
-        allocations = pd.read_csv(ALLOCATION_CSV, dtype={"scenario_id": str})
-        audit = pd.read_csv(PARTB_AUDIT_CSV, dtype={"scenario_id": str})
-    except (OSError, ValueError) as exc:
-        raise ServiceError("unable to read Part B summary") from exc
-
-    passed = (
-        (audit["product_weight_sum"] <= 1 + 1e-6)
-        & (audit["high_risk_weight"] <= audit["high_risk_cap"] + 1e-6)
-        & (audit["liquid_plus_cash"] + 1e-6 >= audit["liquid_floor"])
-        & (audit["holdings_count"] >= audit["required_min_holdings"])
-        & (audit["max_product_weight"] <= audit["single_product_cap"] + 1e-6)
-    )
-    scenario_count = int(audit["scenario_id"].nunique())
-    passed_count = int(passed.sum())
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS scenario_count, "
+                    "COALESCE(SUM(constraints_satisfied),0) AS passed_count, "
+                    "SUM(utility) AS total_utility, MAX(optimality_gap) AS max_gap "
+                    "FROM ads_portfolio_result WHERE calculation_date=%s",
+                    (business_date,),
+                )
+                summary = cursor.fetchone() or {}
+                cursor.execute(
+                    "SELECT COUNT(*) AS count FROM ads_portfolio_allocation "
+                    "WHERE calculation_date=%s",
+                    (business_date,),
+                )
+                allocation_count = int(cursor.fetchone()["count"])
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise ServiceError("unable to query Part B ADS summary") from exc
+    scenario_count = int(summary.get("scenario_count") or 0)
+    passed_count = int(summary.get("passed_count") or 0)
     return {
-        "status": "READY" if scenario_count and passed_count == scenario_count else "INVALID",
+        "status": (
+            "NOT_READY"
+            if not scenario_count
+            else "READY"
+            if passed_count == scenario_count
+            else "INVALID"
+        ),
         "scenario_count": scenario_count,
         "constraints_passed_count": passed_count,
-        "allocation_row_count": int(len(allocations)),
-        "total_utility": round(float(audit["utility"].sum()), 12) if scenario_count else None,
-        "max_optimality_gap": float(audit["absolute_gap_bound"].max()) if scenario_count else None,
+        "allocation_row_count": allocation_count,
+        "total_utility": round(float(summary["total_utility"]), 12) if scenario_count else None,
+        "max_optimality_gap": float(summary["max_gap"]) if summary.get("max_gap") is not None else None,
     }
 
 
-def _portfolio_performance(scenario_id: str | None) -> dict:
-    """Part B 使用正式配置 CSV 和审计文件，不在看板请求中重新求解。"""
+def _portfolio_performance(
+    scenario_id: str | None,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    """Part B只读取场景配置和指定ADS批处理结果。"""
     if scenario_id is None:
         return {
             "status": "NOT_READY",
-            "data_source": "CSV",
+            "data_source": "ADS",
             "scenario_id": None,
             "total_amount": None,
             "expected_return": None,
@@ -296,44 +272,45 @@ def _portfolio_performance(scenario_id: str | None) -> dict:
             "allocation_by_product_type": [],
             "allocation_items": [],
         }
-    import pandas as pd
-
-    required_files = (ALLOCATION_CSV, PARTB_AUDIT_CSV, PRODUCT_CSV, SCENARIO_CSV)
-    if not all(path.is_file() for path in required_files):
-        return {
-            "status": "NOT_READY",
-            "data_source": "CSV",
-            "scenario_id": scenario_id,
-            "total_amount": None,
-            "expected_return": None,
-            "volatility": None,
-            "utility": None,
-            "cash_weight": None,
-            "constraints_satisfied": None,
-            "allocation_by_product_type": [],
-            "allocation_items": [],
-        }
     try:
-        allocations = pd.read_csv(
-            ALLOCATION_CSV, dtype={"scenario_id": str, "product_id": str}
-        )
-        audit = pd.read_csv(PARTB_AUDIT_CSV, dtype={"scenario_id": str})
-        products = pd.read_csv(PRODUCT_CSV, dtype={"product_id": str})
-        scenarios = pd.read_csv(SCENARIO_CSV, dtype={"scenario_id": str})
-    except (OSError, ValueError) as exc:
-        raise ServiceError("unable to read Part B results") from exc
-
-    scenario_rows = scenarios[scenarios["scenario_id"] == scenario_id]
-    result_rows = allocations[allocations["scenario_id"] == scenario_id].copy()
-    audit_rows = audit[audit["scenario_id"] == scenario_id]
-    if scenario_rows.empty:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM app_portfolio_scenario WHERE scenario_id=%s",
+                    (scenario_id,),
+                )
+                scenario = cursor.fetchone()
+                cursor.execute(
+                    "SELECT * FROM ads_portfolio_result WHERE scenario_id=%s "
+                    "AND calculation_date=%s LIMIT 1",
+                    (scenario_id, business_date),
+                )
+                result = cursor.fetchone()
+                allocation_rows: list[dict] = []
+                if result is not None:
+                    cursor.execute(
+                        "SELECT a.product_id, p.product_name, p.product_type, "
+                        "p.risk_level, a.weight, a.allocation_amount "
+                        "FROM ads_portfolio_allocation a "
+                        "JOIN dwd_dim_product p ON p.product_id=a.product_id "
+                        "WHERE a.calculation_date=%s AND a.scenario_id=%s "
+                        "ORDER BY a.weight DESC, a.product_id",
+                        (result["calculation_date"], scenario_id),
+                    )
+                    allocation_rows = list(cursor.fetchall())
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError) as exc:
+        raise ServiceError("unable to query Part B ADS results") from exc
+    if scenario is None:
         raise ValidationError("scenario not found")
-    if result_rows.empty or audit_rows.empty:
+    if result is None:
         return {
             "status": "NOT_READY",
-            "data_source": "CSV",
+            "data_source": "ADS",
             "scenario_id": scenario_id,
-            "total_amount": float(scenario_rows.iloc[0]["total_amount"]),
+            "total_amount": float(scenario["total_amount"]),
             "expected_return": None,
             "volatility": None,
             "utility": None,
@@ -343,66 +320,42 @@ def _portfolio_performance(scenario_id: str | None) -> dict:
             "allocation_items": [],
         }
 
-    result_rows["weight"] = pd.to_numeric(result_rows["weight"], errors="raise")
-    result_rows = result_rows.merge(
-        products[
-            ["product_id", "product_name", "product_type", "risk_level"]
-        ],
-        on="product_id",
-        how="left",
-        validate="many_to_one",
-    )
-    if result_rows["product_name"].isna().any():
-        raise ServiceError("Part B result contains unknown product")
-    scenario = scenario_rows.iloc[0]
-    audit_row = audit_rows.iloc[0]
-    weight_sum = float(result_rows["weight"].sum())
-    type_amounts = result_rows.groupby("product_type")["weight"].sum()
+    type_amounts: dict[str, float] = {}
+    for row in allocation_rows:
+        product_type = str(row["product_type"])
+        type_amounts[product_type] = type_amounts.get(product_type, 0.0) + float(row["weight"])
     allocation_by_type = [
         {"product_type": product_type, "weight": round(weight, 6)}
-        for product_type, weight in sorted(type_amounts.to_dict().items())
+        for product_type, weight in sorted(type_amounts.items())
     ]
     allocation_items = [
         {
-            "product_id": row.product_id,
-            "product_name": row.product_name,
-            "product_type": row.product_type,
-            "risk_level": row.risk_level,
-            "weight": round(float(row.weight), 12),
-            "allocation_amount": round(
-                float(row.weight) * float(scenario["total_amount"]), 2
-            ),
+            "product_id": row["product_id"],
+            "product_name": row["product_name"],
+            "product_type": row["product_type"],
+            "risk_level": row["risk_level"],
+            "weight": round(float(row["weight"]), 12),
+            "allocation_amount": float(row["allocation_amount"]),
         }
-        for row in result_rows.itertuples()
+        for row in allocation_rows
     ]
-    constraints_satisfied = bool(
-        float(audit_row["product_weight_sum"]) <= 1 + 1e-6
-        and float(audit_row["high_risk_weight"])
-        <= float(audit_row["high_risk_cap"]) + 1e-6
-        and float(audit_row["liquid_plus_cash"]) + 1e-6
-        >= float(audit_row["liquid_floor"])
-        and int(audit_row["holdings_count"])
-        >= int(audit_row["required_min_holdings"])
-        and float(audit_row["max_product_weight"])
-        <= float(audit_row["single_product_cap"]) + 1e-6
-    )
     return {
         "status": "READY",
-        "data_source": "CSV",
+        "data_source": "ADS",
         "scenario_id": scenario_id,
         "total_amount": float(scenario["total_amount"]),
-        "expected_return": round(float(audit_row["expected_return"]), 12),
-        "volatility": round(float(audit_row["portfolio_volatility"]), 12),
-        "utility": round(float(audit_row["utility"]), 12),
-        "cash_weight": round(max(0.0, 1.0 - weight_sum), 12),
-        "constraints_satisfied": constraints_satisfied,
-        "optimality_gap": float(audit_row["absolute_gap_bound"]),
+        "expected_return": round(float(result["expected_return"]), 12),
+        "volatility": round(float(result["portfolio_volatility"]), 12),
+        "utility": round(float(result["utility"]), 12),
+        "cash_weight": round(float(result["cash_weight"]), 12),
+        "constraints_satisfied": bool(result["constraints_satisfied"]),
+        "optimality_gap": float(result["optimality_gap"]) if result["optimality_gap"] is not None else None,
         "allocation_by_product_type": allocation_by_type,
         "allocation_items": allocation_items,
     }
 
 
-def _marketing_funnel() -> dict:
+def _marketing_funnel(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     """营销闭环同时返回客户口径与 strategy_id 事件口径。"""
     try:
         connection = database_connection()
@@ -411,13 +364,17 @@ def _marketing_funnel() -> dict:
                 cursor.execute(
                     "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
                     "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
-                    "FROM app_campaign_event WHERE event_type = 'sent'"
+                    "FROM app_campaign_event WHERE event_type = 'sent' "
+                    "AND occurred_at < %s",
+                    (business_date + timedelta(days=1),),
                 )
                 sent = cursor.fetchone() or {}
                 cursor.execute(
                     "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
                     "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
-                    "FROM app_campaign_event WHERE event_type = 'responded'"
+                    "FROM app_campaign_event WHERE event_type = 'responded' "
+                    "AND occurred_at < %s",
+                    (business_date + timedelta(days=1),),
                 )
                 responded = cursor.fetchone() or {}
         finally:
@@ -427,10 +384,24 @@ def _marketing_funnel() -> dict:
         responded = {"strategies": 0, "customers": 0}
     sent_strategy_count = int(sent["strategies"] or 0) if sent else 0
     responded_strategy_count = int(responded["strategies"] or 0) if responded else 0
-    a2 = _a2_performance()
+    a2 = _a2_performance(business_date)
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS count FROM ods_customer "
+                    "WHERE register_date <= %s",
+                    (business_date,),
+                )
+                total_customers = int(cursor.fetchone()["count"])
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError):
+        total_customers = 0
     return {
         "status": "READY" if sent_strategy_count or responded_strategy_count else "NOT_STARTED",
-        "target_customer_count": a2["target_customer_count"],
+        "target_customer_count": total_customers,
         "generated_customer_count": a2["generated_customer_count"],
         "contacted_customer_count": int(sent["customers"] or 0) if sent else 0,
         "responded_customer_count": int(responded["customers"] or 0) if responded else 0,
@@ -440,7 +411,230 @@ def _marketing_funnel() -> dict:
     }
 
 
-def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
+def _action_items(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """运营行动指令：目标-实际-缺口，供看板"今日行动"指挥工作台执行。"""
+    sent_strategies = 0
+    manager_sent = 0
+    manager_responded = 0
+    sent_customers: set[str] = set()
+    strategy_channels: dict[tuple[str, str], str] = {}
+    high_intent_customers: set[str] = set()
+    total_customers = 0
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT customer_id, strategy_rank, recommended_channel "
+                    "FROM ads_marketing_strategy WHERE strategy_date=%s",
+                    (business_date,),
+                )
+                strategy_channels = {
+                    (str(row["customer_id"]), str(row["strategy_rank"])):
+                    str(row["recommended_channel"])
+                    for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    "SELECT strategy_id, event_type, COUNT(*) AS count "
+                    "FROM app_campaign_event WHERE occurred_at < %s "
+                    "GROUP BY strategy_id, event_type",
+                    (business_date + timedelta(days=1),),
+                )
+                rows = cursor.fetchall()
+                cursor.execute(
+                    "SELECT customer_id FROM ads_a1_customer_product_score "
+                    "WHERE strategy_date=%s GROUP BY customer_id "
+                    "HAVING MAX(response_prob) >= 0.7",
+                    (business_date,),
+                )
+                high_intent_customers = {
+                    str(row["customer_id"]) for row in cursor.fetchall()
+                }
+                cursor.execute(
+                    "SELECT COUNT(*) AS count FROM dwd_dim_customer "
+                    "WHERE register_date <= %s",
+                    (business_date,),
+                )
+                total_customers = int(cursor.fetchone()["count"])
+        finally:
+            connection.close()
+        for row in rows:
+            strategy_id = str(row["strategy_id"])
+            customer_id, _, rank = strategy_id.partition(":")
+            channel = strategy_channels.get((customer_id, rank))
+            count = int(row["count"])
+            if row["event_type"] == "sent":
+                sent_strategies += count
+                sent_customers.add(customer_id)
+                if channel == "manager":
+                    manager_sent += count
+            elif row["event_type"] == "responded" and channel == "manager":
+                manager_responded += count
+    except (pymysql.MySQLError, OSError, ValueError):
+        pass
+
+    conversion_target = 30
+    return {
+        "conversion": {
+            "actual": manager_responded,
+            "target": conversion_target,
+            "gap": max(0, conversion_target - manager_responded),
+            "label": f"经理 MGR001 {business_date.month}月转化",
+        },
+        "touch": {
+            "total_customers": total_customers,
+            "sent_customers": len(sent_customers),
+            "strategy_ready_customers": len({customer_id for customer_id, _ in strategy_channels}),
+            "sent_strategies": sent_strategies,
+            "total_strategies": int(len(strategy_channels)),
+            "high_intent_untouched": len(high_intent_customers - sent_customers),
+        },
+        "channel": {
+            "manager_sent": manager_sent,
+            "manager_responded": manager_responded,
+            "manager_response_rate": (
+                round(manager_responded / manager_sent, 4)
+                if manager_sent
+                else None
+            ),
+            "manager_target": 0.25,
+        },
+    }
+
+
+def _expiry_warning(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """到期预警：未来 30 天固定期限持仓到期（再配置/挽留机会）。
+
+    口径：maturity = buy_date + duration_days，窗口 = 策略日次日至 +30 天。
+    """
+    as_of = business_date
+    window_end = as_of + timedelta(days=30)
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT h.customer_id, h.product_id, p.product_name,
+                           h.amount,
+                           DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY)
+                               AS maturity_date
+                    FROM ods_holding h
+                    JOIN ods_product p ON p.product_id = h.product_id
+                    WHERE p.duration_days > 0
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) > %s
+                      AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) <= %s
+                    ORDER BY maturity_date, h.amount DESC
+                    """,
+                    (as_of, window_end),
+                )
+                rows = cursor.fetchall()
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError, TypeError):
+        return {
+            "available": False,
+            "as_of": as_of.isoformat(),
+            "window_days": 30,
+            "holding_count": 0,
+            "customer_count": 0,
+            "amount": 0,
+            "items": [],
+        }
+
+    customers = {row["customer_id"] for row in rows}
+    total_amount = sum(float(row["amount"]) for row in rows)
+    return {
+        "available": True,
+        "as_of": as_of.isoformat(),
+        "window_days": 30,
+        "holding_count": len(rows),
+        "customer_count": len(customers),
+        "amount": round(total_amount, 2),
+        "items": [
+            {
+                "customer_id": row["customer_id"],
+                "product_id": row["product_id"],
+                "product_name": row["product_name"],
+                "maturity_date": row["maturity_date"].isoformat(),
+                "amount": float(row["amount"]),
+            }
+            for row in rows[:5]
+        ],
+    }
+
+
+def _opportunity(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+    """转化机会挖掘：从最新A1 ADS批次与事件中聚合。
+
+    - golden：高意向（≥70%）未触达客户 + 期望响应数（Σ 客户最高概率）
+    - products：产品机会榜（高意向未触达触达记录按产品聚合 Top3）
+    - expiry：到期承接窗口（来自 _expiry_warning）
+    """
+    golden = {"count": 0, "expected_responses": 0}
+    product_opportunity: list[dict] = []
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH scored AS (
+                        SELECT a.customer_id, a.product_id, a.response_prob,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY a.customer_id
+                                   ORDER BY a.response_prob DESC, a.product_id
+                               ) AS row_num
+                        FROM ads_a1_customer_product_score a
+                        WHERE a.strategy_date=%s
+                    ), sent AS (
+                        SELECT DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)
+                            AS customer_id
+                        FROM app_campaign_event WHERE event_type='sent'
+                          AND occurred_at < %s
+                    )
+                    SELECT s.customer_id, s.product_id, s.response_prob
+                    FROM scored s
+                    LEFT JOIN sent e ON e.customer_id=s.customer_id
+                    WHERE s.row_num=1 AND s.response_prob >= 0.7
+                      AND e.customer_id IS NULL
+                    """
+                , (business_date, business_date + timedelta(days=1)))
+                opportunities = list(cursor.fetchall())
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError):
+        opportunities = []
+
+    golden = {
+        "count": len(opportunities),
+        "expected_responses": int(
+            round(sum(float(row["response_prob"]) for row in opportunities))
+        ),
+    }
+    product_counts: dict[str, int] = {}
+    for row in opportunities:
+        product_id = str(row["product_id"])
+        product_counts[product_id] = product_counts.get(product_id, 0) + 1
+    product_opportunity = [
+        {"product_id": product_id, "count": count}
+        for product_id, count in sorted(
+            product_counts.items(), key=lambda item: (-item[1], item[0])
+        )[:3]
+    ]
+
+    return {
+        "golden": golden,
+        "products": product_opportunity,
+        "expiry": _expiry_warning(business_date),
+    }
+
+
+def get_dashboard_overview(
+    *,
+    scenario_id: str | None = None,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
     try:
         connection = database_connection()
         try:
@@ -448,21 +642,37 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
                 cursor.execute(
                     """
                     SELECT
-                        (SELECT COUNT(*) FROM ods_customer) AS customer_count,
-                        (SELECT COALESCE(SUM(aum), 0) FROM ods_customer) AS total_aum,
+                        (SELECT COUNT(*) FROM ods_customer
+                         WHERE register_date <= %s) AS customer_count,
+                        (SELECT COALESCE(SUM(aum), 0) FROM ods_customer
+                         WHERE register_date <= %s) AS total_aum,
                         (SELECT COUNT(*) FROM ods_product) AS product_count,
-                        (SELECT COALESCE(SUM(amount), 0) FROM ods_holding)
+                        (SELECT COALESCE(SUM(h.amount), 0) FROM ods_holding h
+                         JOIN ods_customer c ON c.customer_id=h.customer_id
+                         WHERE h.buy_date <= %s AND c.register_date <= %s)
                             AS total_holding_amount,
-                        (SELECT COUNT(*) FROM ods_campaign)
+                        (SELECT COUNT(*) FROM ods_campaign
+                         WHERE contact_date <= %s)
                             AS historical_contact_count,
-                        (SELECT COALESCE(AVG(responded), 0) FROM ods_campaign)
+                        (SELECT COALESCE(AVG(responded), 0) FROM ods_campaign
+                         WHERE contact_date <= %s)
                             AS historical_response_rate
-                    """
+                    """,
+                    (
+                        business_date,
+                        business_date,
+                        business_date,
+                        business_date,
+                        business_date,
+                        business_date,
+                    ),
                 )
                 metrics = cursor.fetchone()
                 cursor.execute(
                     "SELECT risk_appetite, COUNT(*) AS customer_count "
-                    "FROM ods_customer GROUP BY risk_appetite"
+                    "FROM ods_customer WHERE register_date <= %s "
+                    "GROUP BY risk_appetite",
+                    (business_date,),
                 )
                 risk_rows = cursor.fetchall()
                 cursor.execute(
@@ -470,8 +680,11 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
                     SELECT p.product_type, COALESCE(SUM(h.amount), 0) AS holding_amount
                     FROM ods_holding h
                     JOIN ods_product p ON p.product_id = h.product_id
+                    JOIN ods_customer c ON c.customer_id = h.customer_id
+                    WHERE h.buy_date <= %s AND c.register_date <= %s
                     GROUP BY p.product_type
-                    """
+                    """,
+                    (business_date, business_date),
                 )
                 holding_rows = cursor.fetchall()
         finally:
@@ -481,8 +694,12 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
 
     total_aum = _decimal(metrics["total_aum"])
     total_holding_amount = _decimal(metrics["total_holding_amount"])
+    a1_performance = _a1_performance(business_date)
+    a2_performance = _a2_performance(business_date)
+    portfolio_summary = _portfolio_summary(business_date)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "business_date": business_date.isoformat(),
         "business_metrics": {
             "customer_count": int(metrics["customer_count"]),
             "total_aum": float(total_aum),
@@ -491,22 +708,28 @@ def get_dashboard_overview(*, scenario_id: str | None = None) -> dict:
             "currency": "CNY",
             "historical_contact_count": int(metrics["historical_contact_count"]),
             "historical_response_rate": round(float(metrics["historical_response_rate"]), 4),
-            "marketing_status": "READY",
+            "marketing_status": a2_performance["status"],
         },
         "risk_distribution": build_risk_distribution(risk_rows),
         "holding_distribution": build_holding_distribution(
             holding_rows, total_holding_amount
         ),
-        "a1_performance": _a1_performance(),
-        "a2_performance": _a2_performance(),
-        "portfolio_summary": _portfolio_summary(),
-        "portfolio": _portfolio_performance(scenario_id),
-        "marketing_funnel": _marketing_funnel(),
+        "a1_performance": a1_performance,
+        "a2_performance": a2_performance,
+        "portfolio_summary": portfolio_summary,
+        "portfolio": _portfolio_performance(scenario_id, business_date),
+        "marketing_funnel": _marketing_funnel(business_date),
+        "action_items": _action_items(business_date),
+        "expiry_warning": _expiry_warning(business_date),
+        "opportunity": _opportunity(business_date),
     }
 
 
-def get_dashboard_portfolio(scenario_id: str) -> dict:
-    return _portfolio_performance(scenario_id)
+def get_dashboard_portfolio(
+    scenario_id: str,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    return _portfolio_performance(scenario_id, business_date)
 
 
 # ----------------------------------------------------------------
@@ -532,9 +755,22 @@ def _optional_scenario_id() -> str | None:
     return value
 
 
+def _request_business_date() -> date:
+    try:
+        return parse_business_date(request.args.get("business_date"))
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
 @dashboard_bp.get("/overview")
 def dashboard_overview():
-    return success(get_dashboard_overview(scenario_id=_optional_scenario_id()))
+    business_date = _request_business_date()
+    return success(
+        get_dashboard_overview(
+            scenario_id=_optional_scenario_id(),
+            business_date=business_date,
+        )
+    )
 
 
 @dashboard_bp.get("/portfolio")
@@ -542,7 +778,8 @@ def dashboard_portfolio():
     scenario_id = _optional_scenario_id()
     if scenario_id is None:
         raise ValidationError("scenario_id is required")
-    return success(get_dashboard_portfolio(scenario_id))
+    business_date = _request_business_date()
+    return success(get_dashboard_portfolio(scenario_id, business_date))
 
 
 @dashboard_bp.errorhandler(ValidationError)

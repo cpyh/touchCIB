@@ -1,7 +1,7 @@
 """A2 规则目录：合规 / 渠道 / 时段 / 话术 四类规则（设计定稿 v2）。
 
 设计要点（详见 docs/sdd-marketing.md）：
-- 模型管产品，规则管其余：产品排序由 A1 概率 + 协同过滤信号决定，
+- 模型管产品，规则管其余：产品排序只使用 A1 预测概率，
   规则只做合规拦截、渠道/时段/话术决策与格式校验；
 - duration_valid 与 min_invest 为"记录型"规则：只留痕、不拦截
   （评分口径不校验存续期/起投额，产品池以发放的 30 个为准）；
@@ -96,6 +96,23 @@ def _check_customer_registered(ctx: RuleContext) -> RuleOutcome:
         "customer_registered",
         False,
         f"客户注册日期 {customer.register_date} 晚于策略日期 {ctx['strategy_date']}",
+    )
+
+
+def _check_aum_affordability(ctx: RuleContext) -> RuleOutcome:
+    """业务批处理硬规则：客户可投资资产至少覆盖产品起投金额。"""
+    customer = ctx["customer"]
+    product = ctx["product"]
+    if customer.aum >= product.min_invest:
+        return RuleOutcome(
+            "aum_affordability",
+            True,
+            f"客户AUM {customer.aum:.0f} 元覆盖起投金额 {product.min_invest:.0f} 元",
+        )
+    return RuleOutcome(
+        "aum_affordability",
+        False,
+        f"客户AUM {customer.aum:.0f} 元低于起投金额 {product.min_invest:.0f} 元",
     )
 
 
@@ -279,6 +296,13 @@ RULES = [
         _check_customer_registered,
     ),
     _rule(
+        "aum_affordability",
+        "起投能力校验",
+        "batch_compliance",
+        "客户AUM必须覆盖产品最低起投金额",
+        _check_aum_affordability,
+    ),
+    _rule(
         "duration_valid",
         "存续期（仅记录）",
         "record",
@@ -355,7 +379,7 @@ RULES = [
 
 
 def build_default_engine():
-    """构造默认规则引擎（含全部 13 条规则）。"""
+    """构造默认规则引擎（含全部 14 条规则）。"""
     from .engine import RuleEngine
 
     return RuleEngine(RULES)

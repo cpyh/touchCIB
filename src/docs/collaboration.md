@@ -6,7 +6,7 @@
 
 | 角色 | 主维护范围 | 交付契约 |
 |------|------------|----------|
-| A1 算法 | `src/a1_features.py`、`src/a1_inference.py`、`src/pipelines/train_a1_baseline.py` | `contact_id,response_prob` |
+| A1 算法 | `src/partA1serving/` | `contact_id,response_prob` + 模型元数据 |
 | A2 算法 | `src/marketing/` | 每客户 Top3 策略与规则轨迹 |
 | Part B 算法 | `src/algorithms/partb.py`、`src/pipelines/solve_partB.py`、`src/portfolio.py` | `scenario_id,product_id,weight` |
 | 数据/后端集成 | `src/sql/`、`src/scripts/`、`src/app.py`、数据库访问模块 | DWD/DWS/ADS 与 HTTP API |

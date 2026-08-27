@@ -1,7 +1,7 @@
-"""A2 两阶段策略生成流水线（设计定稿 v2，详见 docs/sdd-marketing.md）。
+"""A2 历史提交文件生成器（业务日批请使用 marketing.batch）。
 
 阶段一（全局批次）：
-    产品排序 = A1 模型概率 + w_cf × 持有产品协同过滤相似度（模型管产品）；
+    产品排序 = A1 响应概率；
     合规顺位过滤（风险偏好内优先，不足 3 个时自动溢出 1 级）；
     manager 渠道配额分配（资格 + 全局配额，按客户价值排序）。
 阶段二（逐客户）：
@@ -19,7 +19,6 @@ from datetime import date
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .collaborative import build_co_holding_similarity, customer_cf_scores
 from .engine import RuleEngine
 from .io import (
     build_behaviors,
@@ -31,7 +30,6 @@ from .io import (
 from .models import (
     DEFAULT_MANAGER_QUOTA,
     DEFAULT_TOP_N,
-    DEFAULT_W_CF,
     MANAGER_ELIGIBLE_AUM,
     MANAGER_ELIGIBLE_VIP,
     RISK_RANK,
@@ -137,25 +135,21 @@ _AGED_GROUPS = ("55-64", "65+")
 # ----------------------------------------------------------------
 
 
-def _rank_score(
+def _model_probability(
     customer_id: str,
     product: Product,
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
-) -> tuple[float, float, float]:
+) -> float:
     model_prob = float(model_scores.get((customer_id, product.product_id), 0.0))
     if not 0.0 <= model_prob <= 1.0:
         raise ValueError(
             f"model score out of [0,1] for {customer_id}/{product.product_id}"
         )
-    cf_score = float(cf_scores.get((customer_id, product.product_id), 0.0))
-    return model_prob + w_cf * cf_score, model_prob, cf_score
+    return model_prob
 
 
 def _compliance_evaluate(
     engine: RuleEngine,
-    customer_id: str,
     strategy_date: date,
     products: Sequence[Product],
     max_allowed_risk: int,
@@ -187,18 +181,16 @@ def _select_top(
     overshoot_pool: Sequence[Product],
     top_n: int,
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
-) -> list[tuple[Product, float, float, float, bool]]:
-    def score_sort(pool: Sequence[Product]) -> list[tuple[Product, float, float, float]]:
+) -> list[tuple[Product, float, bool]]:
+    def score_sort(pool: Sequence[Product]) -> list[tuple[Product, float]]:
         scored = [
-            (p, *_rank_score(customer_id, p, model_scores, cf_scores, w_cf))
-            for p in pool
+            (product, _model_probability(customer_id, product, model_scores))
+            for product in pool
         ]
         scored.sort(key=lambda entry: (-entry[1], entry[0].product_id))
         return scored
 
-    selected: list[tuple[Product, float, float, float, bool]] = [
+    selected: list[tuple[Product, float, bool]] = [
         (*entry, False) for entry in score_sort(compliant)[:top_n]
     ]
     if len(selected) < top_n:
@@ -303,8 +295,6 @@ def _plan_customer(
     engine: RuleEngine,
     manager_ranks: Sequence[int],
     model_scores: Mapping[tuple[str, str], float],
-    cf_scores: Mapping[tuple[str, str], float],
-    w_cf: float,
 ) -> StrategyResult:
     customer = request.customer
     behavior = request.effective_behavior()
@@ -313,15 +303,15 @@ def _plan_customer(
 
     # ---- Step 2 合规过滤（先合规池，不足时溢出 1 级） ----
     compliant, blocked_details = _compliance_evaluate(
-        engine, customer.customer_id, request.strategy_date, products,
+        engine, request.strategy_date, products,
         max_allowed_risk=base_rank, customer=customer,
     )
     overshoot_pool: list[Product] = []
     overshoot = 0
     if len(compliant) < request.top_n:
         overshoot = 1
-        overshoot_pool, overflow_blocked = _compliance_evaluate(
-            engine, customer.customer_id, request.strategy_date, products,
+        overshoot_pool, _ = _compliance_evaluate(
+            engine, request.strategy_date, products,
             max_allowed_risk=base_rank + 1, customer=customer,
         )
         overshoot_pool = [p for p in overshoot_pool if p not in compliant]
@@ -349,16 +339,15 @@ def _plan_customer(
     # ---- Step 3/4 打分排序选 Top N ----
     selected = _select_top(
         customer.customer_id, compliant, overshoot_pool, request.top_n,
-        model_scores, cf_scores, w_cf,
+        model_scores,
     )
     steps.append(
         StepRecord(
             "ranking",
-            f"Top{len(selected)} 排序完成（A1 概率 + {w_cf}×协同过滤相似度）",
+            f"Top{len(selected)} 排序完成（A1 响应概率）",
             tuple(
-                f"{p.product_id}: score={score:.6f} "
-                f"(model={model_prob:.4f}, cf={cf_score:.4f})"
-                for p, score, model_prob, cf_score, _ in selected
+                f"{product.product_id}: probability={model_prob:.6f}"
+                for product, model_prob, _ in selected
             ),
         )
     )
@@ -369,7 +358,7 @@ def _plan_customer(
     channel_details: list[str] = []
     slot_details: list[str] = []
     non_manager_pos = 0
-    for position, (product, score, model_prob, cf_score, is_overshoot) in enumerate(
+    for position, (product, model_prob, is_overshoot) in enumerate(
         selected, start=1
     ):
         rank = position
@@ -428,9 +417,7 @@ def _plan_customer(
                 recommended_channel=channel,
                 recommended_time=slot,
                 marketing_script=script,
-                score=score,
                 model_prob=model_prob,
-                cf_score=cf_score,
                 overshoot=is_overshoot,
                 rule_trace=tuple(trace),
             )
@@ -473,12 +460,10 @@ def generate_strategies(
     products: Sequence[Product],
     *,
     model_scores: Mapping[tuple[str, str], float] | None = None,
-    cf_scores: Mapping[tuple[str, str], float] | None = None,
-    w_cf: float = DEFAULT_W_CF,
     manager_quota: int = DEFAULT_MANAGER_QUOTA,
     engine: RuleEngine | None = None,
 ) -> list[StrategyResult]:
-    """批量生成全部客户的 Top N 策略（两阶段，含 manager 全局配额）。"""
+    """按 A1 概率排序并应用规则，生成客户 Top N 策略。"""
     if not requests or not products:
         raise ValueError("requests and products must not be empty")
     product_ids = [p.product_id for p in products]
@@ -489,7 +474,6 @@ def generate_strategies(
 
     engine = engine or build_default_engine()
     model_scores = model_scores or {}
-    cf_scores = cf_scores or {}
     manager_plan = _allocate_manager(requests, manager_quota)
 
     results: list[StrategyResult] = []
@@ -501,8 +485,6 @@ def generate_strategies(
                 engine,
                 manager_plan.get(request.customer.customer_id, ()),
                 model_scores,
-                cf_scores,
-                w_cf,
             )
         )
     return results
@@ -536,13 +518,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=PROJECT_DIR / "src" / "data" / "outputs" / "a2_strategy_audit.csv",
     )
-    parser.add_argument(
-        "--cf-audit",
-        type=Path,
-        default=PROJECT_DIR / "src" / "data" / "outputs" / "a2_cf_similarity.csv",
-    )
     parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
-    parser.add_argument("--w-cf", type=float, default=DEFAULT_W_CF)
     return parser.parse_args(argv)
 
 
@@ -561,8 +537,8 @@ def write_strategy_audit(output_path: Path, results: Sequence[StrategyResult]) -
         writer = csv.writer(file)
         writer.writerow(
             [
-                "customer_id", "rank", "product_id", "score", "model_prob",
-                "cf_score", "overshoot", "recommended_channel",
+                "customer_id", "rank", "product_id", "model_prob",
+                "overshoot", "recommended_channel",
                 "recommended_time", "script_length",
             ]
         )
@@ -571,8 +547,7 @@ def write_strategy_audit(output_path: Path, results: Sequence[StrategyResult]) -
                 writer.writerow(
                     [
                         result.customer_id, item.rank, item.product_id,
-                        f"{item.score:.8f}", f"{item.model_prob:.8f}",
-                        f"{item.cf_score:.8f}", int(item.overshoot),
+                        f"{item.model_prob:.8f}", int(item.overshoot),
                         item.recommended_channel, item.recommended_time,
                         len(item.marketing_script),
                     ]
@@ -602,18 +577,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     model_scores = load_model_scores(args.test_contacts, args.predictions)
 
-    similarity = build_co_holding_similarity(
-        holdings, as_of=max(strategy_dates.values())
-    )
-    cf_scores = customer_cf_scores(
-        similarity,
-        {
-            cid: behavior.holding_product_ids
-            for cid, behavior in behaviors.items()
-        },
-        [p.product_id for p in products],
-    )
-    similarity.to_csv(args.cf_audit, index=False)
+    print(f"ranking_source=A1_probability customers={len(strategy_dates)}")
 
     requests = [
         StrategyRequest(
@@ -629,8 +593,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         requests,
         products,
         model_scores=model_scores,
-        cf_scores=cf_scores,
-        w_cf=args.w_cf,
         manager_quota=args.manager_quota,
     )
 
@@ -659,7 +621,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  - {error}")
     print(f"strategy={args.output}")
     print(f"audit={args.audit_output}")
-    print(f"cf_similarity={args.cf_audit}")
     return 1 if errors else 0
 
 
