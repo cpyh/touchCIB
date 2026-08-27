@@ -213,6 +213,18 @@ def _parse_datetime(value, field: str):
     raise CampaignInputError(f"{field} must be an ISO datetime string")
 
 
+def _sent_occurred_at(value, business_date):
+    """把页面上的触达动作固定到当前业务快照，避免混入机器当前时间。"""
+    from datetime import datetime, time
+
+    occurred_at = _parse_datetime(value, "occurred_at")
+    if occurred_at is None:
+        occurred_at = datetime.combine(business_date, time(hour=10))
+    if occurred_at.date() != business_date:
+        raise CampaignInputError("occurred_at 必须位于当前业务日期")
+    return occurred_at
+
+
 def _parse_date(value, field: str):
     from datetime import date
 
@@ -242,7 +254,9 @@ def campaign_events_create():
         if event_type == "sent":
             event = create_sent_event(
                 strategy_id=str(payload.get("strategy_id", "")),
-                occurred_at=_parse_datetime(payload.get("occurred_at"), "occurred_at"),
+                occurred_at=_sent_occurred_at(
+                    payload.get("occurred_at"), business_date
+                ),
             )
         elif event_type == "responded":
             amount = payload.get("amount")

@@ -287,7 +287,7 @@ def _existing_responded(strategy_id: str) -> bool:
 
 def create_sent_event(
     strategy_id: str,
-    occurred_at: datetime | None = None,
+    occurred_at: datetime,
 ) -> dict:
     """标记"已触达"：写入 sent 事件。
 
@@ -304,7 +304,7 @@ def create_sent_event(
     return _record_event(
         strategy_id=strategy_id,
         event_type="sent",
-        occurred_at=occurred_at or datetime.now(),
+        occurred_at=occurred_at,
     )
 
 
