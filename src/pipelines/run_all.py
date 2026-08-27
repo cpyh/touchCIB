@@ -29,7 +29,7 @@ STAGES: list[tuple[str, str, list[str]]] = [
     ),
     (
         "A2 策略生成",
-        "src.marketing.pipeline",
+        "src.marketing",
         [],
     ),
     (
@@ -105,9 +105,14 @@ def main(argv: list[str] | None = None) -> int:
     for name, module, stage_args in STAGES[:2]:
         run_stage(name, module, stage_args)
 
-    # 阶段 3：A1 训练/推理（唯一实现）
+    # 阶段 3：训练唯一 full 模型产物，A1/A2/Flask 均加载该产物。
     run_stage(
-        f"A1训练与推理（{args.a1_model}）",
+        f"A1 full模型训练（{args.a1_model}）",
+        "src.partA1serving.training.train_and_save",
+        ["--profile", "full", "--model", args.a1_model],
+    )
+    run_stage(
+        f"A1正式预测（{args.a1_model}）",
         "src.partA1serving.training.predict",
         ["--model", args.a1_model, "--out", "partA_prediction.csv"],
     )
@@ -118,16 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         a2_args += ["--manager-quota", str(args.manager_quota)]
     for name, module, stage_args in STAGES[2:]:
         if name.startswith("A2"):
-            stage_args = a2_args
-            # 包 __init__ 已导入 pipeline，避免 runpy 双重加载 warning：
-            # 直接以 -c 形式调用 main()。
-            command = [
-                "-c",
-                "import sys; from src.marketing.pipeline import main; "
-                "sys.exit(main(sys.argv[1:]))",
-                *stage_args,
-            ]
-            run_command(name, command)
+            run_stage(name, "src.marketing", ["--model", args.a1_model, *a2_args])
             continue
         run_stage(name, module, stage_args)
 

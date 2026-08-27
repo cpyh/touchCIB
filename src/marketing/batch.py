@@ -19,7 +19,13 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ..database import database_connection
 from ..partA1serving.feature_service import PredictRequest
-from .models import MANAGER_ELIGIBLE_AUM, MANAGER_ELIGIBLE_VIP, Customer, CustomerBehavior
+from .models import (
+    DEFAULT_MANAGER_QUOTA,
+    MANAGER_ELIGIBLE_AUM,
+    MANAGER_ELIGIBLE_VIP,
+    Customer,
+    CustomerBehavior,
+)
 from .pipeline import _slot_order
 from .rules import build_default_engine
 from .templates import build_script
@@ -31,6 +37,7 @@ if TYPE_CHECKING:
 
 RULE_VERSION = "a1_rank_basic_rules_v1"
 FEATURE_VERSION_PREFIX = "a1_feature_schema_v"
+VIP_PRIORITY = {"钻石": 3, "金卡": 2, "银卡": 1, "普通": 0}
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,39 @@ def select_business_channel(
     return "sms"
 
 
+def allocate_manager_customers(
+    customers: Iterable[Customer],
+    *,
+    manager_quota: int,
+    strategies_per_customer: int = 3,
+) -> set[str]:
+    """分配 manager 渠道客户，配额单位为最终策略行数。
+
+    A1 的渠道是模型特征，因此同一客户的 30 产品必须先固定一个可执行渠道。
+    为保证评分渠道与最终 Top3 渠道一致，manager 按完整客户 Top3 分配；不足
+    一个完整 Top3 的尾数不使用。排序完全确定，便于离线提交与 ADS 日批复现。
+    """
+    if manager_quota < 0:
+        raise ValueError("manager_quota must be non-negative")
+    if strategies_per_customer <= 0:
+        raise ValueError("strategies_per_customer must be positive")
+    capacity = manager_quota // strategies_per_customer
+    eligible = [
+        customer
+        for customer in customers
+        if customer.vip_level in MANAGER_ELIGIBLE_VIP
+        or customer.aum >= MANAGER_ELIGIBLE_AUM
+    ]
+    eligible.sort(
+        key=lambda customer: (
+            -VIP_PRIORITY.get(customer.vip_level, 0),
+            -customer.aum,
+            customer.customer_id,
+        )
+    )
+    return {customer.customer_id for customer in eligible[:capacity]}
+
+
 def _trace_json(outcomes) -> str:
     return json.dumps(
         [
@@ -99,7 +139,7 @@ def compute_marketing_batch(
     predictor: "ResponsePredictor",
     *,
     batch_id: str,
-    manager_enabled: bool = True,
+    manager_quota: int = DEFAULT_MANAGER_QUOTA,
 ) -> MarketingBatchResult:
     """纯计算阶段；只有全部客户成功后，调用方才进入ADS事务写入。"""
     engine = build_default_engine()
@@ -108,11 +148,15 @@ def compute_marketing_batch(
     decision_rows: list[tuple[Any, ...]] = []
     strategy_rows: list[tuple[Any, ...]] = []
     customer_ids = sorted(context.customers)
+    manager_customers = allocate_manager_customers(
+        context.customers.values(),
+        manager_quota=manager_quota,
+    )
     channel_by_customer = {
         customer_id: select_business_channel(
             context.customers[customer_id],
             context.behaviors[customer_id],
-            manager_enabled=manager_enabled,
+            manager_enabled=customer_id in manager_customers,
         )
         for customer_id in customer_ids
     }
@@ -165,7 +209,8 @@ def compute_marketing_batch(
             for index, product in enumerate(ordered_products, start=1)
         }
 
-        passed_candidates: list[tuple] = []
+        strict_candidates: list[tuple] = []
+        overshoot_candidates: list[tuple] = []
         candidate_trace: dict[str, list] = {}
         for product in ordered_products:
             probability = probability_by_product[product.product_id]
@@ -214,8 +259,17 @@ def compute_marketing_batch(
                 )
             )
             if passed:
-                passed_candidates.append((product, probability, rank))
+                target = (
+                    strict_candidates
+                    if int(product.risk_level[1:]) <= base_risk
+                    else overshoot_candidates
+                )
+                target.append((product, probability, rank))
 
+        passed_candidates = [
+            *strict_candidates[:3],
+            *overshoot_candidates[: max(0, 3 - len(strict_candidates))],
+        ]
         if len(passed_candidates) < 3:
             raise RuntimeError(
                 f"{customer_id}: A2基础规则过滤后仅剩 {len(passed_candidates)} 个候选"
@@ -258,6 +312,11 @@ def compute_marketing_batch(
             selection_reason = (
                 f"A1原始排名第{rank}（概率{probability:.2%}），"
                 f"通过{len(all_outcomes)}项规则，进入过滤后Top3第{strategy_rank}位"
+                + (
+                    "（严格风险候选不足3个，按规则放宽一档补位）"
+                    if int(product.risk_level[1:]) > base_risk
+                    else ""
+                )
             )
             strategy_rows.append(
                 (
@@ -362,6 +421,7 @@ def persist_marketing_batch(
 __all__ = [
     "MarketingBatchResult",
     "RULE_VERSION",
+    "allocate_manager_customers",
     "compute_marketing_batch",
     "persist_marketing_batch",
     "select_business_channel",

@@ -154,7 +154,8 @@ class ResponsePredictor:
             profile: "demo" —— 训练数据截止 2026-01-31，用于工程化演示；
                      该 profile 下 2026-02-01~2026-03-26 的数据模型从未见过，
                      可用其真实标签当场验证预测可信度。
-                     "full" —— 全量 50000 条训练，仅用于生成提交物。
+                     "full" —— 全量 50000 条训练，用于正式 A1/A2 与平台推理；
+                     不可拿训练期已知标签做现场效果自评。
             model: 模型类型，如 "lr" / "lgbm" / "lgbm_onehot"。
                    同一 profile 下可并存多种模型，便于随时回滚。
             models_root: 模型根目录，默认包内 artifacts/。

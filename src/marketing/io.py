@@ -153,36 +153,3 @@ def build_behaviors(
             login_count_30d=int(login.get(customer_id, 0)),
         )
     return behaviors
-
-
-def load_model_scores(
-    test_contacts_path, predictions_path
-) -> dict[tuple[str, str], float]:
-    """把 A1 预测映射为 (customer_id, product_id) -> response_prob。
-
-    同一 (customer, product) 在测试名单中有多条触达时取均值
-    （口径：期望响应概率）。
-    """
-    contacts = pd.read_csv(
-        test_contacts_path,
-        dtype={"contact_id": str, "customer_id": str, "product_id": str},
-    )
-    predictions = pd.read_csv(
-        predictions_path, dtype={"contact_id": str}
-    )
-    merged = contacts.merge(predictions, on="contact_id", how="left")
-    if merged["response_prob"].isna().any():
-        raise ValueError("部分 contact_id 缺少预测概率")
-    merged["response_prob"] = pd.to_numeric(
-        merged["response_prob"], errors="raise"
-    )
-    grouped = (
-        merged.groupby(["customer_id", "product_id"], sort=False)[
-            "response_prob"
-        ]
-        .mean()
-    )
-    return {
-        (customer_id, product_id): float(probability)
-        for (customer_id, product_id), probability in grouped.items()
-    }
