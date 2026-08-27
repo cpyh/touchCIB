@@ -299,6 +299,7 @@ def campaign_demo_holding_create():
             buy_date=_parse_date(payload.get("buy_date"), "buy_date"),
             amount=float(amount),
             window_days=int(payload.get("window_days", 30)),
+            business_date=business_date,
         )
     except CampaignInputError as exc:
         return jsonify(error=str(exc)), 422

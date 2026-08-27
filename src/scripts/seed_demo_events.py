@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 
 import pandas as pd
 
+from src.business_date import DEFAULT_BUSINESS_DATE
 from src.campaign import (
     create_responded_event,
     create_sent_event,
@@ -30,8 +31,8 @@ from src.database import database_connection
 
 SEED_SENT = 30
 SEED_RESPONDED = 22
-FIRST_SENT_AT = datetime(2026, 4, 15, 9, 0, 0)
-FIRST_BUY_DATE = date(2026, 4, 16)
+FIRST_SENT_AT = datetime.combine(DEFAULT_BUSINESS_DATE, time(9, 0))
+FIRST_RESPONDED_AT = datetime.combine(DEFAULT_BUSINESS_DATE, time(10, 30))
 
 
 def _existing_events(strategy_ids: list[str]) -> dict[str, set[str]]:
@@ -71,11 +72,12 @@ def _clear_events() -> None:
     connection = database_connection()
     try:
         with connection.cursor() as cursor:
+            cursor.execute("DELETE FROM app_demo_holding")
             cursor.execute("DELETE FROM app_campaign_event")
         connection.commit()
     finally:
         connection.close()
-    print("已清空 app_campaign_event（--reset）")
+    print("已清空 app_demo_holding、app_campaign_event（--reset）")
 
 
 def seed(sent: int, responded: int, reset: bool = False) -> dict:
@@ -106,13 +108,15 @@ def seed(sent: int, responded: int, reset: bool = False) -> dict:
             if "responded" in types:
                 skipped += 1
                 continue
-            buy_date = FIRST_BUY_DATE + timedelta(days=index % 10)
+            # Demo 不依赖“快进到未来”：购买回流与营销触达发生在同一业务日，
+            # 但时间晚于触达，因此当前快照可立即聚合出 22/30。
+            responded_at = FIRST_RESPONDED_AT + timedelta(minutes=index)
             create_responded_event(
                 customer_id=row.customer_id,
                 product_id=row.product_id,
-                buy_date=buy_date,
+                buy_date=DEFAULT_BUSINESS_DATE,
                 amount=float(50000 + index * 5000),
-                occurred_at=datetime.combine(buy_date, time(10, 30)),
+                occurred_at=responded_at,
             )
             responded_count += 1
 

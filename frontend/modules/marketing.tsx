@@ -273,7 +273,6 @@ export function MarketingPage({
 
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [showSimulation, setShowSimulation] = useState(false);
-  const [simulationDate, setSimulationDate] = useState("2026-04-20");
   const [simulationAmount, setSimulationAmount] = useState(50000);
   const [lastSimulation, setLastSimulation] = useState<SimulatedHoldingResult | null>(null);
 
@@ -588,7 +587,7 @@ export function MarketingPage({
         body: JSON.stringify({
           customer_id: strategyCustomerId,
           product_id: selectedStrategy.product_id,
-          buy_date: simulationDate,
+          buy_date: businessDate,
           amount: simulationAmount,
           business_date: businessDate,
         }),
@@ -1286,9 +1285,9 @@ export function MarketingPage({
           <section className="simulation-dialog">
             <header><div><small>仅供答辩演示</small><h2>模拟核心业务系统回传新增持仓</h2></div><button onClick={() => setShowSimulation(false)}>×</button></header>
             <div className="simulation-product"><b>TOP {selectedStrategy.rank}</b><span><strong>{selectedStrategy.product_name}</strong><small>{selectedStrategy.product_id} · 将进入自动归因规则</small></span></div>
-            <label>购买日期<input type="date" value={simulationDate} onChange={(event) => setSimulationDate(event.target.value)} /></label>
+            <label>购买日期<input type="date" value={businessDate} readOnly /></label>
             <label>购买金额<input type="number" min="1" step="1000" value={simulationAmount} onChange={(event) => setSimulationAmount(Number(event.target.value))} /></label>
-            <p>模拟记录只写入演示持仓表，不修改赛事原始持仓数据。命中 Top3 且处于 30 天窗口内时，客户经理 KPI 才会增加。</p>
+            <p>模拟记录按当前业务日回流，只写入演示持仓表，不修改赛事原始持仓数据。命中 Top3 且处于 30 天窗口内时，客户经理 KPI 才会增加。</p>
             <footer><button onClick={() => setShowSimulation(false)}>取消</button><button className="primary" disabled={historical || busy} onClick={() => void simulateHolding()}>{busy ? "正在归因…" : "确认回传并自动归因"}</button></footer>
           </section>
         </div>
