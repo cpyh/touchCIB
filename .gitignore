@@ -59,3 +59,7 @@ src/data/outputs/
 frontend/.vite/
 frontend/.next/
 frontend/node_modules/
+
+# UI 验收产生的浏览器自动化产物（截图、快照、日志）
+.playwright-cli/
+acc-*.png
