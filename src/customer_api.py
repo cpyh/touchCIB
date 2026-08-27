@@ -68,7 +68,10 @@ def _enum(payload: dict, field: str, allowed: set[str]) -> str:
     return value
 
 
-def validate_customer_create(payload: object) -> dict:
+def validate_customer_create(
+    payload: object,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
     if not isinstance(payload, dict):
         raise ValidationError("request body must be a JSON object")
 
@@ -76,8 +79,8 @@ def validate_customer_create(payload: object) -> dict:
         register_date = date.fromisoformat(str(payload.get("register_date", "")))
     except ValueError as exc:
         raise ValidationError("register_date must use YYYY-MM-DD") from exc
-    if register_date > date.today():
-        raise ValidationError("register_date cannot be later than today")
+    if register_date > business_date:
+        raise ValidationError("register_date cannot be later than business_date")
 
     try:
         aum = Decimal(str(payload.get("aum")))
@@ -284,8 +287,11 @@ def list_customers(
     }
 
 
-def create_customer(raw_payload: object) -> dict:
-    payload = validate_customer_create(raw_payload)
+def create_customer(
+    raw_payload: object,
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    payload = validate_customer_create(raw_payload, business_date)
     risk_appetite = assess_risk(payload)
 
     for _ in range(3):
@@ -397,14 +403,22 @@ def build_asset_profile(customer: dict, rows: list[dict]) -> dict:
 def build_behavior_profile(
     customer: dict, events: list[dict], asset_profile: dict, as_of_date
 ) -> dict:
-    total_counts = Counter(event["event_type"] for event in events)
-    recent_start = as_of_date - timedelta(days=29)
+    # 与 A1/A2 共用严格 as-of 口径：业务日是右开边界，不使用当日事件。
+    visible_events = [
+        event for event in events if event["event_date"] < as_of_date
+    ]
+    total_counts = Counter(event["event_type"] for event in visible_events)
+    recent_start = as_of_date - timedelta(days=30)
     recent_counts = Counter(
         event["event_type"]
-        for event in events
-        if event["event_date"] >= recent_start
+        for event in visible_events
+        if recent_start <= event["event_date"] < as_of_date
     )
-    latest = max(events, key=lambda event: event["event_date"]) if events else None
+    latest = (
+        max(visible_events, key=lambda event: event["event_date"])
+        if visible_events
+        else None
+    )
 
     tags: list[str] = []
     if customer["aum"] >= Decimal("1000000"):
@@ -427,6 +441,8 @@ def build_behavior_profile(
         "recent_30d_counts": {
             name: recent_counts[name] for name in ("login", "consult", "complaint")
         },
+        "recent_30d_start": recent_start.isoformat(),
+        "recent_30d_end_exclusive": as_of_date.isoformat(),
         "latest_event_type": latest["event_type"] if latest else None,
         "latest_event_date": latest["event_date"].isoformat() if latest else None,
         "tags": tags,
@@ -459,7 +475,7 @@ def get_customer_profile(
                            p.liquidity, p.expected_return
                     FROM ods_holding h
                     JOIN ods_product p ON p.product_id = h.product_id
-                    WHERE h.customer_id = %s AND h.buy_date <= %s
+                    WHERE h.customer_id = %s AND h.buy_date < %s
                     ORDER BY h.amount DESC, h.holding_id
                     """,
                     (customer_id, as_of_date),
@@ -469,7 +485,7 @@ def get_customer_profile(
                     """
                     SELECT event_type, event_date
                     FROM ods_event
-                    WHERE customer_id = %s AND event_date <= %s
+                    WHERE customer_id = %s AND event_date < %s
                     ORDER BY event_date DESC, event_id DESC
                     """,
                     (customer_id, as_of_date),
@@ -481,7 +497,7 @@ def get_customer_profile(
                            COALESCE(SUM(responded), 0) AS responded_count,
                            MAX(contact_date) AS last_contact_date
                     FROM ods_campaign
-                    WHERE customer_id = %s AND contact_date <= %s
+                    WHERE customer_id = %s AND contact_date < %s
                     """,
                     (customer_id, as_of_date),
                 )
@@ -844,7 +860,12 @@ def customers_list():
 
 @customers_bp.post("")
 def customer_create():
-    return success(create_customer(request.get_json(silent=True)), 201)
+    business_date = _request_business_date()
+    if business_date != DEFAULT_BUSINESS_DATE:
+        raise ValidationError("历史业务日期为只读快照，不能新建客户")
+    return success(
+        create_customer(request.get_json(silent=True), business_date), 201
+    )
 
 
 @customers_bp.get("/<customer_id>/profile")

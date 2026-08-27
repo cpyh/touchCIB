@@ -5,8 +5,8 @@
   规则只做合规拦截、渠道/时段/话术决策与格式校验；
 - duration_valid 与 min_invest 为"记录型"规则：只留痕、不拦截
   （评分口径不校验存续期/起投额，产品池以发放的 30 个为准）；
-- risk_match 支持"溢出 1 级"：风险偏好内产品不足 3 个时自动放宽一档，
-  溢出产品的话术强制带风险提示（script_overshoot_warning 规则）。
+- risk_match 支持"溢出 1 级"：所有客户均允许产品风险等级最多上浮一档，
+  并与偏好内产品一起按 A1 概率排序；溢出产品的话术强制带风险提示。
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def _check_risk_match(ctx: RuleContext) -> RuleOutcome:
                 "risk_match",
                 True,
                 f"溢出通过：产品 {product.risk_level} 高于客户偏好 "
-                f"{customer.risk_appetite} 一档（候选不足 {MAX_RISK_OVERSHOOT} 级内放宽）",
+                f"{customer.risk_appetite} 一档（允许上浮 {MAX_RISK_OVERSHOOT} 级）",
             )
         return RuleOutcome("risk_match", True, "产品风险等级在客户偏好范围内")
     return RuleOutcome(
@@ -315,7 +315,7 @@ RULES = [
         "risk_match",
         "适当性匹配（风险等级）",
         "compliance",
-        "产品风险等级不得超过客户风险偏好；候选不足时自动溢出 1 级",
+        "产品风险等级最多高于客户风险偏好 1 级，并参与统一概率排序",
         _check_risk_match,
     ),
     _rule(

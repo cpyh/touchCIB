@@ -111,7 +111,7 @@ class CampaignEventTestCase(unittest.TestCase):
     @patch("src.campaign.database_connection")
     def test_sent_dedupe_customer_level(self, mock_db):
         """同一客户已有任意 rank 的 sent 事件时，重复触达被拒绝（客户口径）。"""
-        connection, _ = fake_connection(
+        connection, cursor = fake_connection(
             fetchall_results=[
                 {
                     "strategy_id": f"{self.customer_id}:2",
@@ -166,7 +166,7 @@ class CampaignEventTestCase(unittest.TestCase):
 
     @patch("src.campaign.database_connection")
     def test_responded_recorded_with_attribution(self, mock_db):
-        connection, _ = fake_connection(
+        connection, cursor = fake_connection(
             [
                 {"count": 0},
                 {"campaign_event_id": 2, "strategy_id": self.strategy_id,
@@ -186,6 +186,14 @@ class CampaignEventTestCase(unittest.TestCase):
         self.assertEqual(event["event_type"], "responded")
         self.assertIn("attribution", event)
         self.assertIn("命中 Top3", event["attribution"])
+        insert_index = next(
+            index
+            for index, statement in enumerate(cursor.statements)
+            if "INSERT INTO app_campaign_event" in statement
+        )
+        self.assertEqual(
+            cursor.params_list[insert_index][2], datetime(2026, 4, 20, 10, 0)
+        )
 
     @patch("src.campaign.database_connection")
     def test_simulated_holding_drives_response_kpi(self, mock_db):

@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -9,6 +9,7 @@ from src.customer_api import (
     ValidationError,
     _deepseek_analysis,
     assess_risk,
+    build_behavior_profile,
     parse_cached_analysis,
     parse_model_analysis,
     risk_label,
@@ -95,7 +96,8 @@ class CustomerValidationTestCase(unittest.TestCase):
     def test_future_register_date_rejected(self):
         with self.assertRaises(ValidationError):
             validate_customer_create(
-                {**VALID_PAYLOAD, "register_date": (date.today() + timedelta(days=1)).isoformat()}
+                {**VALID_PAYLOAD, "register_date": "2026-04-16"},
+                business_date=date(2026, 4, 15),
             )
 
     def test_has_app_must_be_boolean(self):
@@ -169,6 +171,33 @@ class AiAnalysisTestCase(unittest.TestCase):
         self.assertNotIn("C000001", kwargs["messages"][1]["content"])
 
 
+class CustomerProfileAsOfTestCase(unittest.TestCase):
+    def test_recent_30d_uses_business_date_as_exclusive_upper_bound(self):
+        profile = build_behavior_profile(
+            {
+                "aum": Decimal("100000"),
+                "risk_appetite": "R3",
+                "has_app": True,
+            },
+            [
+                {"event_type": "login", "event_date": date(2026, 3, 15)},
+                {"event_type": "login", "event_date": date(2026, 3, 16)},
+                {"event_type": "consult", "event_date": date(2026, 4, 14)},
+                {"event_type": "complaint", "event_date": date(2026, 4, 15)},
+            ],
+            {"high_liquidity_ratio": 0.0},
+            date(2026, 4, 15),
+        )
+
+        self.assertEqual(
+            profile["recent_30d_counts"],
+            {"login": 1, "consult": 1, "complaint": 0},
+        )
+        self.assertEqual(profile["recent_30d_start"], "2026-03-16")
+        self.assertEqual(profile["recent_30d_end_exclusive"], "2026-04-15")
+        self.assertEqual(profile["latest_event_date"], "2026-04-14")
+
+
 class CustomerApiRouteTestCase(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
@@ -187,9 +216,21 @@ class CustomerApiRouteTestCase(unittest.TestCase):
     @patch("src.customer_api.create_customer")
     def test_create_customer_envelope(self, mock_create):
         mock_create.return_value = {"customer_id": "C1", "risk_appetite": "R3"}
-        response = self.client.post("/api/v1/customers", json={"demo": True})
+        response = self.client.post(
+            "/api/v1/customers?business_date=2026-04-15", json={"demo": True}
+        )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.get_json()["data"]["customer_id"], "C1")
+        self.assertEqual(mock_create.call_args.args[1], date(2026, 4, 15))
+
+    @patch("src.customer_api.create_customer")
+    def test_create_customer_rejects_historical_snapshot(self, mock_create):
+        response = self.client.post(
+            "/api/v1/customers?business_date=2026-01-30", json={"demo": True}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("只读快照", response.get_json()["message"])
+        mock_create.assert_not_called()
 
     def test_list_customers_invalid_page(self):
         response = self.client.get("/api/v1/customers?page=0")
