@@ -24,7 +24,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--customer-id", action="append", default=[])
     parser.add_argument("--limit", type=int)
     parser.add_argument("--batch-id")
-    parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
+    parser.add_argument(
+        "--manager-quota",
+        type=int,
+        default=DEFAULT_MANAGER_QUOTA,
+        help="兼容参数；manager 已不限资格和配额，该值不再生效",
+    )
     args = parser.parse_args()
     try:
         args.strategy_date = date.fromisoformat(args.strategy_date)
@@ -34,8 +39,6 @@ def parse_args() -> argparse.Namespace:
         parser.error("--limit 必须大于0")
     if args.customer_id and args.limit is not None:
         parser.error("--customer-id 与 --limit 不能同时使用")
-    if args.manager_quota < 0:
-        parser.error("--manager-quota 必须大于等于0")
     return args
 
 

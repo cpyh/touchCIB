@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from datetime import date
 from typing import TYPE_CHECKING
 
 from ..business_date import DEFAULT_BUSINESS_DATE
-from .batch import RULE_VERSION, compute_marketing_batch
+from .batch import (
+    RULE_VERSION,
+    compute_marketing_batch,
+    eligible_business_channels,
+)
 from .models import DEFAULT_MANAGER_QUOTA, DEFAULT_TOP_N
+from .rules import TOGGLEABLE_CONSTRAINT_IDS, normalize_disabled_constraints
 from .warehouse import load_marketing_context
 
 if TYPE_CHECKING:
@@ -24,6 +30,7 @@ def generate_customer_strategy(
     *,
     manager_quota: int = DEFAULT_MANAGER_QUOTA,
     top_n: int = DEFAULT_TOP_N,
+    disabled_constraints: Iterable[str] = (),
     response_predictor: "ResponsePredictor | None" = None,
     strategy_date: date = DEFAULT_BUSINESS_DATE,
 ) -> dict:
@@ -31,10 +38,9 @@ def generate_customer_strategy(
     normalized = customer_id.strip().upper()
     if not normalized:
         raise StrategyGenerationError("customer_id 不能为空")
-    if manager_quota < 0:
-        raise ValueError("manager_quota must be >= 0")
     if not 1 <= top_n <= 3:
         raise ValueError("top_n must be between 1 and 3")
+    disabled = normalize_disabled_constraints(disabled_constraints)
     if response_predictor is None:
         from ..partA1serving.runtime import get_mysql_predictor
 
@@ -53,8 +59,18 @@ def generate_customer_strategy(
         response_predictor,
         batch_id=f"preview_{normalized}_{strategy_date:%Y%m%d}",
         manager_quota=manager_quota,
+        disabled_constraints=disabled,
     )
     customer = context.customers[normalized]
+    evaluated_channels = eligible_business_channels(
+        customer,
+        context.behaviors[normalized],
+        disabled_constraints=disabled,
+    )
+    baseline_channels = eligible_business_channels(
+        customer,
+        context.behaviors[normalized],
+    )
     product_map = {product.product_id: product for product in context.products}
     items = []
     for row in result.strategy_rows[:top_n]:
@@ -87,7 +103,17 @@ def generate_customer_strategy(
         "aum": round(customer.aum, 2),
         "parameters": {
             "manager_quota": manager_quota,
+            "manager_quota_effective": False,
             "top_n": top_n,
+            "disabled_constraints": sorted(disabled),
+            "constraints": {
+                rule_id: rule_id not in disabled
+                for rule_id in sorted(TOGGLEABLE_CONSTRAINT_IDS)
+            },
+            "evaluated_channels": list(evaluated_channels),
+            "baseline_channels": list(baseline_channels),
+            "a1_candidate_count": len(context.products) * len(evaluated_channels),
+            "baseline_candidate_count": len(context.products) * len(baseline_channels),
             "ranking_source": "a1_probability",
             "a1_source": "mysql_dwd_online",
             "rule_version": RULE_VERSION,
@@ -95,7 +121,10 @@ def generate_customer_strategy(
         "steps": [
             {
                 "step": "a1_ranking",
-                "summary": f"A1完成{len(result.score_rows)}个客户产品评分",
+                "summary": (
+                    f"A1完成{len(context.products)}个产品×"
+                    f"{len(evaluated_channels)}个候选渠道评分"
+                ),
                 "details": [],
             },
             {

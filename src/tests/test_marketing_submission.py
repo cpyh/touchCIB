@@ -91,6 +91,11 @@ class MarketingSubmissionTestCase(unittest.TestCase):
             {request.product_id for request in predictor.requests},
             {"P001", "P002", "P003", "P004"},
         )
+        self.assertEqual(
+            {request.channel for request in predictor.requests},
+            {"sms", "call", "app_push", "manager"},
+        )
+        self.assertEqual(len(predictor.requests), 16)
 
     @patch("src.marketing.submission.load_marketing_context", return_value=_context())
     def test_audit_contains_current_a1_and_rule_fields_without_ltr(self, _load_context):
@@ -118,4 +123,3 @@ class MarketingSubmissionTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

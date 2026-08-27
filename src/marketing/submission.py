@@ -145,10 +145,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         choices=model_catalog.list_models(),
         default="lgbm_onehot",
     )
-    parser.add_argument("--manager-quota", type=int, default=DEFAULT_MANAGER_QUOTA)
+    parser.add_argument(
+        "--manager-quota",
+        type=int,
+        default=DEFAULT_MANAGER_QUOTA,
+        help="兼容参数；manager 已不限资格和配额，该值不再生效",
+    )
     args = parser.parse_args(argv)
-    if args.manager_quota < 0:
-        parser.error("--manager-quota 必须大于等于0")
     return args
 
 

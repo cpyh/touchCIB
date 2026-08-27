@@ -188,14 +188,22 @@
 ## 7. POST /marketing/strategy/generate（运营干预，不落库）
 
 ```json
-// 请求（manager_quota ≥ 0，top_n 为 1~3）
-{ "customer_id": "C002690", "manager_quota": 600, "top_n": 3 }
+// disabled_constraints 只影响本次试算，不写入 ADS；top_n 为 1~3
+{ "customer_id": "C002690", "top_n": 3,
+  "disabled_constraints": ["channel_app_requires_app"] }
 ```
 
 ```json
 // 响应（节选）
 { "customer_id": "C002690", "strategy_date": "2026-04-15",
-  "parameters": { "manager_quota": 600, "top_n": 3,
+  "parameters": { "manager_quota": 600, "manager_quota_effective": false, "top_n": 3,
+    "disabled_constraints": ["channel_app_requires_app"],
+    "constraints": { "aum_affordability": true,
+      "channel_app_requires_app": false,
+      "channel_call_complaint_block": true },
+    "evaluated_channels": ["sms", "call", "app_push", "manager"],
+    "baseline_channels": ["sms", "call", "manager"],
+    "a1_candidate_count": 120, "baseline_candidate_count": 90,
     "ranking_source": "a1_probability", "a1_source": "mysql_dwd_online" },
   "items": [ { "rank": 1, "product_id": "P012", "product_name": "混合012号",
     "risk_level": "R2", "expected_return": 0.0369, "recommended_channel": "manager",
@@ -205,8 +213,12 @@
     "rule_trace": [ { "rule_id": "risk_match", "passed": true, "reason": "..." } ] } ] }
 ```
 
-> **演示建议**：用该接口说明“试算不覆盖正式 ADS”；manager_quota 600→0
-> 会把 manager 渠道换成 app_push/call/sms，产品仍保持 A1 概率顺序。
+> `manager_quota` 仅为兼容旧前端保留。manager 对所有客户开放，最终渠道由
+> A1 对该客户×产品×可执行渠道的概率比较决定。
+>
+> 可关闭的试算约束为 `channel_app_requires_app`、
+> `channel_call_complaint_block`、`aum_affordability`。正式日批固定全部开启；
+> 关闭约束后会重新生成候选空间并调用 A1，不是对已有结果做事后改写。
 
 ## 8. GET /marketing/rules
 

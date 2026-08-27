@@ -144,6 +144,21 @@ class MarketingRulesTestCase(unittest.TestCase):
         self.assertTrue(outcome.passed)
         self.assertIn("记录", outcome.reason)
 
+    def test_aum_constraint_can_be_disabled_for_preview(self):
+        context = self.base_context(
+            customer=make_customer(aum=5_000.0),
+            product=make_product(min_invest=10_000.0),
+        )
+        blocked = self.engine.evaluate("aum_affordability", context)
+        self.assertFalse(blocked.passed)
+
+        preview = self.engine.evaluate(
+            "aum_affordability",
+            {**context, "disabled_constraints": {"aum_affordability"}},
+        )
+        self.assertTrue(preview.passed)
+        self.assertIn("试算已关闭", preview.reason)
+
     def test_app_push_requires_app(self):
         fail = self.engine.evaluate(
             "channel_app_requires_app",
@@ -158,6 +173,17 @@ class MarketingRulesTestCase(unittest.TestCase):
                               channel="app_push"),
         )
         self.assertTrue(ok.passed)
+
+        preview = self.engine.evaluate(
+            "channel_app_requires_app",
+            self.base_context(
+                customer=make_customer(has_app=False),
+                channel="app_push",
+                disabled_constraints={"channel_app_requires_app"},
+            ),
+        )
+        self.assertTrue(preview.passed)
+        self.assertIn("试算已关闭", preview.reason)
 
     def test_call_blocked_by_complaints(self):
         fail = self.engine.evaluate(
@@ -175,12 +201,24 @@ class MarketingRulesTestCase(unittest.TestCase):
         )
         self.assertTrue(ok.passed)
 
+        preview = self.engine.evaluate(
+            "channel_call_complaint_block",
+            self.base_context(
+                behavior=behavior(complaint_count_90d=3),
+                channel="call",
+                disabled_constraints={"channel_call_complaint_block"},
+            ),
+        )
+        self.assertTrue(preview.passed)
+        self.assertIn("试算已关闭", preview.reason)
+
     def test_manager_quota_rule(self):
-        fail = self.engine.evaluate(
+        unrestricted = self.engine.evaluate(
             "channel_manager_quota",
             self.base_context(channel="manager", manager_allowed=False),
         )
-        self.assertFalse(fail.passed)
+        self.assertTrue(unrestricted.passed)
+        self.assertIn("不设全局配额", unrestricted.reason)
         ok = self.engine.evaluate(
             "channel_manager_quota",
             self.base_context(channel="manager", manager_allowed=True),

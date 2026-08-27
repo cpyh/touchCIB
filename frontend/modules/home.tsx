@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { DashboardApiError, getDashboardOverview } from "../shared/dashboard-api";
+import { DashboardApiError, getHomeOverview } from "../shared/dashboard-api";
 import { compactMoney, formatNumber } from "../shared/format";
 
 type Module = "customer" | "portfolio" | "marketing" | "dashboard";
@@ -23,7 +23,7 @@ const moduleEntries: Array<{
     module: "customer",
     icon: "客",
     title: "客户进件与风险评估",
-    note: "全景画像 · AI 洞察 · 平台联动",
+    note: "全景画像 · 规则洞察 · 平台联动",
   },
   {
     module: "portfolio",
@@ -57,13 +57,13 @@ function encouragement(conversionGap: number | undefined) {
 }
 
 export function HomePage({ businessDate, onOpenModule, onOpenExpiry }: HomePageProps) {
-  const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getDashboardOverview>> | null>(null);
+  const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getHomeOverview>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    getDashboardOverview("S01", businessDate, controller.signal)
+    getHomeOverview(businessDate, controller.signal)
       .then(setDashboard)
       .catch((requestError: unknown) => {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;

@@ -358,19 +358,31 @@
 .model-proof-note b { color: #865f22; white-space: nowrap; }
 
 .lab-drawer-body { overflow: auto; }
-.lab-controls { display: grid; grid-template-columns: minmax(180px,1fr) 170px auto; gap: 12px; align-items: end; padding: 14px; border: 1px solid #dce5ec; border-radius: 10px; background: #fff; }
-.lab-controls label { color: #607486; font-size: 10px; }
-.lab-controls label b { float: right; color: var(--navy); }
-.lab-controls input { width: 100%; height: 34px; margin-top: 7px; padding: 0 9px; border: 1px solid #ccd8e1; border-radius: 6px; }
-.lab-controls input[type=range] { height: 5px; padding: 0; border: 0; }
+.lab-controls { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: end; padding: 14px; border: 1px solid #dce5ec; border-radius: 10px; background: #fff; }
+.lab-constraint-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
+.lab-constraint { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 8px; align-items: center; min-height: 62px; padding: 9px 10px; border: 1px solid #d7e1e8; border-radius: 8px; background: #f9fbfc; cursor: pointer; }
+.lab-constraint input { width: 15px; height: 15px; accent-color: #174f7e; }
+.lab-constraint span b,.lab-constraint span small { display: block; }
+.lab-constraint span b { color: var(--navy); font-size: 10px; }
+.lab-constraint span small { margin-top: 3px; color: #7a8c99; font-size: 8px; line-height: 1.4; }
+.lab-constraint em { padding: 3px 6px; border-radius: 999px; background: #e7f2ec; color: #337253; font-size: 8px; font-style: normal; }
+.lab-constraint:has(input:not(:checked)) { border-color: #e3c99c; background: #fff9ee; }
+.lab-constraint:has(input:not(:checked)) em { background: #f4e5cb; color: #91601f; }
 .lab-controls button { height: 36px; padding: 0 16px; border: 1px solid #174f7e; border-radius: 7px; background: #164f7e; color: #fff; font-size: 10px; }
 .lab-compare { margin-top: 12px; overflow: hidden; border: 1px solid #dce5ec; border-radius: 10px; background: #fff; }
 .lab-compare > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #e1e7ec; }
 .lab-compare > header > b { color: var(--navy); font-size: 12px; }
+.lab-channel-space { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 9px 14px; border-bottom: 1px solid #e7ecef; background: #f8fafb; }
+.lab-channel-space > b { color: #526a7c; font-size: 9px; white-space: nowrap; }
+.lab-channel-space > span { display: flex; flex-wrap: wrap; gap: 5px; }
+.lab-channel-space em { padding: 3px 7px; border: 1px solid #cddde8; border-radius: 999px; background: #fff; color: #245f8e; font-size: 8px; font-style: normal; }
+.lab-channel-space > i { color: #9eacb6; font-size: 10px; font-style: normal; }
+.lab-channel-space > small { margin-left: auto; color: #7b8c98; font-size: 8px; }
 .lab-compare article { display: grid; grid-template-columns: 58px minmax(0,1fr) 28px minmax(0,1fr) 70px; gap: 8px; align-items: center; padding: 11px 14px; border-bottom: 1px solid #e7ecef; }
 .lab-compare article > b { color: #9a7130; font-size: 10px; }
 .lab-compare article span small,.lab-compare article span strong { display: block; }
 .lab-compare article span small { color: #83919c; font-size: 8px; }
+.lab-compare article span small.changed { color: #a15d1f; }
 .lab-compare article span strong { margin-top: 3px; color: #3c5568; font-size: 10px; }
 .lab-compare article span strong.changed { color: #a15d1f; }
 .lab-compare article > i { color: #9eacb6; font-style: normal; text-align: center; }
@@ -446,7 +458,7 @@
   .strategy-detail-head,.script-view-new { display: block; }
   .strategy-route { margin-top: 8px; }
   .script-view-new aside { margin-top: 8px; }
-  .opportunity-toolbar,.lab-controls { grid-template-columns: 1fr; }
+  .opportunity-toolbar,.lab-controls,.lab-constraint-list { grid-template-columns: 1fr; }
   .marketing-drawer > header { padding: 16px; }
 }
 

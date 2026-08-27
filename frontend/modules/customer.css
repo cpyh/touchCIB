@@ -29,9 +29,6 @@
 .profile-to-marketing{display:flex;align-items:center;margin-left:auto}
 
 
-/* AI 客户画像结构化输出与安全关键词高亮 */
-.ai-analysis{display:grid;gap:10px;min-height:118px;margin:11px 0;padding:13px 0;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c}.ai-analysis section{display:grid;gap:4px}.ai-analysis section>b{color:#e2c47e;font-size:10px;letter-spacing:.04em}.ai-analysis p{margin:0;color:#d5e0e8;font-size:11px;line-height:1.75}.ai-highlight{padding:0 2px;border-radius:3px;background:#d7aa4b24;color:#f1d18b;font-weight:700}.ai-empty{min-height:118px;display:grid;place-items:center;margin:11px 0;padding:13px 4px;border-top:1px solid #ffffff1c;border-bottom:1px solid #ffffff1c;color:#adc0cf;font-size:11px;line-height:1.8;text-align:center}
-
 /* 平台联动面板：客户在投顾/营销链路中的位置 */
 .profile-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 .linkage-panel{margin:0 0 14px;padding:13px 15px 15px;border:1px solid #dde6ed;border-radius:11px;background:#fff;box-shadow:0 4px 12px #112d4b0a;transition:opacity .2s}
@@ -118,14 +115,17 @@
 .page-customer .service-evidence-panel{min-width:0;min-height:430px}
 .page-customer .api-overview article{min-height:172px}.page-customer .api-overview article:nth-child(n+3){border-bottom:0}
 
-.page-customer .manager-next-step{max-height:640px;overflow:auto;padding:18px;border-radius:12px;color:#fff;background:radial-gradient(circle at 100% 0,#d3a44b38,transparent 33%),linear-gradient(150deg,#153e66,#092540);box-shadow:0 12px 30px #0a25412b;transition:opacity .2s}
-.page-customer .manager-next-step.is-loading{opacity:.7}
+.page-customer .manager-next-step{max-height:640px;overflow:auto;padding:18px;border-radius:12px;color:#fff;background:radial-gradient(circle at 100% 0,#d3a44b38,transparent 33%),linear-gradient(150deg,#153e66,#092540);box-shadow:0 12px 30px #0a25412b}
 .page-customer .manager-next-step>header{padding-bottom:14px;border-bottom:1px solid #ffffff1d}.page-customer .manager-next-step>header small{color:#e0c27d;font-size:9px;font-weight:700;letter-spacing:.12em}.page-customer .manager-next-step>header h3{margin:6px 0 5px;color:#fff;font-size:16px}.page-customer .manager-next-step>header p{margin:0;color:#aabccc;font-size:10px;line-height:1.55}
 .page-customer .service-signal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:13px 0}.page-customer .service-signal-grid span{padding:10px 8px;border:1px solid #ffffff1a;border-radius:8px;background:#ffffff0a}.page-customer .service-signal-grid small,.page-customer .service-signal-grid strong{display:block}.page-customer .service-signal-grid small{color:#93a9ba;font-size:8px}.page-customer .service-signal-grid strong{margin-top:4px;color:#f0cf83;font-size:15px}
 .page-customer .primary-strategy{display:grid;gap:4px;padding:11px;border-left:3px solid #d3a34b;border-radius:0 8px 8px 0;background:#ffffff0b}.page-customer .primary-strategy small{color:#e1c37c;font-size:8px}.page-customer .primary-strategy b{font-size:11px}.page-customer .primary-strategy span{color:#a8bac8;font-size:9px}
 .page-customer .manager-actions{display:grid;gap:7px;margin:13px 0}.page-customer .manager-actions button{width:100%;min-height:39px;font-size:11px}.page-customer .manager-actions .secondary{border-color:#ffffff30;background:#ffffff0c;color:#fff}
-.page-customer .service-ai-block{padding-top:14px;border-top:1px solid #ffffff1d}.page-customer .service-ai-block>button{width:100%;margin-top:11px;padding:8px;border:1px solid #ffffff30;border-radius:7px;background:#ffffff0a;color:#fff;font-size:10px}.page-customer .service-ai-block>em{display:block;margin-top:7px;color:#8096a8;font-size:8px;font-style:normal;text-align:center}
-.page-customer .service-ai-block .ai-analysis{min-height:0;margin:10px 0}.page-customer .service-ai-block .ai-analysis p{font-size:10px;line-height:1.65}
+.page-customer .structured-insight{margin-top:12px;padding:10px 11px;border:1px solid #ffffff1c;border-radius:9px;background:#ffffff08}
+.page-customer .structured-insight-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.page-customer .structured-insight-head span{display:flex;align-items:center;gap:7px}.page-customer .structured-insight-head i{width:22px;height:22px;display:grid;place-items:center;border:1px solid #d8b86b70;border-radius:6px;color:#e4c77f;font-size:9px;font-style:normal}.page-customer .structured-insight-head b{font-size:11px}.page-customer .structured-insight-head em{padding:3px 6px;border-radius:99px;background:#ffffff0d;color:#9fb2c1;font-size:8px;font-style:normal}
+.page-customer .structured-insight ul{display:grid;gap:4px;margin:8px 0 0;padding:0;list-style:none}
+.page-customer .structured-insight li{display:grid;grid-template-columns:52px minmax(0,1fr);gap:6px;padding:5px 7px;border-left:2px solid #5d87a6;border-radius:0 6px 6px 0;background:#ffffff08}
+.page-customer .structured-insight li.warn{border-left-color:#d0a04b;background:#d19a3812}.page-customer .structured-insight li b{color:#e0c27d;font-size:8px}.page-customer .structured-insight li span{color:#bdcbd6;font-size:8px;line-height:1.45}
 
 @media(max-width:1180px){
   .page-customer .customer-toolbar.api-toolbar{grid-template-columns:minmax(220px,1fr) repeat(3,105px) auto}
