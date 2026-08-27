@@ -48,13 +48,9 @@ def _latest_business_rows(
                 a.product_id,
                 a.recommended_channel,
                 a.response_prob,
-                a.strategy_date,
-                ROW_NUMBER() OVER (
-                    PARTITION BY a.customer_id
-                    ORDER BY a.response_prob DESC, a.product_id
-                ) AS row_num
+                a.strategy_date
             FROM ads_a1_customer_product_score a
-            WHERE a.strategy_date = %s
+            WHERE a.strategy_date = %s AND a.a1_rank = 1
         )
         SELECT
             c.customer_id, c.risk_appetite, c.vip_level, c.aum,
@@ -68,7 +64,7 @@ def _latest_business_rows(
             o.strategy_date AS opportunity_date
         FROM dwd_dim_customer c
         LEFT JOIN opportunity o
-          ON o.customer_id = c.customer_id AND o.row_num = 1
+          ON o.customer_id = c.customer_id
         LEFT JOIN dwd_dim_product op ON op.product_id = o.product_id
         LEFT JOIN ads_marketing_strategy s
           ON s.customer_id = c.customer_id

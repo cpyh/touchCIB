@@ -339,6 +339,10 @@
 .chat-row.chat-user .chat-bubble{margin-left:auto;background:linear-gradient(135deg,#1d5a8b,#123d68);color:#fff;border-bottom-right-radius:3px}
 .chat-row.chat-assistant .chat-bubble{margin-right:auto;background:#f4f7f9;color:#2b4253;border-bottom-left-radius:3px}
 .chat-empty{color:#94a2ad;font-size:11px;padding:16px 4px}
+.chat-suggestions{display:flex;flex:0 0 auto;gap:6px;padding:8px 0;border-top:1px solid #edf1f4;overflow-x:auto}
+.chat-suggestions button{flex:0 0 auto;padding:5px 9px;border:1px solid #d7e1e8;border-radius:999px;background:#f7fafc;color:#496579;font-size:9px;white-space:nowrap;cursor:pointer}
+.chat-suggestions button:hover{border-color:#8caabd;background:#eef5f9;color:var(--navy2)}
+.chat-suggestions button:disabled{cursor:not-allowed;opacity:.5}
 .chat-foot{display:flex;gap:8px;padding:10px 0 8px;border-top:1px solid #e5eaee}
 .chat-foot input{flex:1;height:36px;padding:0 11px;border:1px solid #ccd9e2;border-radius:7px;background:#fbfcfd;color:#20394d;font-size:12px}
 .chat-foot .primary{min-height:36px;padding:0 14px;font-size:11px}

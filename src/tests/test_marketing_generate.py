@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -71,6 +72,17 @@ def context() -> MarketingWarehouseContext:
     )
 
 
+def context_without_app() -> MarketingWarehouseContext:
+    base = context()
+    customer = replace(base.customers["C000010"], has_app=False)
+    return MarketingWarehouseContext(
+        customers={customer.customer_id: customer},
+        products=base.products,
+        behaviors=base.behaviors,
+        strategy_date=base.strategy_date,
+    )
+
+
 class MarketingGenerateTestCase(unittest.TestCase):
     @patch("src.marketing.generate.load_marketing_context", return_value=context())
     def test_generate_returns_top3_with_trace(self, _mock_context):
@@ -80,19 +92,63 @@ class MarketingGenerateTestCase(unittest.TestCase):
         self.assertEqual(len(result["items"]), 3)
         self.assertEqual([item["rank"] for item in result["items"]], [1, 2, 3])
         self.assertEqual(result["parameters"]["ranking_source"], "a1_probability")
+        self.assertEqual(result["parameters"]["disabled_constraints"], [])
+        self.assertTrue(all(result["parameters"]["constraints"].values()))
+        self.assertEqual(
+            set(result["parameters"]["evaluated_channels"]),
+            {"sms", "call", "app_push", "manager"},
+        )
+        self.assertEqual(
+            result["parameters"]["baseline_channels"],
+            result["parameters"]["evaluated_channels"],
+        )
+        self.assertEqual(result["parameters"]["a1_candidate_count"], 16)
+        self.assertEqual(result["parameters"]["baseline_candidate_count"], 16)
         for item in result["items"]:
             self.assertIn("model_prob", item)
             self.assertGreater(len(item["rule_trace"]), 0)
             self.assertTrue(10 <= len(item["marketing_script"]) <= 300)
 
     @patch("src.marketing.generate.load_marketing_context", return_value=context())
-    def test_manager_quota_zero_disables_manager_channel(self, _mock_context):
+    def test_manager_quota_is_compatibility_only(self, _mock_context):
         result = generate_customer_strategy(
             "C000010", manager_quota=0, response_predictor=FakePredictor()
         )
-        self.assertNotIn(
-            "manager", {item["recommended_channel"] for item in result["items"]}
+        self.assertEqual(
+            {item["recommended_channel"] for item in result["items"]},
+            {"manager"},
         )
+        self.assertFalse(result["parameters"]["manager_quota_effective"])
+
+    @patch(
+        "src.marketing.generate.load_marketing_context",
+        return_value=context_without_app(),
+    )
+    def test_app_constraint_switch_expands_preview_candidate_space(
+        self, _mock_context
+    ):
+        result = generate_customer_strategy(
+            "C000010",
+            disabled_constraints=("channel_app_requires_app",),
+            response_predictor=FakePredictor(),
+        )
+
+        self.assertNotIn("app_push", result["parameters"]["baseline_channels"])
+        self.assertIn("app_push", result["parameters"]["evaluated_channels"])
+        self.assertEqual(result["parameters"]["baseline_candidate_count"], 12)
+        self.assertEqual(result["parameters"]["a1_candidate_count"], 16)
+        self.assertFalse(
+            result["parameters"]["constraints"]["channel_app_requires_app"]
+        )
+
+    @patch("src.marketing.generate.load_marketing_context", return_value=context())
+    def test_unknown_constraint_is_rejected(self, _mock_context):
+        with self.assertRaisesRegex(ValueError, "unsupported disabled constraint"):
+            generate_customer_strategy(
+                "C000010",
+                disabled_constraints=("unknown_rule",),
+                response_predictor=FakePredictor(),
+            )
 
     @patch(
         "src.marketing.generate.load_marketing_context",
@@ -115,6 +171,10 @@ class MarketingGenerateTestCase(unittest.TestCase):
         self.assertEqual(
             {request.product_id for request in predictor.requests},
             {"P001", "P002", "P003", "P004"},
+        )
+        self.assertEqual(
+            {request.channel for request in predictor.requests},
+            {"sms", "call", "app_push", "manager"},
         )
         self.assertTrue(all(item["model_prob"] > 0 for item in result["items"]))
 

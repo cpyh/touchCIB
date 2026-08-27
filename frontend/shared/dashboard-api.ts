@@ -143,6 +143,17 @@ export interface DashboardOverview {
   };
 }
 
+export interface HomeOverview {
+  generated_at: string;
+  business_date: string;
+  business_metrics: Pick<
+    DashboardOverview["business_metrics"],
+    "customer_count" | "total_aum" | "currency"
+  >;
+  action_items: NonNullable<DashboardOverview["action_items"]>;
+  expiry_warning: NonNullable<DashboardOverview["expiry_warning"]>;
+}
+
 export interface PortfolioResult {
   status: DataStatus;
   data_source?: string;
@@ -206,4 +217,12 @@ export function getDashboardOverview(
     business_date: businessDate,
   });
   return request<DashboardOverview>(`/api/v1/dashboard/overview?${query}`, signal);
+}
+
+export function getHomeOverview(
+  businessDate: string,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({ business_date: businessDate });
+  return request<HomeOverview>(`/api/v1/dashboard/home?${query}`, signal);
 }

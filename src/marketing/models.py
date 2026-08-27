@@ -31,7 +31,7 @@ STRATEGY_COLUMNS = (
 
 RISK_RANK = {"R1": 1, "R2": 2, "R3": 3, "R4": 4, "R5": 5}
 
-# manager 渠道配额参数（方案 B：资格 + 全局配额）
+# 旧 manager 资格/配额字段仅用于接口向后兼容，推荐逻辑已不再使用。
 MANAGER_ELIGIBLE_VIP = ("金卡", "钻石")
 MANAGER_ELIGIBLE_AUM = 500_000.0
 DEFAULT_MANAGER_QUOTA = 600

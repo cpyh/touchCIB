@@ -355,50 +355,54 @@ def _portfolio_performance(
     }
 
 
-def _marketing_funnel(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+def _marketing_funnel(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+    *,
+    a2_performance: dict | None = None,
+    total_customers: int | None = None,
+) -> dict:
     """营销闭环同时返回客户口径与 strategy_id 事件口径。"""
+    event_counts = {
+        "sent": {"strategies": 0, "customers": 0},
+        "responded": {"strategies": 0, "customers": 0},
+    }
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
+                    "SELECT event_type, COUNT(DISTINCT strategy_id) AS strategies, "
                     "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
-                    "FROM app_campaign_event WHERE event_type = 'sent' "
-                    "AND occurred_at < %s",
+                    "FROM app_campaign_event WHERE event_type IN ('sent', 'responded') "
+                    "AND occurred_at < %s GROUP BY event_type",
                     (business_date + timedelta(days=1),),
                 )
-                sent = cursor.fetchone() or {}
-                cursor.execute(
-                    "SELECT COUNT(DISTINCT strategy_id) AS strategies, "
-                    "COUNT(DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)) AS customers "
-                    "FROM app_campaign_event WHERE event_type = 'responded' "
-                    "AND occurred_at < %s",
-                    (business_date + timedelta(days=1),),
-                )
-                responded = cursor.fetchone() or {}
+                for row in cursor.fetchall():
+                    event_counts[str(row["event_type"])] = row
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
-        sent = {"strategies": 0, "customers": 0}
-        responded = {"strategies": 0, "customers": 0}
-    sent_strategy_count = int(sent["strategies"] or 0) if sent else 0
-    responded_strategy_count = int(responded["strategies"] or 0) if responded else 0
-    a2 = _a2_performance(business_date)
-    try:
-        connection = database_connection()
+        pass
+    sent = event_counts["sent"]
+    responded = event_counts["responded"]
+    sent_strategy_count = int(sent["strategies"] or 0)
+    responded_strategy_count = int(responded["strategies"] or 0)
+    a2 = a2_performance if a2_performance is not None else _a2_performance(business_date)
+    if total_customers is None:
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT COUNT(*) AS count FROM ods_customer "
-                    "WHERE register_date <= %s",
-                    (business_date,),
-                )
-                total_customers = int(cursor.fetchone()["count"])
-        finally:
-            connection.close()
-    except (pymysql.MySQLError, OSError, ValueError):
-        total_customers = 0
+            connection = database_connection()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM ods_customer "
+                        "WHERE register_date <= %s",
+                        (business_date,),
+                    )
+                    total_customers = int(cursor.fetchone()["count"])
+            finally:
+                connection.close()
+        except (pymysql.MySQLError, OSError, ValueError):
+            total_customers = 0
     return {
         "status": "READY" if sent_strategy_count or responded_strategy_count else "NOT_STARTED",
         "target_customer_count": total_customers,
@@ -411,65 +415,82 @@ def _marketing_funnel(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     }
 
 
-def _action_items(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+def _action_items(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+    *,
+    high_intent_untouched: int | None = None,
+    total_customer_count: int | None = None,
+) -> dict:
     """运营行动指令：目标-实际-缺口，供看板"今日行动"指挥工作台执行。"""
     sent_strategies = 0
     manager_sent = 0
     manager_responded = 0
-    sent_customers: set[str] = set()
-    strategy_channels: dict[tuple[str, str], str] = {}
-    high_intent_customers: set[str] = set()
-    total_customers = 0
+    sent_customer_count = 0
+    strategy_ready_customers = 0
+    total_strategies = 0
+    resolved_high_intent = int(high_intent_untouched or 0)
+    resolved_total_customers = int(total_customer_count or 0)
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT customer_id, strategy_rank, recommended_channel "
+                    "SELECT COUNT(*) AS total_strategies, "
+                    "COUNT(DISTINCT customer_id) AS strategy_ready_customers "
                     "FROM ads_marketing_strategy WHERE strategy_date=%s",
                     (business_date,),
                 )
-                strategy_channels = {
-                    (str(row["customer_id"]), str(row["strategy_rank"])):
-                    str(row["recommended_channel"])
-                    for row in cursor.fetchall()
-                }
-                cursor.execute(
-                    "SELECT strategy_id, event_type, COUNT(*) AS count "
-                    "FROM app_campaign_event WHERE occurred_at < %s "
-                    "GROUP BY strategy_id, event_type",
-                    (business_date + timedelta(days=1),),
+                strategy_stats = cursor.fetchone() or {}
+                total_strategies = int(strategy_stats.get("total_strategies") or 0)
+                strategy_ready_customers = int(
+                    strategy_stats.get("strategy_ready_customers") or 0
                 )
-                rows = cursor.fetchall()
                 cursor.execute(
-                    "SELECT customer_id FROM ads_a1_customer_product_score "
-                    "WHERE strategy_date=%s GROUP BY customer_id "
-                    "HAVING MAX(response_prob) >= 0.7",
-                    (business_date,),
+                    "SELECT "
+                    "COALESCE(SUM(e.event_type='sent'), 0) AS sent_strategies, "
+                    "COUNT(DISTINCT CASE WHEN e.event_type='sent' THEN "
+                    "SUBSTRING_INDEX(e.strategy_id, ':', 1) END) AS sent_customers, "
+                    "COALESCE(SUM(e.event_type='sent' AND "
+                    "s.recommended_channel='manager'), 0) AS manager_sent, "
+                    "COALESCE(SUM(e.event_type='responded' AND "
+                    "s.recommended_channel='manager'), 0) AS manager_responded "
+                    "FROM app_campaign_event e "
+                    "LEFT JOIN ads_marketing_strategy s "
+                    "ON s.strategy_date=%s "
+                    "AND s.customer_id=SUBSTRING_INDEX(e.strategy_id, ':', 1) "
+                    "AND s.strategy_rank=CAST(SUBSTRING_INDEX(e.strategy_id, ':', -1) "
+                    "AS UNSIGNED) "
+                    "WHERE e.occurred_at < %s",
+                    (business_date, business_date + timedelta(days=1)),
                 )
-                high_intent_customers = {
-                    str(row["customer_id"]) for row in cursor.fetchall()
-                }
-                cursor.execute(
-                    "SELECT COUNT(*) AS count FROM dwd_dim_customer "
-                    "WHERE register_date <= %s",
-                    (business_date,),
-                )
-                total_customers = int(cursor.fetchone()["count"])
+                event_stats = cursor.fetchone() or {}
+                sent_strategies = int(event_stats.get("sent_strategies") or 0)
+                sent_customer_count = int(event_stats.get("sent_customers") or 0)
+                manager_sent = int(event_stats.get("manager_sent") or 0)
+                manager_responded = int(event_stats.get("manager_responded") or 0)
+                if high_intent_untouched is None:
+                    cursor.execute(
+                        "WITH sent AS ("
+                        "SELECT DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1) "
+                        "AS customer_id FROM app_campaign_event "
+                        "WHERE event_type='sent' AND occurred_at < %s) "
+                        "SELECT COUNT(*) AS count "
+                        "FROM ads_a1_customer_product_score a "
+                        "LEFT JOIN sent e ON e.customer_id=a.customer_id "
+                        "WHERE a.strategy_date=%s AND a.a1_rank=1 "
+                        "AND a.response_prob >= 0.7 AND e.customer_id IS NULL",
+                        (business_date + timedelta(days=1), business_date),
+                    )
+                    resolved_high_intent = int(cursor.fetchone()["count"])
+                if total_customer_count is None:
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM dwd_dim_customer "
+                        "WHERE register_date <= %s",
+                        (business_date,),
+                    )
+                    resolved_total_customers = int(cursor.fetchone()["count"])
         finally:
             connection.close()
-        for row in rows:
-            strategy_id = str(row["strategy_id"])
-            customer_id, _, rank = strategy_id.partition(":")
-            channel = strategy_channels.get((customer_id, rank))
-            count = int(row["count"])
-            if row["event_type"] == "sent":
-                sent_strategies += count
-                sent_customers.add(customer_id)
-                if channel == "manager":
-                    manager_sent += count
-            elif row["event_type"] == "responded" and channel == "manager":
-                manager_responded += count
     except (pymysql.MySQLError, OSError, ValueError):
         pass
 
@@ -482,12 +503,12 @@ def _action_items(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
             "label": f"经理 MGR001 {business_date.month}月转化",
         },
         "touch": {
-            "total_customers": total_customers,
-            "sent_customers": len(sent_customers),
-            "strategy_ready_customers": len({customer_id for customer_id, _ in strategy_channels}),
+            "total_customers": resolved_total_customers,
+            "sent_customers": sent_customer_count,
+            "strategy_ready_customers": strategy_ready_customers,
             "sent_strategies": sent_strategies,
-            "total_strategies": int(len(strategy_channels)),
-            "high_intent_untouched": len(high_intent_customers - sent_customers),
+            "total_strategies": total_strategies,
+            "high_intent_untouched": resolved_high_intent,
         },
         "channel": {
             "manager_sent": manager_sent,
@@ -564,69 +585,68 @@ def _expiry_warning(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     }
 
 
-def _opportunity(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
+def _opportunity(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+    *,
+    expiry_warning: dict | None = None,
+) -> dict:
     """转化机会挖掘：从最新A1 ADS批次与事件中聚合。
 
     - golden：高意向（≥70%）未触达客户 + 期望响应数（Σ 客户最高概率）
     - products：产品机会榜（高意向未触达触达记录按产品聚合 Top3）
     - expiry：到期承接窗口（来自 _expiry_warning）
     """
-    golden = {"count": 0, "expected_responses": 0}
-    product_opportunity: list[dict] = []
+    product_rows: list[dict] = []
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    WITH scored AS (
-                        SELECT a.customer_id, a.product_id, a.response_prob,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY a.customer_id
-                                   ORDER BY a.response_prob DESC, a.product_id
-                               ) AS row_num
-                        FROM ads_a1_customer_product_score a
-                        WHERE a.strategy_date=%s
-                    ), sent AS (
+                    WITH sent AS (
                         SELECT DISTINCT SUBSTRING_INDEX(strategy_id, ':', 1)
                             AS customer_id
                         FROM app_campaign_event WHERE event_type='sent'
                           AND occurred_at < %s
                     )
-                    SELECT s.customer_id, s.product_id, s.response_prob
-                    FROM scored s
-                    LEFT JOIN sent e ON e.customer_id=s.customer_id
-                    WHERE s.row_num=1 AND s.response_prob >= 0.7
-                      AND e.customer_id IS NULL
+                    SELECT a.product_id,
+                           COUNT(*) AS customer_count,
+                           SUM(a.response_prob) AS expected_responses
+                    FROM ads_a1_customer_product_score a
+                    LEFT JOIN sent e ON e.customer_id=a.customer_id
+                    WHERE a.strategy_date=%s AND a.a1_rank=1
+                      AND a.response_prob >= 0.7 AND e.customer_id IS NULL
+                    GROUP BY a.product_id
                     """
-                , (business_date, business_date + timedelta(days=1)))
-                opportunities = list(cursor.fetchall())
+                , (business_date + timedelta(days=1), business_date))
+                product_rows = list(cursor.fetchall())
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
-        opportunities = []
+        product_rows = []
 
     golden = {
-        "count": len(opportunities),
+        "count": sum(int(row["customer_count"] or 0) for row in product_rows),
         "expected_responses": int(
-            round(sum(float(row["response_prob"]) for row in opportunities))
+            round(sum(float(row["expected_responses"] or 0) for row in product_rows))
         ),
     }
-    product_counts: dict[str, int] = {}
-    for row in opportunities:
-        product_id = str(row["product_id"])
-        product_counts[product_id] = product_counts.get(product_id, 0) + 1
     product_opportunity = [
-        {"product_id": product_id, "count": count}
-        for product_id, count in sorted(
-            product_counts.items(), key=lambda item: (-item[1], item[0])
+        {"product_id": str(row["product_id"]), "count": int(row["customer_count"])}
+        for row in sorted(
+            product_rows,
+            key=lambda item: (-int(item["customer_count"]), str(item["product_id"])),
         )[:3]
     ]
 
     return {
         "golden": golden,
         "products": product_opportunity,
-        "expiry": _expiry_warning(business_date),
+        "expiry": (
+            expiry_warning
+            if expiry_warning is not None
+            else _expiry_warning(business_date)
+        ),
     }
 
 
@@ -697,6 +717,11 @@ def get_dashboard_overview(
     a1_performance = _a1_performance(business_date)
     a2_performance = _a2_performance(business_date)
     portfolio_summary = _portfolio_summary(business_date)
+    expiry_warning = _expiry_warning(business_date)
+    opportunity = _opportunity(
+        business_date,
+        expiry_warning=expiry_warning,
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "business_date": business_date.isoformat(),
@@ -718,10 +743,55 @@ def get_dashboard_overview(
         "a2_performance": a2_performance,
         "portfolio_summary": portfolio_summary,
         "portfolio": _portfolio_performance(scenario_id, business_date),
-        "marketing_funnel": _marketing_funnel(business_date),
-        "action_items": _action_items(business_date),
+        "marketing_funnel": _marketing_funnel(
+            business_date,
+            a2_performance=a2_performance,
+            total_customers=int(metrics["customer_count"]),
+        ),
+        "action_items": _action_items(
+            business_date,
+            high_intent_untouched=opportunity["golden"]["count"],
+            total_customer_count=int(metrics["customer_count"]),
+        ),
+        "expiry_warning": expiry_warning,
+        "opportunity": opportunity,
+    }
+
+
+def get_home_overview(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> dict:
+    """首页轻量聚合：只返回页面实际使用的经营动作与到期预警。"""
+    try:
+        connection = database_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS customer_count, "
+                    "COALESCE(SUM(aum), 0) AS total_aum "
+                    "FROM ods_customer WHERE register_date <= %s",
+                    (business_date,),
+                )
+                metrics = cursor.fetchone() or {}
+        finally:
+            connection.close()
+    except (pymysql.MySQLError, OSError, ValueError, TypeError) as exc:
+        raise ServiceError("unable to query home overview") from exc
+
+    customer_count = int(metrics.get("customer_count") or 0)
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "business_date": business_date.isoformat(),
+        "business_metrics": {
+            "customer_count": customer_count,
+            "total_aum": float(_decimal(metrics.get("total_aum"))),
+            "currency": "CNY",
+        },
+        "action_items": _action_items(
+            business_date,
+            total_customer_count=customer_count,
+        ),
         "expiry_warning": _expiry_warning(business_date),
-        "opportunity": _opportunity(business_date),
     }
 
 
@@ -771,6 +841,11 @@ def dashboard_overview():
             business_date=business_date,
         )
     )
+
+
+@dashboard_bp.get("/home")
+def dashboard_home():
+    return success(get_home_overview(_request_business_date()))
 
 
 @dashboard_bp.get("/portfolio")

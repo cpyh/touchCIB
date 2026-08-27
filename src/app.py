@@ -95,7 +95,12 @@ def portfolio_optimize():
         return jsonify(error="request body must be a JSON object"), 400
 
     try:
-        return jsonify(optimize_portfolio(payload))
+        include_business = payload.get("include_business", True)
+        if not isinstance(include_business, bool):
+            raise PortfolioInputError("include_business must be a boolean")
+        return jsonify(
+            optimize_portfolio(payload, include_business=include_business)
+        )
     except PortfolioInputError as exc:
         return jsonify(error=str(exc)), 400
     except (RuntimeError, ValueError) as exc:
@@ -398,18 +403,20 @@ def marketing_strategy_generate():
         return jsonify(error="request body must be a JSON object"), 400
     try:
         manager_quota = int(payload.get("manager_quota", DEFAULT_MANAGER_QUOTA))
-        if manager_quota < 0:
-            raise ValueError("manager_quota must be >= 0")
         top_n = int(payload.get("top_n", DEFAULT_TOP_N))
         if not 1 <= top_n <= 3:
             raise ValueError("top_n must be between 1 and 3")
         customer_id = str(payload.get("customer_id", ""))
         business_date = parse_business_date(payload.get("business_date"))
+        disabled_constraints = payload.get("disabled_constraints", [])
+        if not isinstance(disabled_constraints, list):
+            raise ValueError("disabled_constraints must be an array of rule ids")
         return jsonify(
             generate_customer_strategy(
                 customer_id,
                 manager_quota=manager_quota,
                 top_n=top_n,
+                disabled_constraints=disabled_constraints,
                 response_predictor=get_mysql_predictor(),
                 strategy_date=business_date,
             )

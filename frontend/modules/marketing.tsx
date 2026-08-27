@@ -11,9 +11,35 @@ type StrategyDetailTab = "why" | "compliance" | "script";
 type DrillLayer = "a1" | "a2" | "strategy";
 type ActionTab = "progress" | "attribution" | "lineage";
 type Drawer = "opportunities" | "model" | "lab" | null;
+type ToggleableConstraint =
+  | "channel_app_requires_app"
+  | "channel_call_complaint_block"
+  | "aum_affordability";
 
 const TASK_PAGE_SIZE = 12;
 const ROSTER_PAGE_SIZE = 9;
+
+const constraintOptions: Array<{
+  id: ToggleableConstraint;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "channel_app_requires_app",
+    label: "App 安装限制",
+    description: "关闭后，未安装 App 的客户也允许 app_push 参与 A1 渠道排序",
+  },
+  {
+    id: "channel_call_complaint_block",
+    label: "投诉外呼保护",
+    description: "关闭后，近 90 天投诉客户也允许 call 参与 A1 渠道排序",
+  },
+  {
+    id: "aum_affordability",
+    label: "起投能力限制",
+    description: "关闭后，不再用客户 AUM 过滤高起投门槛产品",
+  },
+];
 
 const taskStatusNames: Record<TaskStatus, string> = {
   all: "全部",
@@ -30,8 +56,8 @@ const ruleNames: Record<string, string> = {
   min_invest_affordable: "起投金额留痕",
   channel_app_requires_app: "App渠道资格",
   channel_call_complaint_block: "投诉与外呼限制",
-  channel_manager_quota: "客户经理渠道配额",
-  channel_manager_eligible: "客户经理渠道资格",
+  channel_manager_quota: "客户经理渠道不限额",
+  channel_manager_eligible: "客户经理渠道无资格限制",
   slot_in_enum: "联系时段合规",
   script_length: "话术长度检查",
   script_compliance_note: "风险提示完整",
@@ -161,6 +187,7 @@ interface GeneratedItem {
   rank: number;
   product_id: string;
   product_name: string;
+  recommended_channel: string;
   model_prob: number;
 }
 
@@ -170,6 +197,12 @@ interface GeneratedResult {
   parameters: {
     manager_quota: number;
     top_n: number;
+    disabled_constraints: ToggleableConstraint[];
+    constraints: Record<ToggleableConstraint, boolean>;
+    evaluated_channels: string[];
+    baseline_channels: string[];
+    a1_candidate_count: number;
+    baseline_candidate_count: number;
     ranking_source?: string;
     a1_source?: string;
   };
@@ -288,9 +321,15 @@ export function MarketingPage({
     channel: "",
   });
 
-  const [quota, setQuota] = useState(600);
   const [generated, setGenerated] = useState<GeneratedResult | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [constraintEnabled, setConstraintEnabled] = useState<
+    Record<ToggleableConstraint, boolean>
+  >({
+    channel_app_requires_app: true,
+    channel_call_complaint_block: true,
+    aum_affordability: true,
+  });
 
   useEffect(() => {
     void loadTasks(1, "all", "");
@@ -685,8 +724,10 @@ export function MarketingPage({
         method: "POST",
         body: JSON.stringify({
           customer_id: strategyCustomerId,
-          manager_quota: quota,
           business_date: businessDate,
+          disabled_constraints: constraintOptions
+            .filter((option) => !constraintEnabled[option.id])
+            .map((option) => option.id),
         }),
       });
       if (requestId === generationRequestId.current) {
@@ -702,8 +743,22 @@ export function MarketingPage({
     }
   }
 
+  function toggleConstraint(id: ToggleableConstraint) {
+    generationRequestId.current += 1;
+    setGenerating(false);
+    setGenerated(null);
+    setConstraintEnabled((current) => ({ ...current, [id]: !current[id] }));
+  }
+
   const selectedStrategy =
     strategies.find((item) => item.rank === selectedRank) ?? strategies[0];
+  const generatedTop3ChangeCount = generated
+    ? generated.items.filter((after) => {
+      const before = strategies.find((item) => item.rank === after.rank);
+      return before?.product_id !== after.product_id
+        || before?.recommended_channel !== after.recommended_channel;
+    }).length
+    : 0;
   const selectedTask = tasks.find((task) => task.customer_id === strategyCustomerId)
     ?? (selectedOpportunity?.customer_id === strategyCustomerId ? selectedOpportunity : undefined);
   const selectedPassedRules = selectedStrategy?.rule_trace.filter((rule) => rule.passed) ?? [];
@@ -1196,7 +1251,7 @@ export function MarketingPage({
             <header>
               <div>
                 <small>评委验收与高级能力</small>
-                <h2>{drawer === "opportunities" ? "A1 模型机会池" : drawer === "model" ? "模型与数据证据" : "实时策略试算"}</h2>
+                <h2>{drawer === "opportunities" ? "A1 模型机会池" : drawer === "model" ? "模型与数据证据" : "约束对照试算"}</h2>
                 <p>{drawer === "opportunities" ? `查看 ${businessDate} A1日批的客户产品机会，并查看候选是否通过A2基础规则。` : drawer === "model" ? "展示时间截断、模型指标和从数据到任务的形成过程。" : "调整运营参数，现场试算A1排名和规则过滤后Top3；不覆盖ADS日批。"}</p>
               </div>
               <button aria-label="关闭抽屉" onClick={() => setDrawer(null)}>×</button>
@@ -1246,7 +1301,7 @@ export function MarketingPage({
                   {[
                     ["ODS/DWD业务数据", "客户、产品、持仓、行为、历史触达"],
                     ["严格时间截断", "所有特征严格早于 contact_date / strategy_date"],
-                    ["A1 响应预测", "全量客户×30产品生成响应概率与排名"],
+                    ["A1 响应预测", "全量客户×30产品×可执行渠道生成响应概率与排名"],
                     ["A2 基础规则", "按风险、产品准入、客户状态与起投能力过滤"],
                     ["客户经理任务", "策略下钻、联系执行、自动归因与KPI"],
                   ].map((item, index) => <article key={item[0]}><b>{index + 1}</b><span><strong>{item[0]}</strong><small>{item[1]}</small></span>{index < 4 && <i>→</i>}</article>)}
@@ -1258,22 +1313,61 @@ export function MarketingPage({
             {drawer === "lab" && (
               <div className="lab-drawer-body">
                 <div className="lab-controls">
-                  <label>客户经理配额 <b>{formatNumber(quota)}</b><input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setQuota(Number(event.target.value)); }} /></label>
+                  <div className="lab-constraint-list">
+                    {constraintOptions.map((option) => (
+                      <label className="lab-constraint" key={option.id}>
+                        <input
+                          type="checkbox"
+                          checked={constraintEnabled[option.id]}
+                          onChange={() => toggleConstraint(option.id)}
+                        />
+                        <span>
+                          <b>{option.label}</b>
+                          <small>{option.description}</small>
+                        </span>
+                        <em>{constraintEnabled[option.id] ? "生效" : "关闭"}</em>
+                      </label>
+                    ))}
+                  </div>
                   <button disabled={historical || generating || !strategyCustomerId} onClick={() => void regenerate()}>{generating ? "模型计算中…" : "运行实时策略"}</button>
                 </div>
                 {generated ? (
                   <div className="lab-compare">
-                    <header><b>当前 Top3 vs 参数试算</b><Status>A1概率排序</Status></header>
+                    <header>
+                      <b>正式约束 Top3 vs 开关试算</b>
+                      <Status warn={generated.parameters.disabled_constraints.length > 0}>
+                        {generated.parameters.disabled_constraints.length > 0
+                          ? `关闭 ${generated.parameters.disabled_constraints.length} 项 · Top3 变化 ${generatedTop3ChangeCount} 条`
+                          : "全部约束生效"}
+                      </Status>
+                    </header>
+                    <div className="lab-channel-space">
+                      <b>正式候选</b>
+                      <span>{generated.parameters.baseline_channels.map((channel) => (
+                        <em key={channel}>{channelNames[channel] ?? channel}</em>
+                      ))}</span>
+                      <i>→</i>
+                      <b>试算候选</b>
+                      <span>{generated.parameters.evaluated_channels.map((channel) => (
+                        <em key={channel}>{channelNames[channel] ?? channel}</em>
+                      ))}</span>
+                      <small>A1 候选 {generated.parameters.baseline_candidate_count} → {generated.parameters.a1_candidate_count}</small>
+                    </div>
                     {[1, 2, 3].map((rank) => {
                       const before = strategies.find((item) => item.rank === rank);
                       const after = generated.items.find((item) => item.rank === rank);
                       if (!after) return null;
-                      const changed = before?.product_id !== after.product_id;
-                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{percent(after.model_prob)}<small>A1 概率</small></em></article>;
+                      const changed = before?.product_id !== after.product_id
+                        || before?.recommended_channel !== after.recommended_channel;
+                      return <article key={rank}><b>TOP {rank}</b><span><small>正式日批</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong><small>{before ? channelNames[before.recommended_channel] : "—"}</small></span><i>→</i><span><small>约束试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong><small className={changed ? "changed" : ""}>{channelNames[after.recommended_channel] ?? after.recommended_channel}</small></span><em>{percent(after.model_prob)}<small>A1 概率</small></em></article>;
                     })}
-                    <p>产品按A1概率排序，再用基础业务规则过滤；渠道、时段和话术继续由规则引擎校验。</p>
+                    <p>{generatedTop3ChangeCount > 0
+                      ? `候选空间重算后有 ${generatedTop3ChangeCount} 条 Top3 产品或渠道发生变化。`
+                      : generated.parameters.a1_candidate_count !== generated.parameters.baseline_candidate_count
+                        ? "候选空间已经变化，但新增候选的 A1 概率不足以进入 Top3；这同样说明最终结果由模型排序决定。"
+                        : "本次约束配置没有改变候选空间，Top3 与正式日批一致。"} 试算不写入正式 ADS。</p>
                   </div>
-                ) : <div className="lab-waiting"><b>等待运行策略试算</b><p>该能力用于现场展示运营参数变化如何驱动策略结果变化。</p></div>}
+                ) : <div className="lab-waiting"><b>等待运行约束试算</b><p>关闭一项约束后运行，可与正式日批 Top3 对照产品和渠道差异。</p></div>}
               </div>
             )}
           </section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, API_BASE } from "../shared/api";
 import { formatNumber, metric, money, percent } from "../shared/format";
@@ -66,6 +66,23 @@ interface CustomerProfile {
   aum: number;
   risk_appetite: string;
   vip_level: string;
+}
+
+interface CurrentPortfolio {
+  holding_amount: number;
+  holding_product_count: number;
+  high_liquidity_ratio: number | null;
+  weighted_expected_return: number | null;
+  risk_distribution: Array<{ name: string; amount: number; ratio: number | null }>;
+  holdings: Array<{
+    product_id: string;
+    product_name: string;
+    product_type: string;
+    risk_level: string;
+    liquidity: string;
+    amount: number;
+    expected_return: number;
+  }>;
 }
 
 interface RiskDefaults {
@@ -151,6 +168,8 @@ export function PortfolioPage({
   const [result, setResult] = useState<PortfolioResult | null>(null);
   const [resultView, setResultView] = useState<"overview" | "business" | "detail" | "guards" | "ai">("overview");
   const [busy, setBusy] = useState(false);
+  const [businessBusy, setBusinessBusy] = useState(false);
+  const optimizationRequestId = useRef(0);
   const [customerQuery, setCustomerQuery] = useState(initialCustomerId || "C000001");
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [customerBusy, setCustomerBusy] = useState(false);
@@ -159,6 +178,7 @@ export function PortfolioPage({
     buys: Array<{ product_id: string; product_name: string; amount: number }>;
     sells: Array<{ product_id: string; product_name: string; amount: number }>;
   } | null>(null);
+  const [currentPortfolio, setCurrentPortfolio] = useState<CurrentPortfolio | null>(null);
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
@@ -190,18 +210,13 @@ export function PortfolioPage({
     api<{
       code: number;
       data: {
-        asset_profile?: {
-          holdings?: Array<{
-            product_id: string;
-            product_name: string;
-            amount: number;
-          }>;
-        };
+        asset_profile?: CurrentPortfolio;
       } | null;
-    }>(`/api/v1/customers/${customer.customer_id}/profile`)
+    }>(`/api/v1/customers/${customer.customer_id}/profile?business_date=${encodeURIComponent(businessDate)}`)
       .then((envelope) => {
         if (cancelled) return;
-        const holdings = envelope.data?.asset_profile?.holdings ?? [];
+        const assetProfile = envelope.data?.asset_profile ?? null;
+        const holdings = assetProfile?.holdings ?? [];
         const held = new Map(holdings.map((item) => [item.product_id, item]));
         const buys = result.business!.allocations
           .filter((item) => !held.has(item.product_id))
@@ -225,15 +240,21 @@ export function PortfolioPage({
             product_name: item.product_name,
             amount: item.amount,
           }));
-        if (!cancelled) setRebalance({ buys, sells });
+        if (!cancelled) {
+          setCurrentPortfolio(assetProfile);
+          setRebalance({ buys, sells });
+        }
       })
       .catch(() => {
-        if (!cancelled) setRebalance(null);
+        if (!cancelled) {
+          setCurrentPortfolio(null);
+          setRebalance(null);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [customer, result]);
+  }, [businessDate, customer, result]);
 
   const selectedScenario = useMemo(
     () => scenarios.find((item) => item.scenario_id === scenarioId),
@@ -251,6 +272,9 @@ export function PortfolioPage({
   );
 
   function applyScenario(scenario: Scenario) {
+    optimizationRequestId.current += 1;
+    setBusy(false);
+    setBusinessBusy(false);
     setScenarioId(scenario.scenario_id);
     setTotalAmount(Number(scenario.total_amount));
     setRiskAversion(Number(scenario.risk_aversion));
@@ -259,6 +283,8 @@ export function PortfolioPage({
     setMinLiquidWeight(Number(scenario.min_liquid_weight));
     setMinHoldings(Number(scenario.min_holdings));
     setResult(null);
+    setRebalance(null);
+    setChatMessages([]);
     setResultView("overview");
     setParameterSource("scenario");
   }
@@ -269,8 +295,13 @@ export function PortfolioPage({
   }
 
   function changeConstraint(action: () => void) {
+    optimizationRequestId.current += 1;
+    setBusy(false);
+    setBusinessBusy(false);
     action();
     setResult(null);
+    setRebalance(null);
+    setChatMessages([]);
     setParameterSource("manual");
   }
 
@@ -282,6 +313,8 @@ export function PortfolioPage({
     }
     setCustomerBusy(true);
     setRebalance(null);
+    setCurrentPortfolio(null);
+    setChatMessages([]);
     try {
       const data = await api<CustomerProfile>(
         `/customers/${encodeURIComponent(normalized)}/profile?business_date=${encodeURIComponent(businessDate)}`,
@@ -306,6 +339,9 @@ export function PortfolioPage({
       notify(`无法识别风险等级 ${source.risk_appetite}`);
       return;
     }
+    optimizationRequestId.current += 1;
+    setBusy(false);
+    setBusinessBusy(false);
     setRiskAversion(defaults.riskAversion);
     setMaxHighRiskWeight(defaults.maxHighRiskWeight);
     setTotalAmount(source.aum);
@@ -313,43 +349,86 @@ export function PortfolioPage({
     setMinLiquidWeight(0.2);
     setMinHoldings(4);
     setResult(null);
+    setRebalance(null);
+    setChatMessages([]);
     setResultView("overview");
     setParameterSource("customer");
     notify(`已按 ${source.risk_appetite} ${riskNames[source.risk_appetite]}与客户 AUM 自动生成默认方案`);
   }
 
   async function optimize() {
+    const requestId = ++optimizationRequestId.current;
     setBusy(true);
+    setBusinessBusy(false);
     setRebalance(null);
+    setCurrentPortfolio(null);
+    setChatMessages([]);
+    const payload = {
+      total_amount: totalAmount,
+      risk_aversion: riskAversion,
+      max_single_weight: maxSingleWeight,
+      max_high_risk_weight: maxHighRiskWeight,
+      min_liquid_weight: minLiquidWeight,
+      min_holdings: minHoldings,
+    };
+    let theory: PortfolioResult | null = null;
     try {
-      const data = await api<PortfolioResult>("/portfolio/optimize", {
+      theory = await api<PortfolioResult>("/portfolio/optimize", {
         method: "POST",
         body: JSON.stringify({
-          total_amount: totalAmount,
-          risk_aversion: riskAversion,
-          max_single_weight: maxSingleWeight,
-          max_high_risk_weight: maxHighRiskWeight,
-          min_liquid_weight: minLiquidWeight,
-          min_holdings: minHoldings,
+          ...payload,
+          include_business: false,
         }),
       });
-      setResult(data);
+      if (requestId !== optimizationRequestId.current) return;
+      setResult(theory);
       setResultView("overview");
       setChatMessages([]);
     } catch (error) {
-      notify(`组合优化失败：${(error as Error).message}`);
+      if (requestId === optimizationRequestId.current) {
+        notify(`组合优化失败：${(error as Error).message}`);
+      }
     } finally {
-      setBusy(false);
+      if (requestId === optimizationRequestId.current) setBusy(false);
+    }
+
+    if (!theory || requestId !== optimizationRequestId.current) return;
+    setBusinessBusy(true);
+    try {
+      const executable = await api<PortfolioResult>("/portfolio/optimize", {
+        method: "POST",
+        body: JSON.stringify({ ...payload, include_business: true }),
+      });
+      if (requestId !== optimizationRequestId.current) return;
+      setResult(executable);
+    } catch (error) {
+      if (requestId === optimizationRequestId.current) {
+        notify(`业务可执行方案生成失败，理论最优方案仍可使用：${(error as Error).message}`);
+      }
+    } finally {
+      if (requestId === optimizationRequestId.current) setBusinessBusy(false);
     }
   }
 
   function chatContext() {
     return {
-      customer: customer ? { risk_appetite: customer.risk_appetite, aum: customer.aum } : null,
-      summary: result?.summary ?? null,
-      business: result?.business ?? null,
-      buys: rebalance?.buys ?? [],
-      sells: rebalance?.sells ?? [],
+      context_version: "portfolio_comparison_v1",
+      business_date: businessDate,
+      customer: customer ? {
+        customer_id: customer.customer_id,
+        risk_appetite: customer.risk_appetite,
+        vip_level: customer.vip_level,
+        aum: customer.aum,
+      } : null,
+      current_portfolio: currentPortfolio,
+      optimization_result: {
+        theoretical: result ? { summary: result.summary, allocations: result.allocations } : null,
+        executable: result?.business ?? null,
+      },
+      rebalance_candidates: {
+        buys: rebalance?.buys ?? [],
+        sells: rebalance?.sells ?? [],
+      },
     };
   }
 
@@ -541,8 +620,8 @@ export function PortfolioPage({
             />
           </div>
           <div className="constraint-actions">
-            <button className="primary full optimize-button" disabled={busy || totalAmount <= 0} onClick={() => void optimize()}>
-              {busy ? "优化器正在计算…" : "生成最优配置方案"}
+            <button className="primary full optimize-button" disabled={busy || businessBusy || totalAmount <= 0} onClick={() => void optimize()}>
+              {busy ? "正在生成理论最优…" : businessBusy ? "正在校正业务方案…" : "生成最优配置方案"}
             </button>
             <p className="solver-note">随机种子42 · 按1e-6容差复验硬约束</p>
           </div>
@@ -567,14 +646,18 @@ export function PortfolioPage({
                   <button className={resultView === "business" ? "on" : ""} onClick={() => setResultView("business")}>业务落地</button>
                   <button className={resultView === "detail" ? "on" : ""} onClick={() => setResultView("detail")}>产品明细</button>
                   <button className={resultView === "guards" ? "on" : ""} onClick={() => setResultView("guards")}>合规校验</button>
-                  <button className={resultView === "ai" ? "on" : ""} onClick={() => {
+                  <button
+                    className={resultView === "ai" ? "on" : ""}
+                    disabled={businessBusy || !result?.business || !currentPortfolio}
+                    title={businessBusy || !result?.business || !currentPortfolio ? "等待现有持仓与业务可执行组合加载完成" : "对比现有持仓与优化组合"}
+                    onClick={() => {
                     setResultView("ai");
                     if (result && chatMessages.length === 0 && !chatBusy) {
-                      void sendChat("帮我解读这个组合方案");
+                      void sendChat("请生成本次组合调优的投顾分析报告，重点说明现有组合问题、优化建议、重点产品的配置作用，以及风险收益和流动性变化。");
                     }
                   }}>AI分析</button>
                 </div>
-                <Status warn={!allPassed}>{allPassed ? "全部约束通过" : "存在约束违例"}</Status>
+                <Status warn={!allPassed || businessBusy}>{businessBusy ? "业务校正中" : allPassed ? "全部约束通过" : "存在约束违例"}</Status>
               </div>
 
               {resultView === "overview" && (
@@ -640,7 +723,7 @@ export function PortfolioPage({
                 <div className="result-view portfolio-ai-page portfolio-chat">
                   <div className="chat-head">
                     <div className="portfolio-ai-mark">AI</div>
-                    <span><small>AI 投顾助手</small><h3>组合方案问答</h3></span>
+                    <span><small>AI 投顾助手</small><h3>组合投顾分析</h3></span>
                     <Status>{chatBusy ? "回复中" : "DeepSeek"}</Status>
                   </div>
                   <div className="chat-body">
@@ -652,13 +735,18 @@ export function PortfolioPage({
                       </div>
                     ))}
                     {chatMessages.length === 0 && !chatBusy && (
-                      <div className="chat-empty">生成方案后，AI 会自动解读；你也可以随时追问。</div>
+                      <div className="chat-empty">AI 将生成面向客户经理的内部投顾分析，解释现有组合、优化建议、产品作用与风险收益变化。</div>
                     )}
+                  </div>
+                  <div className="chat-suggestions" aria-label="投顾快捷追问">
+                    {["为什么增配这些产品？", "组合风险从哪里下降？", "生成客户解释版本", "客户不愿减持怎么办？"].map((question) => (
+                      <button key={question} disabled={chatBusy} onClick={() => void sendChat(question)}>{question}</button>
+                    ))}
                   </div>
                   <div className="chat-foot">
                     <input
                       aria-label="向 AI 投顾助手提问"
-                      placeholder="追问：为什么选这个产品？风险改 R4 会怎样？"
+                      placeholder="继续追问产品作用、配置逻辑或风险变化…"
                       value={chatInput}
                       onChange={(event) => setChatInput(event.target.value)}
                       onKeyDown={(event) => { if (event.key === "Enter" && !chatBusy) void sendChat(chatInput); }}
@@ -666,13 +754,15 @@ export function PortfolioPage({
                     <button className="primary" disabled={chatBusy || !chatInput.trim()} onClick={() => void sendChat(chatInput)}>发送</button>
                   </div>
                   <div className="portfolio-ai-trace">
-                    <p>AI 回复基于当前方案上下文，不替代客户适当性、产品准入和起投金额校验。</p>
+                    <p>AI 回复基于业务日期下的现有持仓与优化结果对比，不替代客户适当性、产品准入和起投金额校验。</p>
                   </div>
                 </div>
               )}
               {resultView === "business" && (
                 <div className="result-view business-view">
-                  {result?.business ? (
+                  {businessBusy ? (
+                    <div className="inline-empty">理论最优方案已就绪，正在执行起投金额校正与完整支持集搜索…</div>
+                  ) : result?.business ? (
                     <>
                       <div className="business-metrics">
                         <Metric label="业务保真率" value={percent(result.business.retention_ratio)} note="业务效用 ÷ 理论效用" gold />

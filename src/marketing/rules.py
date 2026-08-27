@@ -11,12 +11,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Callable
 
 from .models import (
-    MANAGER_ELIGIBLE_AUM,
-    MANAGER_ELIGIBLE_VIP,
     MAX_RISK_OVERSHOOT,
     RISK_RANK,
     TIME_SLOTS,
@@ -25,6 +24,37 @@ from .models import (
 from .templates import COMPLIANCE_NOTE, OVERSHOOT_NOTE
 
 RuleContext = dict
+
+TOGGLEABLE_CONSTRAINT_IDS = frozenset(
+    {
+        "aum_affordability",
+        "channel_app_requires_app",
+        "channel_call_complaint_block",
+    }
+)
+
+
+def normalize_disabled_constraints(
+    values: Iterable[str] | None,
+) -> frozenset[str]:
+    """校验试算可关闭的约束；正式日批默认传空集合。"""
+    if values is None:
+        return frozenset()
+    if isinstance(values, (str, bytes)):
+        raise ValueError("disabled_constraints must be an array of rule ids")
+    normalized = frozenset(values)
+    if any(not isinstance(value, str) for value in normalized):
+        raise ValueError("disabled_constraints must contain only rule ids")
+    unknown = normalized - TOGGLEABLE_CONSTRAINT_IDS
+    if unknown:
+        raise ValueError(
+            "unsupported disabled constraint: " + ", ".join(sorted(unknown))
+        )
+    return normalized
+
+
+def _constraint_disabled(ctx: RuleContext, rule_id: str) -> bool:
+    return rule_id in ctx.get("disabled_constraints", ())
 
 
 # ----------------------------------------------------------------
@@ -101,6 +131,12 @@ def _check_customer_registered(ctx: RuleContext) -> RuleOutcome:
 
 def _check_aum_affordability(ctx: RuleContext) -> RuleOutcome:
     """业务批处理硬规则：客户可投资资产至少覆盖产品起投金额。"""
+    if _constraint_disabled(ctx, "aum_affordability"):
+        return RuleOutcome(
+            "aum_affordability",
+            True,
+            "试算已关闭起投能力约束，仅用于对比、不写入正式日批",
+        )
     customer = ctx["customer"]
     product = ctx["product"]
     if customer.aum >= product.min_invest:
@@ -160,6 +196,12 @@ def _check_min_invest_record(ctx: RuleContext) -> RuleOutcome:
 
 
 def _check_channel_app_requires_app(ctx: RuleContext) -> RuleOutcome:
+    if _constraint_disabled(ctx, "channel_app_requires_app"):
+        return RuleOutcome(
+            "channel_app_requires_app",
+            True,
+            "试算已关闭 App 安装约束，允许 app_push 参与渠道排序",
+        )
     customer = ctx["customer"]
     if ctx.get("channel") == "app_push" and not customer.has_app:
         return RuleOutcome(
@@ -171,6 +213,12 @@ def _check_channel_app_requires_app(ctx: RuleContext) -> RuleOutcome:
 
 
 def _check_channel_call_complaint_block(ctx: RuleContext) -> RuleOutcome:
+    if _constraint_disabled(ctx, "channel_call_complaint_block"):
+        return RuleOutcome(
+            "channel_call_complaint_block",
+            True,
+            "试算已关闭投诉外呼约束，允许 call 参与渠道排序",
+        )
     behavior = ctx.get("behavior")
     complaints = behavior.complaint_count_90d if behavior is not None else 0
     if ctx.get("channel") == "call" and complaints >= 2:
@@ -185,36 +233,25 @@ def _check_channel_call_complaint_block(ctx: RuleContext) -> RuleOutcome:
 
 
 def _check_channel_manager_quota(ctx: RuleContext) -> RuleOutcome:
-    if ctx.get("channel") == "manager" and not ctx.get("manager_allowed", False):
-        return RuleOutcome(
-            "channel_manager_quota",
-            False,
-            "manager 渠道未获配额（资格：金卡/钻石 或 AUM≥50万，且受全局配额限制）",
-        )
     if ctx.get("channel") == "manager":
         return RuleOutcome(
-            "channel_manager_quota", True, "manager 渠道命中全局配额"
+            "channel_manager_quota", True, "manager 渠道不设全局配额"
         )
     return RuleOutcome("channel_manager_quota", True, "非 manager 渠道")
 
 
 def _check_channel_manager_eligible(ctx: RuleContext) -> RuleOutcome:
-    """软规则：记录 manager 资格判断依据（不做拦截，配额机制负责分配）。"""
-    customer = ctx["customer"]
-    eligible = (
-        customer.vip_level in MANAGER_ELIGIBLE_VIP
-        or customer.aum >= MANAGER_ELIGIBLE_AUM
-    )
-    if eligible:
+    """兼容旧规则 ID：manager 对所有客户开放，不做资格判断。"""
+    if ctx.get("channel") == "manager":
         return RuleOutcome(
             "channel_manager_eligible",
             True,
-            f"具备 manager 资格（VIP={customer.vip_level}，AUM={customer.aum:.0f}）",
+            "manager 渠道不设 VIP 或 AUM 资格限制",
         )
     return RuleOutcome(
         "channel_manager_eligible",
         True,
-        f"不具备 manager 资格（VIP={customer.vip_level}，AUM={customer.aum:.0f}）",
+        "非 manager 渠道",
     )
 
 
@@ -334,16 +371,16 @@ RULES = [
     ),
     _rule(
         "channel_manager_quota",
-        "manager 渠道配额",
+        "manager 渠道不限额",
         "channel",
-        "manager 渠道须命中全局配额（资格：金卡/钻石 或 AUM≥50万）",
+        "manager 渠道不设全局配额（保留规则 ID 便于兼容历史轨迹）",
         _check_channel_manager_quota,
     ),
     _rule(
         "channel_manager_eligible",
-        "manager 资格记录",
+        "manager 渠道无资格限制",
         "channel",
-        "记录 manager 资格判断依据（软规则，不拦截）",
+        "manager 对所有客户开放，不设 VIP 或 AUM 资格限制",
         _check_channel_manager_eligible,
         hard=False,
     ),

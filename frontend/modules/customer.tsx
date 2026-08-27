@@ -2,30 +2,17 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import {
-  AiAnalysis,
   CustomerApiError,
   CustomerCreatePayload,
   CustomerListItem,
   CustomerProfile,
   createCustomer,
-  generateAiSummary,
   getCustomerProfile,
   listCustomers,
 } from "../shared/customer-api";
 import { api } from "../shared/api";
 import { channelNames } from "../shared/ui";
 import { formatNumber, money, percent } from "../shared/format";
-
-interface RosterRow {
-  contact_id: string;
-  customer_id: string;
-  product_id: string;
-  product_name: string;
-  risk_level: string;
-  channel: string;
-  contact_date: string;
-  response_prob: number;
-}
 
 interface StrategyItem {
   strategy_id: string;
@@ -35,10 +22,10 @@ interface StrategyItem {
   expected_return: number;
   recommended_channel: string;
   status: string;
+  model_prob: number | null;
 }
 
 interface LinkageData {
-  a1Rows: RosterRow[];
   strategies: StrategyItem[] | null;
   strategyMessage: string;
 }
@@ -83,37 +70,47 @@ function errorMessage(error: unknown) {
   return error instanceof CustomerApiError ? error.message : "请求失败，请稍后重试";
 }
 
-function HighlightedText({ text, highlights }: { text: string; highlights: string[] }) {
-  const terms = Array.from(new Set(highlights))
-    .filter(term => term && text.includes(term))
-    .sort((left, right) => right.length - left.length);
-  if (!terms.length) return <>{text}</>;
-
-  const escaped = terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const parts = text.split(new RegExp(`(${escaped.join("|")})`, "g"));
-  const termSet = new Set(terms);
-  return <>{parts.map((part, index) => termSet.has(part)
-    ? <strong className="ai-highlight" key={`${part}-${index}`}>{part}</strong>
-    : <span key={`${part}-${index}`}>{part}</span>)}</>;
-}
-
-function AiAnalysisPanel({ analysis }: { analysis: AiAnalysis }) {
-  const sections = [
-    ["画像概述", analysis.overview],
-    ["需求洞察", analysis.insight],
-    ["服务建议", analysis.suggestion],
-  ] as const;
-  return <div className="ai-analysis">{sections.map(([title, text]) => <section key={title}>
-    <b>{title}</b>
-    <p><HighlightedText text={text} highlights={analysis.highlights} /></p>
-  </section>)}</div>;
-}
-
 function activity(profile: CustomerProfile) {
   const total = Object.values(profile.behavior_profile.recent_30d_counts).reduce((sum, value) => sum + value, 0);
   if (total >= 5) return "高活跃";
   if (total > 0) return "中等活跃";
   return "低活跃";
+}
+
+function buildStructuredInsights(profile: CustomerProfile) {
+  const { basic_info: basic, asset_profile: asset, behavior_profile: behavior } = profile;
+  const assessment = profile.risk_assessment;
+  const riskMismatch = Boolean(assessment && assessment.level !== basic.risk_appetite);
+  const largestHolding = asset.holdings.reduce(
+    (largest, holding) => Math.max(largest, holding.amount),
+    0,
+  );
+  const largestRatio = asset.holding_amount > 0 ? largestHolding / asset.holding_amount : null;
+  const recent = behavior.recent_30d_counts;
+
+  const riskText = riskMismatch
+    ? `规则 ${assessment?.level} ≠ 登记 ${basic.risk_appetite}，推荐前复核。`
+    : assessment
+      ? `规则与登记一致：${basic.risk_appetite} · ${basic.risk_label}。`
+      : `登记 ${basic.risk_appetite} · ${basic.risk_label}，推荐前核验适当性。`;
+
+  const assetText = asset.holding_product_count === 0
+    ? "暂无持仓，可进入智能投顾构建组合。"
+    : `${formatNumber(asset.holding_product_count)} 款 · 单品集中 ${percent(largestRatio)} · 高流动 ${percent(asset.high_liquidity_ratio)}`;
+
+  const behaviorText = recent.complaint > 0
+    ? `近30天投诉 ${formatNumber(recent.complaint)} 次，服务前优先回访。`
+    : recent.consult > 0
+      ? `近30天咨询 ${formatNumber(recent.consult)} 次 · 登录 ${formatNumber(recent.login)} 次，建议及时跟进。`
+      : recent.login > 0
+        ? `近30天登录 ${formatNumber(recent.login)} 次、暂无咨询，先确认需求。`
+        : "近30天无登录咨询，建议先确认需求。";
+
+  return [
+    { label: "风险边界", text: riskText, warn: riskMismatch },
+    { label: "资产结构", text: assetText, warn: false },
+    { label: "服务信号", text: behaviorText, warn: recent.complaint > 0 },
+  ];
 }
 
 function paginationItems(current: number, total: number): Array<number | "ellipsis"> {
@@ -159,10 +156,6 @@ export function CustomerPage(props: CustomerPageProps) {
   const [profileError, setProfileError] = useState("");
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [customerTab, setCustomerTab] = useState<CustomerTab>("overview");
-
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [summaryProvider, setSummaryProvider] = useState<string | null>(null);
 
   const [linkage, setLinkage] = useState<LinkageData | null>(null);
   const [linkageLoading, setLinkageLoading] = useState(false);
@@ -238,25 +231,27 @@ export function CustomerPage(props: CustomerPageProps) {
 
   useEffect(() => {
     if (!selectedId) return;
-    const rosterRequest = api<{ customers: RosterRow[] }>(
-      `/marketing/roster?keyword=${encodeURIComponent(selectedId)}&size=20&contact_date=${encodeURIComponent(props.businessDate)}`
+    const controller = new AbortController();
+    setLinkage(null);
+    setLinkageLoading(true);
+    api<{ items: StrategyItem[] }>(
+      `/customers/${selectedId}/strategies?business_date=${encodeURIComponent(props.businessDate)}`,
+      { signal: controller.signal },
     )
-      .then(data => data.customers.filter(row => row.customer_id === selectedId))
-      .catch(() => [] as RosterRow[]);
-    const strategyRequest = api<{ items: StrategyItem[] }>(
-      `/customers/${selectedId}/strategies?business_date=${encodeURIComponent(props.businessDate)}`
-    )
-      .then(data => ({ strategies: data.items as StrategyItem[] | null, strategyMessage: "" }))
-      .catch((error: Error) => ({ strategies: null, strategyMessage: error.message }));
-    Promise.all([rosterRequest, strategyRequest])
-      .then(([a1Rows, strategyResult]) => {
+      .then(data => {
+        setLinkage({ strategies: data.items, strategyMessage: "" });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         setLinkage({
-          a1Rows,
-          strategies: strategyResult.strategies,
-          strategyMessage: strategyResult.strategyMessage,
+          strategies: null,
+          strategyMessage: error instanceof Error ? error.message : "策略加载失败，请稍后重试",
         });
       })
-      .finally(() => setLinkageLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLinkageLoading(false);
+      });
+    return () => controller.abort();
   }, [selectedId, props.businessDate]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -266,12 +261,13 @@ export function CustomerPage(props: CustomerPageProps) {
   const asset = profile?.asset_profile;
   const behavior = profile?.behavior_profile;
   const activeFilterCount = [keyword, riskFilter, vipFilter, cityFilter].filter(Boolean).length;
-  const bestOpportunity = linkage?.a1Rows.length
-    ? [...linkage.a1Rows].sort((left, right) => right.response_prob - left.response_prob)[0]
+  const bestOpportunity = linkage?.strategies?.length
+    ? [...linkage.strategies].sort((left, right) => (right.model_prob ?? 0) - (left.model_prob ?? 0))[0]
     : null;
   const primaryStrategy = linkage?.strategies?.find(item => item.rank === 1)
     ?? linkage?.strategies?.[0]
     ?? null;
+  const structuredInsights = profile ? buildStructuredInsights(profile) : [];
 
   function resetFilters() {
     setListLoading(true);
@@ -290,7 +286,6 @@ export function CustomerPage(props: CustomerPageProps) {
     setLinkageLoading(true);
     setProfileLoading(true);
     setProfileError("");
-    setAiError("");
     setSelectedId(customerId);
     setCustomerTab("overview");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -330,25 +325,6 @@ export function CustomerPage(props: CustomerPageProps) {
       setCreateError(errorMessage(error));
     } finally {
       setCreateBusy(false);
-    }
-  }
-
-  async function refreshAiSummary() {
-    if (!selectedId || !profile) return;
-    setAiBusy(true);
-    setAiError("");
-    try {
-      const result = await generateAiSummary(selectedId, props.businessDate);
-      setProfile({
-        ...profile,
-        ai_summary: result.analysis,
-        ai_summary_generated_at: result.generated_at,
-      });
-      setSummaryProvider(`${result.provider} · ${result.model}`);
-    } catch (error) {
-      setAiError(errorMessage(error));
-    } finally {
-      setAiBusy(false);
     }
   }
 
@@ -422,12 +398,15 @@ export function CustomerPage(props: CustomerPageProps) {
               {customerTab === "risk" && profile?.risk_assessment && (() => { const ra = profile.risk_assessment; return <div className="risk-assessment"><div className="risk-score-card"><small>规则评估得分</small><strong>{formatNumber(ra.score)}</strong><span>映射等级 <b>{ra.level} · {ra.label}</b></span><div className="risk-band">{["R1","R2","R3","R4","R5"].map((level) => <i key={level} className={level === ra.level ? "on" : ""}><em>{level}</em></i>)}</div><p>基础分 {ra.base_score} + 四项因子分；评估口径与进件规则一致。</p>{ra.level !== profile.basic_info.risk_appetite && <p className="risk-mismatch">行内登记 {profile.basic_info.risk_appetite} · {profile.basic_info.risk_label}（存量客户以登记为准）</p>}</div><div className="risk-factors"><b>评估因子明细</b><ul><li><span>基础分</span><em>{ra.base_score > 0 ? "+" : ""}{formatNumber(ra.base_score)}</em></li>{ra.factors.map((factor) => <li key={factor.factor}><span>{factor.factor} · {factor.value}</span><em>{factor.score > 0 ? "+" : ""}{formatNumber(factor.score)}</em></li>)}<li className="total"><span>总分</span><em>{formatNumber(ra.score)}</em></li></ul></div></div>; })()}
               {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{formatNumber(Number(item[1]))}</strong><span>近 30 天 {formatNumber(Number(item[2]))} 次</span></article>)}</div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
             </div>
-            <aside className={`manager-next-step ${linkageLoading ? "is-loading" : ""}`}>
-              <header><small>客户经理下一步</small><h3>{primaryStrategy ? `优先跟进 ${primaryStrategy.product_name}` : "先完成需求确认"}</h3><p>{primaryStrategy ? `${channelNames[primaryStrategy.recommended_channel] ?? primaryStrategy.recommended_channel}触达 · ${primaryStrategy.status}` : (linkage?.strategyMessage || "当前暂无可执行策略，建议先核实客户资金安排。")}</p></header>
-              <div className="service-signal-grid"><span><small>最高响应概率</small><strong>{bestOpportunity ? percent(bestOpportunity.response_prob) : "—"}</strong></span><span><small>历史响应率</small><strong>{percent(profile.campaign_summary?.response_rate)}</strong></span><span><small>持仓覆盖率</small><strong>{basic.aum > 0 ? percent(asset.holding_amount / basic.aum) : "—"}</strong></span></div>
+            <aside className="manager-next-step">
+              <header><small>客户经理下一步</small><h3>{linkageLoading ? "正在读取客户策略" : primaryStrategy ? `优先跟进 ${primaryStrategy.product_name}` : "先完成需求确认"}</h3><p>{linkageLoading ? "结构化画像已就绪，营销策略正在加载。" : primaryStrategy ? `${channelNames[primaryStrategy.recommended_channel] ?? primaryStrategy.recommended_channel}触达 · ${primaryStrategy.status}` : (linkage?.strategyMessage || "当前暂无可执行策略，建议先核实客户资金安排。")}</p></header>
+              <div className="service-signal-grid"><span><small>最高响应概率</small><strong>{bestOpportunity?.model_prob != null ? percent(bestOpportunity.model_prob) : "—"}</strong></span><span><small>历史响应率</small><strong>{percent(profile.campaign_summary?.response_rate)}</strong></span><span><small>持仓覆盖率</small><strong>{basic.aum > 0 ? percent(asset.holding_amount / basic.aum) : "—"}</strong></span></div>
               {primaryStrategy && <div className="primary-strategy"><small>TOP1 策略</small><b>{primaryStrategy.product_id} · {primaryStrategy.product_name}</b><span>预期收益 {percent(primaryStrategy.expected_return)} · {channelNames[primaryStrategy.recommended_channel] ?? primaryStrategy.recommended_channel}</span></div>}
               <div className="manager-actions"><button className="primary" onClick={() => props.onOpenMarketing(basic.customer_id)}>打开 Top3 营销策略 →</button><button className="secondary" onClick={() => props.onOpenPortfolio(basic.customer_id)}>生成投顾配置方案 →</button></div>
-              <div className="service-ai-block"><div className="ai-title"><b>AI</b><span><strong>客户洞察</strong><small>基于当前结构化画像</small></span></div>{aiBusy ? <div className="loading">正在生成服务建议…</div> : (profile.ai_summary ? <AiAnalysisPanel analysis={profile.ai_summary} /> : <div className="ai-empty">{props.historical ? "历史快照仅展示当日结构化画像，AI 更新已锁定。" : "生成客户画像总结，辅助经理快速形成沟通重点。"}</div>)}{aiError && <div className="ai-error">{aiError}</div>}<div className="evidence"><small>引用依据</small><span>{basic.risk_appetite} · {basic.risk_label}，持仓 {formatNumber(asset.holding_product_count)} 款</span>{profile.ai_summary_generated_at && <span>生成于 {new Date(profile.ai_summary_generated_at).toLocaleString("zh-CN")}</span>}</div><button disabled={aiBusy || props.historical} title={props.historical ? "历史快照只读" : undefined} onClick={refreshAiSummary}>↻ {profile.ai_summary ? "更新服务建议" : "生成服务建议"}</button><em>{summaryProvider ? `${summaryProvider} · ` : ""}AI内容仅供辅助分析</em></div>
+              <section className="structured-insight">
+                <div className="structured-insight-head"><span><i>规</i><b>结构化洞察</b></span><em>风险 · 持仓 · 行为</em></div>
+                <ul>{structuredInsights.map(insight => <li className={insight.warn ? "warn" : ""} key={insight.label}><b>{insight.label}</b><span>{insight.text}</span></li>)}</ul>
+              </section>
             </aside>
           </div>
         </>}

@@ -54,27 +54,6 @@ def _strategy_frame(business_date: date = DEFAULT_BUSINESS_DATE) -> pd.DataFrame
     return load_strategy_frame(business_date)
 
 
-def _channel_of(
-    strategy_id: str,
-    business_date: date = DEFAULT_BUSINESS_DATE,
-) -> str | None:
-    customer_id, _, rank = strategy_id.partition(":")
-    frame = _strategy_frame(business_date)
-    if not {"customer_id", "rank", "recommended_channel"}.issubset(frame.columns):
-        return None
-    rows = frame[
-        (frame["customer_id"] == customer_id) & (frame["rank"] == rank)
-    ]
-    if not rows.empty:
-        return str(rows.iloc[0]["recommended_channel"])
-    try:
-        from .campaign import customer_strategy_channel
-
-        return customer_strategy_channel(customer_id, int(rank), business_date)
-    except (RuntimeError, ValueError):
-        return None
-
-
 def _event_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
     """事件表统计：sent/responded 数量 + manager 渠道口径。"""
     sent = responded = 0
@@ -87,10 +66,17 @@ def _event_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT strategy_id, event_type, COUNT(*) AS count "
-                    "FROM app_campaign_event WHERE occurred_at < %s "
-                    "GROUP BY strategy_id, event_type",
-                    (business_date + timedelta(days=1),),
+                    "SELECT e.strategy_id, e.event_type, COUNT(*) AS count, "
+                    "s.recommended_channel "
+                    "FROM app_campaign_event e "
+                    "LEFT JOIN ads_marketing_strategy s "
+                    "ON s.strategy_date = %s "
+                    "AND s.customer_id = SUBSTRING_INDEX(e.strategy_id, ':', 1) "
+                    "AND s.strategy_rank = CAST(SUBSTRING_INDEX(e.strategy_id, ':', -1) "
+                    "AS UNSIGNED) "
+                    "WHERE e.occurred_at < %s "
+                    "GROUP BY e.strategy_id, e.event_type, s.recommended_channel",
+                    (business_date, business_date + timedelta(days=1)),
                 )
                 rows = cursor.fetchall()
         finally:
@@ -114,12 +100,12 @@ def _event_summary(business_date: date = DEFAULT_BUSINESS_DATE) -> dict:
         if event_type == "sent":
             sent += count
             sent_customers.add(str(strategy_id).partition(":")[0])
-            if _channel_of(strategy_id, business_date) == "manager":
+            if row.get("recommended_channel") == "manager":
                 manager_sent += count
         elif event_type == "responded":
             responded += count
             responded_customers.add(str(strategy_id).partition(":")[0])
-            if _channel_of(strategy_id, business_date) == "manager":
+            if row.get("recommended_channel") == "manager":
                 manager_responded += count
                 manager_responded_customers.add(str(strategy_id).partition(":")[0])
     return {

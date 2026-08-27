@@ -7,7 +7,7 @@
 规则装配阶段一（全局批次）：
     产品排序 = A1 响应概率；
     合规顺位过滤（风险偏好内优先，不足 3 个时自动溢出 1 级）；
-    manager 渠道配额分配（资格 + 全局配额，按客户价值排序）。
+    manager 渠道对全部客户开放，不设资格和全局配额。
 阶段二（逐客户）：
     渠道（rank 顺位取不同渠道）→ 时段（职业×渠道偏好序）→ 话术 → 规则回验。
 
@@ -22,8 +22,6 @@ from typing import Mapping, Sequence
 from .engine import RuleEngine
 from .models import (
     DEFAULT_MANAGER_QUOTA,
-    MANAGER_ELIGIBLE_AUM,
-    MANAGER_ELIGIBLE_VIP,
     RISK_RANK,
     TIME_SLOTS,
     Product,
@@ -34,8 +32,6 @@ from .models import (
 )
 from .rules import build_default_engine
 from .templates import build_script
-
-VIP_RANK = {"钻石": 3, "金卡": 2, "银卡": 1, "普通": 0}
 
 DEFAULT_SLOT_ORDER = [
     "工作日09:00-12:00",
@@ -195,7 +191,7 @@ def _select_top(
 
 
 def _channel_ladder(customer, behavior) -> list[str]:
-    ladder: list[str] = []
+    ladder: list[str] = ["manager"]
     if customer.has_app:
         ladder.append("app_push")
     if behavior.complaint_count_90d < 2:
@@ -220,59 +216,6 @@ def _slot_order(customer, channel: str) -> list[str]:
 
 
 # ----------------------------------------------------------------
-# manager 配额分配（阶段一全局步骤）
-# ----------------------------------------------------------------
-
-
-def _allocate_manager(
-    requests: Sequence[StrategyRequest], quota: int
-) -> dict[str, tuple[int, ...]]:
-    """按客户价值分配 manager 渠道名额，返回 customer_id -> 命中 rank 列表。"""
-    eligible = [
-        request
-        for request in requests
-        if (
-            request.customer.vip_level in MANAGER_ELIGIBLE_VIP
-            or request.customer.aum >= MANAGER_ELIGIBLE_AUM
-        )
-    ]
-    eligible.sort(
-        key=lambda request: (
-            -VIP_RANK.get(request.customer.vip_level, 0),
-            -request.customer.aum,
-            request.customer.customer_id,
-        )
-    )
-    plan: dict[str, list[int]] = {}
-    used = 0
-    # 第一轮：每人至多 1 条（rank 1）
-    for request in eligible:
-        if used >= quota:
-            break
-        if 1 <= request.top_n:
-            plan.setdefault(request.customer.customer_id, []).append(1)
-            used += 1
-    # 第二轮：配额有余量时，钻石/金卡可拿第 2 条（rank 2）
-    if used < quota:
-        for request in eligible:
-            if used >= quota:
-                break
-            ranks = plan.get(request.customer.customer_id, [])
-            if (
-                request.customer.vip_level in MANAGER_ELIGIBLE_VIP
-                and len(ranks) < 2
-                and 2 <= request.top_n
-            ):
-                ranks.append(2)
-                used += 1
-    return {
-        customer_id: tuple(sorted(ranks))
-        for customer_id, ranks in plan.items()
-        if ranks
-    }
-
-
-# ----------------------------------------------------------------
 # 阶段二：单客户生成
 # ----------------------------------------------------------------
 
@@ -281,7 +224,6 @@ def _plan_customer(
     request: StrategyRequest,
     products: Sequence[Product],
     engine: RuleEngine,
-    manager_ranks: Sequence[int],
     model_scores: Mapping[tuple[str, str], float],
 ) -> StrategyResult:
     customer = request.customer
@@ -345,26 +287,18 @@ def _plan_customer(
     items: list[StrategyItem] = []
     channel_details: list[str] = []
     slot_details: list[str] = []
-    non_manager_pos = 0
     for position, (product, model_prob, is_overshoot) in enumerate(
         selected, start=1
     ):
         rank = position
-        if rank in manager_ranks:
-            channel = "manager"
-            channel_details.append(
-                f"rank{rank}: manager（配额命中，VIP={customer.vip_level}，"
-                f"AUM={customer.aum:.0f}）"
-            )
-        else:
-            channel = ladder[non_manager_pos % len(ladder)]
-            non_manager_pos += 1
-            reason = {
-                "app_push": "已安装 App",
-                "call": "无投诉记录",
-                "sms": "短信兜底",
-            }.get(channel, channel)
-            channel_details.append(f"rank{rank}: {channel}（{reason}）")
+        channel = ladder[(position - 1) % len(ladder)]
+        reason = {
+            "manager": "无资格与配额限制",
+            "app_push": "已安装 App",
+            "call": "无投诉记录",
+            "sms": "短信兜底",
+        }.get(channel, channel)
+        channel_details.append(f"rank{rank}: {channel}（{reason}）")
 
         slots = _slot_order(customer, channel)
         slot = slots[min(position - 1, len(slots) - 1)]
@@ -386,7 +320,6 @@ def _plan_customer(
             "recommended_time": slot,
             "marketing_script": script,
             "overshoot": is_overshoot,
-            "manager_allowed": rank in manager_ranks,
         }
         trace = engine.evaluate_all(
             context, categories=("channel", "timing", "script")
@@ -457,12 +390,10 @@ def generate_strategies(
     product_ids = [p.product_id for p in products]
     if len(product_ids) != len(set(product_ids)):
         raise ValueError("duplicate product_id in product pool")
-    if manager_quota < 0:
-        raise ValueError("manager_quota must be non-negative")
+    del manager_quota  # 兼容旧接口；manager 已不限资格和配额。
 
     engine = engine or build_default_engine()
     model_scores = model_scores or {}
-    manager_plan = _allocate_manager(requests, manager_quota)
 
     results: list[StrategyResult] = []
     for request in requests:
@@ -471,7 +402,6 @@ def generate_strategies(
                 request,
                 products,
                 engine,
-                manager_plan.get(request.customer.customer_id, ()),
                 model_scores,
             )
         )

@@ -88,7 +88,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--manager-quota",
         type=int,
         default=None,
-        help="A2 manager 配额（缺省用 pipeline 默认值）",
+        help="兼容参数；manager 已不限资格和配额，该值不再生效",
     )
     parser.add_argument(
         "--with-demo",

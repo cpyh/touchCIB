@@ -1,8 +1,8 @@
-"""A1排序 + A2基础规则过滤的幂等营销日批。
+"""A1客户×产品×可执行渠道排序 + A2硬规则过滤的营销日批。
 
 处理顺序固定为：
-1. 规则选择客户可执行渠道；
-2. A1对客户的30个产品打分并排序；
+1. 规则生成客户可执行渠道集；
+2. A1对客户的30个产品×可执行渠道打分，每产品保留最优渠道；
 3. A2只做适当性、产品状态、客户状态和起投能力等硬规则过滤；
 4. 从通过候选中取Top3，生成时段、话术与完整规则轨迹；
 5. 同一事务替换本批客户在三张ADS表中的结果。
@@ -21,13 +21,11 @@ from ..database import database_connection
 from ..partA1serving.feature_service import PredictRequest
 from .models import (
     DEFAULT_MANAGER_QUOTA,
-    MANAGER_ELIGIBLE_AUM,
-    MANAGER_ELIGIBLE_VIP,
     Customer,
     CustomerBehavior,
 )
 from .pipeline import _slot_order
-from .rules import build_default_engine
+from .rules import build_default_engine, normalize_disabled_constraints
 from .templates import build_script
 from .warehouse import MarketingWarehouseContext
 
@@ -35,9 +33,9 @@ if TYPE_CHECKING:
     from ..partA1serving.predictor import ResponsePredictor
 
 
-RULE_VERSION = "a1_rank_basic_rules_v1"
+RULE_VERSION = "a1_product_channel_rank_no_manager_limit_v3"
 FEATURE_VERSION_PREFIX = "a1_feature_schema_v"
-VIP_PRIORITY = {"钻石": 3, "金卡": 2, "银卡": 1, "普通": 0}
+CHANNEL_TIE_PRIORITY = {"manager": 0, "app_push": 1, "call": 2, "sms": 3}
 
 
 @dataclass(frozen=True)
@@ -62,17 +60,34 @@ def select_business_channel(
     *,
     manager_enabled: bool = True,
 ) -> str:
-    """用可审计规则选择A1评分渠道，避免模型对不可执行渠道打高分。"""
-    if manager_enabled and (
-        customer.vip_level in MANAGER_ELIGIBLE_VIP
-        or customer.aum >= MANAGER_ELIGIBLE_AUM
+    """兼容旧调用：manager 已无资格或配额限制，始终可执行。"""
+    del customer, behavior, manager_enabled
+    return "manager"
+
+
+def eligible_business_channels(
+    customer: Customer,
+    behavior: CustomerBehavior,
+    *,
+    manager_enabled: bool = True,
+    disabled_constraints: Iterable[str] = (),
+) -> tuple[str, ...]:
+    """返回 A1 排序使用的可执行渠道；manager 对所有客户开放。
+
+    ``manager_enabled`` 仅为兼容旧调用保留，不再影响结果。
+    """
+    del manager_enabled
+    disabled = normalize_disabled_constraints(disabled_constraints)
+    channels = ["sms"]
+    if (
+        "channel_call_complaint_block" in disabled
+        or behavior.complaint_count_90d < 2
     ):
-        return "manager"
-    if customer.has_app:
-        return "app_push"
-    if behavior.complaint_count_90d < 2:
-        return "call"
-    return "sms"
+        channels.append("call")
+    if "channel_app_requires_app" in disabled or customer.has_app:
+        channels.append("app_push")
+    channels.append("manager")
+    return tuple(channels)
 
 
 def allocate_manager_customers(
@@ -81,31 +96,11 @@ def allocate_manager_customers(
     manager_quota: int,
     strategies_per_customer: int = 3,
 ) -> set[str]:
-    """分配 manager 渠道客户，配额单位为最终策略行数。
-
-    A1 的渠道是模型特征，因此同一客户的 30 产品必须先固定一个可执行渠道。
-    为保证评分渠道与最终 Top3 渠道一致，manager 按完整客户 Top3 分配；不足
-    一个完整 Top3 的尾数不使用。排序完全确定，便于离线提交与 ADS 日批复现。
-    """
-    if manager_quota < 0:
-        raise ValueError("manager_quota must be non-negative")
+    """兼容旧调用：manager 不再分配配额，直接向所有客户开放。"""
+    del manager_quota
     if strategies_per_customer <= 0:
         raise ValueError("strategies_per_customer must be positive")
-    capacity = manager_quota // strategies_per_customer
-    eligible = [
-        customer
-        for customer in customers
-        if customer.vip_level in MANAGER_ELIGIBLE_VIP
-        or customer.aum >= MANAGER_ELIGIBLE_AUM
-    ]
-    eligible.sort(
-        key=lambda customer: (
-            -VIP_PRIORITY.get(customer.vip_level, 0),
-            -customer.aum,
-            customer.customer_id,
-        )
-    )
-    return {customer.customer_id for customer in eligible[:capacity]}
+    return {customer.customer_id for customer in customers}
 
 
 def _trace_json(outcomes) -> str:
@@ -140,45 +135,61 @@ def compute_marketing_batch(
     *,
     batch_id: str,
     manager_quota: int = DEFAULT_MANAGER_QUOTA,
+    disabled_constraints: Iterable[str] = (),
 ) -> MarketingBatchResult:
     """纯计算阶段；只有全部客户成功后，调用方才进入ADS事务写入。"""
+    del manager_quota  # 兼容旧接口；manager 已不限资格和配额。
+    disabled = normalize_disabled_constraints(disabled_constraints)
     engine = build_default_engine()
     model_version, feature_version = _model_versions(predictor)
     score_rows: list[tuple[Any, ...]] = []
     decision_rows: list[tuple[Any, ...]] = []
     strategy_rows: list[tuple[Any, ...]] = []
     customer_ids = sorted(context.customers)
-    manager_customers = allocate_manager_customers(
-        context.customers.values(),
-        manager_quota=manager_quota,
-    )
-    channel_by_customer = {
-        customer_id: select_business_channel(
+    channels_by_customer = {
+        customer_id: eligible_business_channels(
             context.customers[customer_id],
             context.behaviors[customer_id],
-            manager_enabled=customer_id in manager_customers,
+            disabled_constraints=disabled,
         )
         for customer_id in customer_ids
     }
-    probability_by_customer: dict[str, dict[str, float]] = {}
-    # 200客户×30产品为一块：拼表和模型均向量化，同时控制内存。
+    product_scores_by_customer: dict[str, dict[str, tuple[float, str]]] = {}
+    # 200客户为一块；在块内展开产品×可执行渠道，向量化推理。
     for start in range(0, len(customer_ids), 200):
         customer_chunk = customer_ids[start : start + 200]
         requests = [
             PredictRequest(
                 customer_id=customer_id,
                 product_id=product.product_id,
-                channel=channel_by_customer[customer_id],
+                channel=channel,
                 contact_date=context.strategy_date.isoformat(),
             )
             for customer_id in customer_chunk
             for product in context.products
+            for channel in channels_by_customer[customer_id]
         ]
         predictions = predictor.predict_batch(requests, explain=False)
-        for prediction in predictions:
-            probability_by_customer.setdefault(
-                prediction.customer_id, {}
-            )[prediction.product_id] = float(prediction.probability)
+        if len(predictions) != len(requests):
+            raise RuntimeError(
+                "A1 batch result count does not match product-channel requests"
+            )
+        for request, prediction in zip(requests, predictions, strict=True):
+            probability = float(prediction.probability)
+            product_scores = product_scores_by_customer.setdefault(
+                str(request.customer_id), {}
+            )
+            current = product_scores.get(request.product_id)
+            candidate = (probability, request.channel)
+            if current is None or (
+                candidate[0] > current[0]
+                or (
+                    candidate[0] == current[0]
+                    and CHANNEL_TIE_PRIORITY[candidate[1]]
+                    < CHANNEL_TIE_PRIORITY[current[1]]
+                )
+            ):
+                product_scores[request.product_id] = candidate
 
     for customer_id in customer_ids:
         customer = context.customers[customer_id]
@@ -189,14 +200,20 @@ def compute_marketing_batch(
         strict_candidate_count = sum(
             int(product.risk_level[1:]) <= base_risk
             and product.launch_date <= context.strategy_date
-            and customer.aum >= product.min_invest
+            and (
+                "aum_affordability" in disabled
+                or customer.aum >= product.min_invest
+            )
             for product in context.products
         )
         max_allowed_risk = (
             base_risk if strict_candidate_count >= 3 else min(5, base_risk + 1)
         )
-        channel = channel_by_customer[customer_id]
-        probability_by_product = probability_by_customer[customer_id]
+        product_channel_scores = product_scores_by_customer[customer_id]
+        probability_by_product = {
+            product_id: score[0]
+            for product_id, score in product_channel_scores.items()
+        }
         ordered_products = sorted(
             context.products,
             key=lambda product: (
@@ -214,6 +231,7 @@ def compute_marketing_batch(
         candidate_trace: dict[str, list] = {}
         for product in ordered_products:
             probability = probability_by_product[product.product_id]
+            channel = product_channel_scores[product.product_id][1]
             rank = a1_rank[product.product_id]
             score_rows.append(
                 (
@@ -236,6 +254,7 @@ def compute_marketing_batch(
                 "strategy_date": context.strategy_date,
                 "max_allowed_risk": max_allowed_risk,
                 "invest_budget": customer.aum,
+                "disabled_constraints": disabled,
             }
             outcomes = engine.evaluate_all(
                 compliance_context,
@@ -278,6 +297,7 @@ def compute_marketing_batch(
         for strategy_rank, (product, probability, rank) in enumerate(
             passed_candidates[:3], start=1
         ):
+            channel = product_channel_scores[product.product_id][1]
             recommended_time = _slot_order(customer, channel)[strategy_rank - 1]
             marketing_script = build_script(
                 customer,
@@ -293,7 +313,7 @@ def compute_marketing_batch(
                 "max_allowed_risk": max_allowed_risk,
                 "invest_budget": customer.aum,
                 "channel": channel,
-                "manager_allowed": channel == "manager",
+                "disabled_constraints": disabled,
                 "recommended_time": recommended_time,
                 "marketing_script": marketing_script,
                 "overshoot": False,
@@ -423,6 +443,7 @@ __all__ = [
     "RULE_VERSION",
     "allocate_manager_customers",
     "compute_marketing_batch",
+    "eligible_business_channels",
     "persist_marketing_batch",
     "select_business_channel",
 ]
