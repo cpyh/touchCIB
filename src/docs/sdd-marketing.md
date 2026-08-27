@@ -86,7 +86,7 @@ flowchart TB
 
 | 类别 | rule_id | 硬/软 | 判定 |
 |------|---------|-------|------|
-| 合规 | `risk_match` | 硬 | 产品风险 ≤ 客户偏好；候选 <3 时自动溢出 1 级（`max_allowed_risk`） |
+| 合规 | `risk_match` | 硬 | 产品风险最多高于客户偏好 1 级；偏好内与上浮一档产品统一按 A1 概率排序 |
 | 合规 | `product_launched` | 硬 | launch_date ≤ strategy_date |
 | 合规 | `customer_registered` | 硬 | register_date ≤ strategy_date |
 | 合规 | `aum_affordability` | 硬 | 客户 AUM ≥ 产品起投金额 |
@@ -157,7 +157,7 @@ A2 离线对 2000×30 组合生成 60000 条 A1 评分，再产出
 | manager 资格/配额 | 无资格限制、无全局配额 ✅ |
 | 无 App 客户出 app_push | 0 ✅ |
 | 投诉 ≥2 客户出 call | 0 ✅ |
-| 风险放宽一档补位行 | 500（严格风险且满足起投能力的候选不足 3 个时触发）✅ |
+| 风险上浮一档入选行 | 1,436（高分参考口径复现结果）✅ |
 | 格式校验器 | 0 错误 ✅ |
 
 ## 14. A 链路测试

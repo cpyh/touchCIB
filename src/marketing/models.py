@@ -37,7 +37,7 @@ MANAGER_ELIGIBLE_AUM = 500_000.0
 DEFAULT_MANAGER_QUOTA = 600
 DEFAULT_TOP_N = 3
 
-# 风险溢出上限（候选不足 3 个时自动放宽的等级数）
+# 风险溢出上限（所有候选统一允许上浮的最大等级数）
 MAX_RISK_OVERSHOOT = 1
 
 

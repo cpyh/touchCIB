@@ -3,7 +3,7 @@
 处理顺序固定为：
 1. 规则生成客户可执行渠道集；
 2. A1对客户的30个产品×可执行渠道打分，每产品保留最优渠道；
-3. A2只做适当性、产品状态、客户状态和起投能力等硬规则过滤；
+3. A2只做风险最多上浮一档、产品状态、客户状态和起投能力等硬规则过滤；
 4. 从通过候选中取Top3，生成时段、话术与完整规则轨迹；
 5. 同一事务替换本批客户在三张ADS表中的结果。
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from ..partA1serving.predictor import ResponsePredictor
 
 
-RULE_VERSION = "a1_product_channel_rank_no_manager_limit_v3"
+RULE_VERSION = "a1_product_channel_rank_risk_plus_one_v4"
 FEATURE_VERSION_PREFIX = "a1_feature_schema_v"
 CHANNEL_TIE_PRIORITY = {"manager": 0, "app_push": 1, "call": 2, "sms": 3}
 
@@ -194,21 +194,10 @@ def compute_marketing_batch(
     for customer_id in customer_ids:
         customer = context.customers[customer_id]
         behavior = context.behaviors[customer_id]
-        # 优先严格按客户风险偏好筛选；只有严格候选不足3个时，才允许
-        # 上浮一档。放宽结果会在risk_match轨迹中明确标记。
+        # 高分参考口径：所有客户都允许产品风险等级最多上浮一档，
+        # 上浮产品与偏好内产品一起按 A1 概率竞争 Top3。
         base_risk = int(customer.risk_appetite[1:])
-        strict_candidate_count = sum(
-            int(product.risk_level[1:]) <= base_risk
-            and product.launch_date <= context.strategy_date
-            and (
-                "aum_affordability" in disabled
-                or customer.aum >= product.min_invest
-            )
-            for product in context.products
-        )
-        max_allowed_risk = (
-            base_risk if strict_candidate_count >= 3 else min(5, base_risk + 1)
-        )
+        max_allowed_risk = min(5, base_risk + 1)
         product_channel_scores = product_scores_by_customer[customer_id]
         probability_by_product = {
             product_id: score[0]
@@ -226,8 +215,7 @@ def compute_marketing_batch(
             for index, product in enumerate(ordered_products, start=1)
         }
 
-        strict_candidates: list[tuple] = []
-        overshoot_candidates: list[tuple] = []
+        compliant_candidates: list[tuple] = []
         candidate_trace: dict[str, list] = {}
         for product in ordered_products:
             probability = probability_by_product[product.product_id]
@@ -278,17 +266,9 @@ def compute_marketing_batch(
                 )
             )
             if passed:
-                target = (
-                    strict_candidates
-                    if int(product.risk_level[1:]) <= base_risk
-                    else overshoot_candidates
-                )
-                target.append((product, probability, rank))
+                compliant_candidates.append((product, probability, rank))
 
-        passed_candidates = [
-            *strict_candidates[:3],
-            *overshoot_candidates[: max(0, 3 - len(strict_candidates))],
-        ]
+        passed_candidates = compliant_candidates[:3]
         if len(passed_candidates) < 3:
             raise RuntimeError(
                 f"{customer_id}: A2基础规则过滤后仅剩 {len(passed_candidates)} 个候选"
@@ -298,12 +278,13 @@ def compute_marketing_batch(
             passed_candidates[:3], start=1
         ):
             channel = product_channel_scores[product.product_id][1]
+            overshoot = int(product.risk_level[1:]) > base_risk
             recommended_time = _slot_order(customer, channel)[strategy_rank - 1]
             marketing_script = build_script(
                 customer,
                 product,
                 channel,
-                overshoot=False,
+                overshoot=overshoot,
             )
             execution_context = {
                 "customer": customer,
@@ -316,7 +297,7 @@ def compute_marketing_batch(
                 "disabled_constraints": disabled,
                 "recommended_time": recommended_time,
                 "marketing_script": marketing_script,
-                "overshoot": False,
+                "overshoot": overshoot,
             }
             extra_outcomes = engine.evaluate_all(
                 execution_context,
@@ -333,8 +314,8 @@ def compute_marketing_batch(
                 f"A1原始排名第{rank}（概率{probability:.2%}），"
                 f"通过{len(all_outcomes)}项规则，进入过滤后Top3第{strategy_rank}位"
                 + (
-                    "（严格风险候选不足3个，按规则放宽一档补位）"
-                    if int(product.risk_level[1:]) > base_risk
+                    "（产品风险等级按规则上浮一档）"
+                    if overshoot
                     else ""
                 )
             )

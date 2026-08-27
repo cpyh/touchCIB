@@ -77,6 +77,14 @@ function activity(profile: CustomerProfile) {
   return "低活跃";
 }
 
+function subtractCalendarDays(value: string, days: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
 function buildStructuredInsights(profile: CustomerProfile) {
   const { basic_info: basic, asset_profile: asset, behavior_profile: behavior } = profile;
   const assessment = profile.risk_assessment;
@@ -232,8 +240,6 @@ export function CustomerPage(props: CustomerPageProps) {
   useEffect(() => {
     if (!selectedId) return;
     const controller = new AbortController();
-    setLinkage(null);
-    setLinkageLoading(true);
     api<{ items: StrategyItem[] }>(
       `/customers/${selectedId}/strategies?business_date=${encodeURIComponent(props.businessDate)}`,
       { signal: controller.signal },
@@ -268,6 +274,8 @@ export function CustomerPage(props: CustomerPageProps) {
     ?? linkage?.strategies?.[0]
     ?? null;
   const structuredInsights = profile ? buildStructuredInsights(profile) : [];
+  const recentWindowEnd = behavior?.recent_30d_end_exclusive ?? profile?.as_of_date ?? props.businessDate;
+  const recentWindowStart = behavior?.recent_30d_start ?? subtractCalendarDays(recentWindowEnd, 30);
 
   function resetFilters() {
     setListLoading(true);
@@ -314,7 +322,7 @@ export function CustomerPage(props: CustomerPageProps) {
       aum: Number(createForm.aum),
     };
     try {
-      const created = await createCustomer(payload);
+      const created = await createCustomer(payload, props.businessDate);
       setCreateOpen(false);
       setCreateForm(initialForm(props.businessDate));
       setNotice(`客户 ${created.customer_id} 已创建，风险评估结果为 ${created.risk_appetite} ${created.risk_label}`);
@@ -341,7 +349,7 @@ export function CustomerPage(props: CustomerPageProps) {
         <div><small className="customer-section-kicker">{selectedId ? "正在服务" : "存量客户服务"}</small><h2>{selectedId ? `客户 ${selectedId}` : "选择下一位服务客户"}</h2><p>{selectedId ? "先确认客户现状与风险依据，再直接发起下一步业务动作。" : "按客户特征筛选，结合资产、风险和可触达状态决定服务顺序。"}</p></div>
         <div className="customer-head-actions">
           {selectedId
-            ? <StatusPill>实时画像</StatusPill>
+            ? <StatusPill>{props.historical ? `${profile?.as_of_date ?? props.businessDate} 历史快照` : `${profile?.as_of_date ?? props.businessDate} 业务日画像`}</StatusPill>
             : listError
               ? <StatusPill warn>客户服务异常</StatusPill>
               : <StatusPill>{listLoading ? "正在同步客户" : `${formatNumber(total)} 位客户`}</StatusPill>}
@@ -392,11 +400,11 @@ export function CustomerPage(props: CustomerPageProps) {
                 <article><h4>客户关系</h4><dl><div><dt>年龄段</dt><dd>{basic.age_group}</dd></div><div><dt>所在城市</dt><dd>{basic.city}</dd></div><div><dt>职业</dt><dd>{basic.occupation}</dd></div><div><dt>关系建立</dt><dd>{basic.register_date}</dd></div></dl></article>
                 <article><h4>适当性判断</h4><div className="risk-row"><b>{basic.risk_appetite}</b><span>{basic.risk_label}<small>当前登记风险等级</small></span></div><div className="risk-scale dynamic">{riskLevels.map(level => <i key={level} className={Number(level.slice(1)) <= Number(basic.risk_appetite.slice(1)) ? "active" : ""} />)}</div><p>进入产品推荐前，先核验风险等级与产品准入。</p></article>
                 <article><h4>资产现状</h4><dl><div><dt>持仓产品</dt><dd>{formatNumber(asset.holding_product_count)} 款</dd></div><div><dt>持仓覆盖率</dt><dd>{basic.aum > 0 ? percent(asset.holding_amount / basic.aum) : "—"}</dd></div><div><dt>高流动性比例</dt><dd>{percent(asset.high_liquidity_ratio)}</dd></div><div><dt>加权预期收益</dt><dd>{percent(asset.weighted_expected_return)}</dd></div></dl></article>
-                <article><h4>互动与触达</h4><div className="stats"><div><b>{formatNumber(behavior.recent_30d_counts.login)}</b><span>近30天登录</span></div><div><b>{formatNumber(behavior.recent_30d_counts.consult)}</b><span>近30天咨询</span></div><div><b>{percent(profile.campaign_summary?.response_rate)}</b><span>历史响应率</span></div></div><p>最近触达：{profile.campaign_summary?.last_contact_date ?? "暂无"}</p></article>
+                <article><h4>互动与触达</h4><div className="stats"><div><b>{formatNumber(behavior.recent_30d_counts.login)}</b><span>业务日前30天登录</span></div><div><b>{formatNumber(behavior.recent_30d_counts.consult)}</b><span>业务日前30天咨询</span></div><div><b>{percent(profile.campaign_summary?.response_rate)}</b><span>历史响应率</span></div></div><p>窗口：{recentWindowStart} 至 {recentWindowEnd}（不含结束日） · 最近触达：{profile.campaign_summary?.last_contact_date ?? "暂无"}</p></article>
               </div>}
               {customerTab === "holding" && <div className="table"><table><thead><tr>{["产品", "类型", "风险", "持仓金额", "流动性", "预期收益", "购买日期"].map(header => <th key={header}>{header}</th>)}</tr></thead><tbody>{asset.holdings.map(holding => <tr key={holding.holding_id}><td><b>{holding.product_id}</b><small>{holding.product_name}</small></td><td>{holding.product_type}</td><td><span className="risk-tag">{holding.risk_level}</span></td><td>{money(holding.amount)}</td><td>{holding.liquidity}</td><td>{percent(holding.expected_return)}</td><td>{holding.buy_date}</td></tr>)}</tbody></table>{asset.holdings.length === 0 && <div className="empty-result"><b>暂无持仓记录</b><span>该客户当前没有可识别的产品持仓。</span></div>}</div>}
               {customerTab === "risk" && profile?.risk_assessment && (() => { const ra = profile.risk_assessment; return <div className="risk-assessment"><div className="risk-score-card"><small>规则评估得分</small><strong>{formatNumber(ra.score)}</strong><span>映射等级 <b>{ra.level} · {ra.label}</b></span><div className="risk-band">{["R1","R2","R3","R4","R5"].map((level) => <i key={level} className={level === ra.level ? "on" : ""}><em>{level}</em></i>)}</div><p>基础分 {ra.base_score} + 四项因子分；评估口径与进件规则一致。</p>{ra.level !== profile.basic_info.risk_appetite && <p className="risk-mismatch">行内登记 {profile.basic_info.risk_appetite} · {profile.basic_info.risk_label}（存量客户以登记为准）</p>}</div><div className="risk-factors"><b>评估因子明细</b><ul><li><span>基础分</span><em>{ra.base_score > 0 ? "+" : ""}{formatNumber(ra.base_score)}</em></li>{ra.factors.map((factor) => <li key={factor.factor}><span>{factor.factor} · {factor.value}</span><em>{factor.score > 0 ? "+" : ""}{formatNumber(factor.score)}</em></li>)}<li className="total"><span>总分</span><em>{formatNumber(ra.score)}</em></li></ul></div></div>; })()}
-              {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{formatNumber(Number(item[1]))}</strong><span>近 30 天 {formatNumber(Number(item[2]))} 次</span></article>)}</div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
+              {customerTab === "behavior" && <div className="behavior-panel"><div className="behavior-metrics">{[["登录", behavior.total_counts.login, behavior.recent_30d_counts.login], ["咨询", behavior.total_counts.consult, behavior.recent_30d_counts.consult], ["投诉", behavior.total_counts.complaint, behavior.recent_30d_counts.complaint]].map(item => <article key={item[0]}><small>{item[0]}</small><strong>{formatNumber(Number(item[1]))}</strong><span>业务日前 30 天 {formatNumber(Number(item[2]))} 次</span></article>)}</div><div className="latest-event"><b>统计窗口</b><span>{recentWindowStart} 至 {recentWindowEnd}（不含结束日）</span></div><div className="latest-event"><b>最近一次行为</b><span>{behavior.latest_event_type ? `${behavior.latest_event_type} · ${behavior.latest_event_date}` : "暂无行为记录"}</span></div><div className="tags">{behavior.tags.map(tag => <i key={tag}>{tag}</i>)}</div></div>}
             </div>
             <aside className="manager-next-step">
               <header><small>客户经理下一步</small><h3>{linkageLoading ? "正在读取客户策略" : primaryStrategy ? `优先跟进 ${primaryStrategy.product_name}` : "先完成需求确认"}</h3><p>{linkageLoading ? "结构化画像已就绪，营销策略正在加载。" : primaryStrategy ? `${channelNames[primaryStrategy.recommended_channel] ?? primaryStrategy.recommended_channel}触达 · ${primaryStrategy.status}` : (linkage?.strategyMessage || "当前暂无可执行策略，建议先核实客户资金安排。")}</p></header>

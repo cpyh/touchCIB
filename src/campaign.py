@@ -356,7 +356,7 @@ def create_responded_event(
     row = _record_event(
         strategy_id=outcome.strategy_id,
         event_type="responded",
-        occurred_at=occurred_at or datetime.now(),
+        occurred_at=occurred_at or datetime.combine(buy_date, time(hour=10)),
         product_id=product_id,
         amount=amount,
     )

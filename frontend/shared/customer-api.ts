@@ -70,6 +70,8 @@ export interface CustomerProfile {
   behavior_profile: {
     total_counts: Record<"login" | "consult" | "complaint", number>;
     recent_30d_counts: Record<"login" | "consult" | "complaint", number>;
+    recent_30d_start?: string;
+    recent_30d_end_exclusive?: string;
     latest_event_type: string | null;
     latest_event_date: string | null;
     tags: string[];
@@ -184,11 +186,14 @@ export function getCustomerProfile(
   );
 }
 
-export function createCustomer(payload: CustomerCreatePayload) {
-  return request<CustomerListItem>("/api/v1/customers", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+export function createCustomer(payload: CustomerCreatePayload, businessDate: string) {
+  return request<CustomerListItem>(
+    `/api/v1/customers?business_date=${encodeURIComponent(businessDate)}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export function generateAiSummary(customerId: string, businessDate: string) {

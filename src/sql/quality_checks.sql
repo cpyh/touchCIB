@@ -3,6 +3,7 @@
 -- Change the schema below if DB_NAME in .env is not "cib".
 
 USE `cib`;
+SET @business_date = DATE('2026-04-15');
 
 WITH checks AS (
     SELECT 10 AS sort_order, 'row_count' AS category,
@@ -151,12 +152,12 @@ WITH checks AS (
     WHERE amount <= 0
 
     UNION ALL
-    SELECT 220, 'date', 'business dates are not in the future', 0,
-           (SELECT COUNT(*) FROM ods_customer WHERE register_date > CURRENT_DATE)
-         + (SELECT COUNT(*) FROM ods_product WHERE launch_date > CURRENT_DATE)
-         + (SELECT COUNT(*) FROM ods_holding WHERE buy_date > CURRENT_DATE)
-         + (SELECT COUNT(*) FROM ods_campaign WHERE contact_date > CURRENT_DATE)
-         + (SELECT COUNT(*) FROM ods_event WHERE event_date > CURRENT_DATE)
+    SELECT 220, 'date', 'business dates do not exceed the demo business date', 0,
+           (SELECT COUNT(*) FROM ods_customer WHERE register_date > @business_date)
+         + (SELECT COUNT(*) FROM ods_product WHERE launch_date > @business_date)
+         + (SELECT COUNT(*) FROM ods_holding WHERE buy_date > @business_date)
+         + (SELECT COUNT(*) FROM ods_campaign WHERE contact_date > @business_date)
+         + (SELECT COUNT(*) FROM ods_event WHERE event_date > @business_date)
 
     UNION ALL
     SELECT 230, 'relationship', 'holding customers exist', 0, COUNT(*)
