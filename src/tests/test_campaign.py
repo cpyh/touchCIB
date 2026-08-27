@@ -187,14 +187,14 @@ class CampaignEventTestCase(unittest.TestCase):
                 {"sent_count": 1, "responded_count": 0},
                 {"campaign_event_id": 3, "strategy_id": self.strategy_id,
                  "event_type": "responded",
-                 "occurred_at": datetime(2026, 4, 20, 10, 0),
+                 "occurred_at": datetime(2026, 4, 15, 10, 0),
                  "product_id": product_id, "amount": 50000.0,
-                 "created_at": datetime(2026, 4, 20, 10, 0)},
+                 "created_at": datetime(2026, 4, 15, 10, 0)},
                 {"holding_id": "SIM1", "customer_id": self.customer_id,
                  "product_id": product_id, "amount": 50000.0,
-                 "buy_date": date(2026, 4, 20),
+                 "buy_date": date(2026, 4, 15),
                  "attributed_strategy_id": self.strategy_id,
-                 "created_at": datetime(2026, 4, 20, 10, 0)},
+                 "created_at": datetime(2026, 4, 15, 10, 0)},
             ]
         )
         mock_db.return_value = connection
@@ -202,7 +202,7 @@ class CampaignEventTestCase(unittest.TestCase):
         result = simulate_holding_purchase(
             customer_id=self.customer_id,
             product_id=product_id,
-            buy_date=date(2026, 4, 20),
+            buy_date=date(2026, 4, 15),
             amount=50000.0,
         )
 
@@ -226,13 +226,24 @@ class CampaignEventTestCase(unittest.TestCase):
             simulate_holding_purchase(
                 customer_id=self.customer_id,
                 product_id=self._top3_of_first_customer()[0],
-                buy_date=date(2026, 4, 20),
+                buy_date=date(2026, 4, 15),
             )
 
         self.assertFalse(
             any("INSERT INTO app_demo_holding" in sql for sql in cursor.statements)
         )
         self.assertTrue(connection.rollback.called)
+
+    @patch("src.campaign.database_connection")
+    def test_simulated_holding_rejects_future_purchase(self, mock_db):
+        with self.assertRaisesRegex(CampaignInputError, "未来购买不能进入当前快照"):
+            simulate_holding_purchase(
+                customer_id=self.customer_id,
+                product_id=self._top3_of_first_customer()[0],
+                buy_date=date(2026, 4, 16),
+                business_date=date(2026, 4, 15),
+            )
+        mock_db.assert_not_called()
 
     @patch("src.campaign.database_connection")
     def test_simulated_holding_does_not_increment_twice(self, mock_db):
@@ -245,7 +256,7 @@ class CampaignEventTestCase(unittest.TestCase):
             simulate_holding_purchase(
                 customer_id=self.customer_id,
                 product_id=self._top3_of_first_customer()[0],
-                buy_date=date(2026, 4, 20),
+                buy_date=date(2026, 4, 15),
             )
 
         self.assertFalse(

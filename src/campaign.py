@@ -370,6 +370,7 @@ def simulate_holding_purchase(
     buy_date: date,
     amount: float = 50_000.0,
     window_days: int = DEFAULT_WINDOW_DAYS,
+    business_date: date = DEFAULT_BUSINESS_DATE,
 ) -> dict:
     """写入一笔演示新增持仓，并在同一事务中完成响应归因。
 
@@ -383,6 +384,11 @@ def simulate_holding_purchase(
         raise CampaignInputError("product_id 不能为空")
     if isinstance(amount, bool) or not isinstance(amount, (int, float)) or amount <= 0:
         raise CampaignInputError("amount 必须是大于 0 的数字")
+    if buy_date > business_date:
+        raise CampaignInputError(
+            f"购买日期 {buy_date} 晚于当前业务日期 {business_date}，"
+            "未来购买不能进入当前快照"
+        )
     if (
         isinstance(window_days, bool)
         or not isinstance(window_days, int)
@@ -394,8 +400,8 @@ def simulate_holding_purchase(
         customer_id=customer_id,
         product_id=product_id,
         buy_date=buy_date,
-        strategy_date=customer_strategy_date(customer_id),
-        top3={customer_id: customer_top3(customer_id)},
+        strategy_date=customer_strategy_date(customer_id, business_date),
+        top3={customer_id: customer_top3(customer_id, business_date)},
         window_days=window_days,
     )
     if not outcome.matched or outcome.strategy_id is None:
@@ -481,7 +487,8 @@ def simulate_holding_purchase(
         raise CampaignStoreError("simulated holding purchase was not found")
 
     manager_delta = int(
-        customer_strategy_channel(customer_id, int(outcome.rank)) == "manager"
+        customer_strategy_channel(customer_id, int(outcome.rank), business_date)
+        == "manager"
     )
     return {
         "holding": _event_json(holding),
