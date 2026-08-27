@@ -73,23 +73,12 @@ partB_scenarios.csv  partB_corr_matrix.csv
 
 ### A1 营销响应预测
 
-先训练唯一的 full LightGBM 正式模型：
-
-```bash
-uv run python -m src.partA1serving.training.train_and_save \
-  --profile full --model lgbm_onehot
-```
-
-再加载这个模型生成正式预测文件：
+加载这个模型生成正式预测文件：
 
 ```bash
 uv run python -m src.partA1serving.training.predict \
   --model lgbm_onehot --out partA_prediction.csv
 ```
-
-如需在答辩展示时间留出指标，将 `--profile full` 改为 `--profile all`，同时刷新
-demo 模型。A1 使用 46 个特征，demo 时间留出验证结果为 AUC 0.8828、
-F1 0.6185、Lift@10% 4.0047。所有历史特征严格使用早于 `contact_date` 的数据。
 
 ### A2 营销策略生成
 
