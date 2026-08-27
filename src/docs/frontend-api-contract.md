@@ -70,6 +70,8 @@
 ```json
 { "total": 8000, "population_total": 8000, "page": 1, "size": 12,
   "counts": { "all": 8000, "pending": 7968, "follow_up": 8, "converted": 24 },
+  "manager_summary": { "pool_total": 200, "pending": 188, "today_count": 12,
+    "follow_up": 8, "converted": 4, "daily_capacity": 12 },
   "strategy_ready_customers": 8000, "model_covered_customers": 8000,
   "unscored_customers": 0, "coverage_rate": 1.0,
   "tasks": [ { "customer_id": "C000116", "vip_level": "钻石",
@@ -79,13 +81,19 @@
     "product_name": "混合001号", "recommended_channel": "manager",
     "recommended_time": "工作日09:00-12:00", "status": "follow_up",
     "opportunity_score": 0.9401, "opportunity_product_id": "P006",
-    "opportunity_channel": "call", "model_contact_id": "KT..." } ] }
+    "opportunity_channel": "call", "model_contact_id": "KT...",
+    "manager_pool": true, "manager_pool_rank": 3, "manager_today": true } ] }
 ```
 
 - `status`：`pending`（待联系）/ `follow_up`（已联系、等待购买回流）/ `converted`（任一 Top3 已响应）
 - `opportunity_score` 是该客户在 A1 触达集中的最高机会分，不是Top3产品概率；产品级复核调用 `/marketing/response/predict`
 - 主队列固定覆盖 `dwd_dim_customer` 的全量客户，按 A1 最高响应概率降序展示
 - A1/A2 日批对全量客户生成结果；页面只读 ADS，不在请求时临时生成策略
+- `workspace=all` 返回规模化触达池，仅包含 App、电话和短信；经理池客户不会重复出现。
+- `workspace=manager` 进入经理 VIP 通道；`manager_view=today|pool` 分别返回未联系池内
+  前 12 位或全部未联系候选。`status=follow_up|converted` 返回经理池对应状态。
+- 经理池成员来自当日日批 ADS 快照，页面不实时重算成员；“今日任务”只从该快照
+  的未联系客户中取前 12 位。完成 `sent` 后下一位补入，次日日批再生成新快照。
 
 ## 3a. GET /marketing/roster?page=1&size=50&sort=prob_desc
 
@@ -190,13 +198,18 @@
 ```json
 // disabled_constraints 只影响本次试算，不写入 ADS；top_n 为 1~3
 { "customer_id": "C002690", "top_n": 3,
+  "manager_pool_size": 200, "manager_daily_capacity": 12,
   "disabled_constraints": ["channel_app_requires_app"] }
 ```
 
 ```json
 // 响应（节选）
 { "customer_id": "C002690", "strategy_date": "2026-04-15",
-  "parameters": { "manager_quota": 600, "manager_quota_effective": false, "top_n": 3,
+  "parameters": { "manager_pool_size": 200, "manager_pool_effective": true,
+    "manager_daily_capacity": 12, "manager_eligible": true,
+    "manager_pool_member": true, "manager_priority_score": 67,
+    "manager_priority_rank": 18, "assigned_channel": "manager",
+    "channel_reason": "进入当日高价值经理池…", "top_n": 3,
     "disabled_constraints": ["channel_app_requires_app"],
     "constraints": { "aum_affordability": true,
       "channel_app_requires_app": false,
@@ -213,8 +226,9 @@
     "rule_trace": [ { "rule_id": "risk_match", "passed": true, "reason": "..." } ] } ] }
 ```
 
-> `manager_quota` 仅为兼容旧前端保留。manager 对所有客户开放，最终渠道由
-> A1 对该客户×产品×可执行渠道的概率比较决定。
+> `manager_pool_size` 决定当日高价值经理池规模，默认 200；
+> `manager_daily_capacity` 决定工作台今日任务数，默认 12。池外客户按画像静态
+> 分流至 App、电话或短信，渠道变化不反向改变产品 Top3。
 >
 > 可关闭的试算约束为 `channel_app_requires_app`、
 > `channel_call_complaint_block`、`aum_affordability`。正式日批固定全部开启；

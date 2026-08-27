@@ -31,7 +31,7 @@ def business_rows() -> list[dict]:
             "risk_appetite": "R3",
             "vip_level": "金卡",
             "aum": 800_000,
-            "status": "converted",
+            "status": "pending",
             "strategy_id": "C000002:1",
             "product_id": "P003",
             "product_name": "成长产品",
@@ -45,31 +45,53 @@ def business_rows() -> list[dict]:
             "opportunity_channel": "manager",
             "opportunity_date": date(2026, 4, 15),
         },
+        {
+            "customer_id": "C000003",
+            "risk_appetite": "R2",
+            "vip_level": "钻石",
+            "aum": 1_500_000,
+            "status": "converted",
+            "strategy_id": "C000003:1",
+            "product_id": "P002",
+            "product_name": "固收产品",
+            "risk_level": "R2",
+            "expected_return": 0.04,
+            "recommended_channel": "manager",
+            "recommended_time": "工作日12:00-14:00",
+            "response_prob": 0.85,
+            "opportunity_product_id": "P002",
+            "opportunity_product_name": "固收产品",
+            "opportunity_channel": "manager",
+            "opportunity_date": date(2026, 4, 15),
+        },
     ]
 
 
 class MarketingTasksTestCase(unittest.TestCase):
     @patch(
         "src.marketing.tasks._latest_business_rows",
-        return_value=(business_rows(), "2026-04-15", 2, 2),
+        return_value=(business_rows(), "2026-04-15", 3, 3),
     )
     def test_status_filter_and_counts(self, _mock_rows):
         result = query_marketing_tasks(status="follow_up", size=10)
 
-        self.assertEqual(result["counts"]["all"], 2)
+        self.assertEqual(result["counts"]["all"], 1)
         self.assertEqual(result["counts"]["follow_up"], 1)
-        self.assertEqual(result["counts"]["converted"], 1)
+        self.assertEqual(result["counts"]["converted"], 0)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["tasks"][0]["customer_id"], "C000001")
 
     @patch(
         "src.marketing.tasks._latest_business_rows",
-        return_value=(business_rows(), "2026-04-15", 2, 2),
+        return_value=(business_rows(), "2026-04-15", 3, 3),
     )
-    def test_all_customers_use_batch_strategy_source(self, _mock_rows):
+    def test_scaled_workspace_excludes_manager_pool(self, _mock_rows):
         result = query_marketing_tasks(status="all", size=10)
-        self.assertEqual(result["population_total"], 2)
-        self.assertEqual(result["strategy_ready_customers"], 2)
+        self.assertEqual(result["population_total"], 3)
+        self.assertEqual(result["strategy_ready_customers"], 3)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["tasks"][0]["customer_id"], "C000001")
+        self.assertFalse(result["tasks"][0]["manager_pool"])
         self.assertTrue(all(task["strategy_ready"] for task in result["tasks"]))
         self.assertTrue(
             all(task["strategy_source"] == "batch_generated" for task in result["tasks"])
@@ -77,11 +99,32 @@ class MarketingTasksTestCase(unittest.TestCase):
 
     @patch(
         "src.marketing.tasks._latest_business_rows",
-        return_value=(business_rows(), "2026-04-15", 2, 2),
+        return_value=(business_rows(), "2026-04-15", 3, 3),
     )
     def test_keyword_is_literal_not_regular_expression(self, _mock_rows):
         result = query_marketing_tasks(keyword="[", size=10)
         self.assertEqual(result["total"], 0)
+
+    @patch(
+        "src.marketing.tasks._latest_business_rows",
+        return_value=(business_rows(), "2026-04-15", 3, 3),
+    )
+    def test_manager_workspace_derives_today_tasks_without_persisted_assignment(
+        self, _mock_rows
+    ):
+        result = query_marketing_tasks(
+            workspace="manager",
+            status="pending",
+            manager_view="today",
+            manager_daily_capacity=1,
+            size=10,
+        )
+
+        self.assertEqual(result["manager_summary"]["pool_total"], 2)
+        self.assertEqual(result["manager_summary"]["today_count"], 1)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["tasks"][0]["customer_id"], "C000002")
+        self.assertTrue(result["tasks"][0]["manager_today"])
 
 
 if __name__ == "__main__":

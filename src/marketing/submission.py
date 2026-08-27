@@ -19,7 +19,7 @@ from ..partA1serving.data_source import A1DataSource, CsvDataSource
 from ..partA1serving.predictor import ResponsePredictor
 from .batch import MarketingBatchResult, compute_marketing_batch
 from .io import load_strategy_customers
-from .models import DEFAULT_MANAGER_QUOTA, STRATEGY_COLUMNS
+from .models import DEFAULT_MANAGER_POOL_SIZE, STRATEGY_COLUMNS
 from .validate import validate_strategy_file
 from .warehouse import load_marketing_context
 
@@ -32,7 +32,7 @@ def generate_batches(
     *,
     predictor: ResponsePredictor,
     data_source: A1DataSource,
-    manager_quota: int = DEFAULT_MANAGER_QUOTA,
+    manager_pool_size: int = DEFAULT_MANAGER_POOL_SIZE,
 ) -> list[MarketingBatchResult]:
     """按策略日分组生成批次；每位客户都会覆盖完整产品池。"""
     if not strategy_dates:
@@ -57,7 +57,7 @@ def generate_batches(
                     f"submission_{strategy_date:%Y%m%d}_"
                     f"{predictor.profile}_{predictor.model_name}"
                 ),
-                manager_quota=manager_quota,
+                manager_pool_size=manager_pool_size,
             )
         )
     return batches
@@ -146,10 +146,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="lgbm_onehot",
     )
     parser.add_argument(
-        "--manager-quota",
+        "--manager-pool-size",
         type=int,
-        default=DEFAULT_MANAGER_QUOTA,
-        help="兼容参数；manager 已不限资格和配额，该值不再生效",
+        default=DEFAULT_MANAGER_POOL_SIZE,
+        help="每日动态高价值经理池人数（默认 200）",
     )
     args = parser.parse_args(argv)
     return args
@@ -173,7 +173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         strategy_dates,
         predictor=predictor,
         data_source=data_source,
-        manager_quota=args.manager_quota,
+        manager_pool_size=args.manager_pool_size,
     )
     write_outputs(args.output, args.audit_output, batches)
 

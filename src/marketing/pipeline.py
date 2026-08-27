@@ -7,9 +7,9 @@
 规则装配阶段一（全局批次）：
     产品排序 = A1 响应概率；
     合规顺位过滤（风险偏好内优先，不足 3 个时自动溢出 1 级）；
-    manager 渠道对全部客户开放，不设资格和全局配额。
+    日批基于截至时点画像生成经理池快照，池外客户由静态画像规则分流渠道。
 阶段二（逐客户）：
-    渠道（rank 顺位取不同渠道）→ 时段（职业×渠道偏好序）→ 话术 → 规则回验。
+    单客户统一执行渠道 → 时段（职业×渠道偏好序）→ 话术 → 规则回验。
 
 全部确定性执行（排序 tie-break 用 product_id / customer_id），无需随机数。
 """
@@ -20,7 +20,9 @@ from datetime import date
 from typing import Mapping, Sequence
 
 from .engine import RuleEngine
+from .channel_policy import build_channel_decisions, resolve_manager_pool_size
 from .models import (
+    ChannelDecision,
     DEFAULT_MANAGER_QUOTA,
     RISK_RANK,
     TIME_SLOTS,
@@ -225,6 +227,8 @@ def _plan_customer(
     products: Sequence[Product],
     engine: RuleEngine,
     model_scores: Mapping[tuple[str, str], float],
+    channel_decision: ChannelDecision,
+    manager_pool_size: int,
 ) -> StrategyResult:
     customer = request.customer
     behavior = request.effective_behavior()
@@ -283,7 +287,6 @@ def _plan_customer(
     )
 
     # ---- Step 5/6/7 渠道 → 时段 → 话术 ----
-    ladder = _channel_ladder(customer, behavior)
     items: list[StrategyItem] = []
     channel_details: list[str] = []
     slot_details: list[str] = []
@@ -291,13 +294,8 @@ def _plan_customer(
         selected, start=1
     ):
         rank = position
-        channel = ladder[(position - 1) % len(ladder)]
-        reason = {
-            "manager": "无资格与配额限制",
-            "app_push": "已安装 App",
-            "call": "无投诉记录",
-            "sms": "短信兜底",
-        }.get(channel, channel)
+        channel = channel_decision.assigned_channel
+        reason = channel_decision.reason
         channel_details.append(f"rank{rank}: {channel}（{reason}）")
 
         slots = _slot_order(customer, channel)
@@ -320,6 +318,10 @@ def _plan_customer(
             "recommended_time": slot,
             "marketing_script": script,
             "overshoot": is_overshoot,
+            "manager_eligible": channel_decision.manager_eligible,
+            "manager_pool_member": channel_decision.manager_pool_member,
+            "manager_priority_rank": channel_decision.manager_priority_rank,
+            "manager_pool_size": manager_pool_size,
         }
         trace = engine.evaluate_all(
             context, categories=("channel", "timing", "script")
@@ -381,7 +383,8 @@ def generate_strategies(
     products: Sequence[Product],
     *,
     model_scores: Mapping[tuple[str, str], float] | None = None,
-    manager_quota: int = DEFAULT_MANAGER_QUOTA,
+    manager_quota: int | None = DEFAULT_MANAGER_QUOTA,
+    manager_pool_size: int | None = None,
     engine: RuleEngine | None = None,
 ) -> list[StrategyResult]:
     """按 A1 概率排序并应用规则，生成客户 Top N 策略。"""
@@ -390,10 +393,21 @@ def generate_strategies(
     product_ids = [p.product_id for p in products]
     if len(product_ids) != len(set(product_ids)):
         raise ValueError("duplicate product_id in product pool")
-    del manager_quota  # 兼容旧接口；manager 已不限资格和配额。
-
     engine = engine or build_default_engine()
     model_scores = model_scores or {}
+    effective_pool_size = resolve_manager_pool_size(
+        manager_pool_size, manager_quota
+    )
+    customers = {request.customer.customer_id: request.customer for request in requests}
+    behaviors = {
+        request.customer.customer_id: request.effective_behavior()
+        for request in requests
+    }
+    channel_decisions = build_channel_decisions(
+        customers,
+        behaviors,
+        manager_pool_size=effective_pool_size,
+    )
 
     results: list[StrategyResult] = []
     for request in requests:
@@ -403,6 +417,8 @@ def generate_strategies(
                 products,
                 engine,
                 model_scores,
+                channel_decisions[request.customer.customer_id],
+                effective_pool_size,
             )
         )
     return results

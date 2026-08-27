@@ -85,10 +85,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="partA1serving模型类型（默认lgbm_onehot）",
     )
     parser.add_argument(
-        "--manager-quota",
+        "--manager-pool-size",
         type=int,
         default=None,
-        help="兼容参数；manager 已不限资格和配额，该值不再生效",
+        help="A2 每日动态高价值经理池人数（默认 200）",
     )
     parser.add_argument(
         "--with-demo",
@@ -119,8 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # 阶段 4-6：A2 / Part B / 红线校验
     a2_args: list[str] = []
-    if args.manager_quota is not None:
-        a2_args += ["--manager-quota", str(args.manager_quota)]
+    if args.manager_pool_size is not None:
+        a2_args += ["--manager-pool-size", str(args.manager_pool_size)]
     for name, module, stage_args in STAGES[2:]:
         if name.startswith("A2"):
             run_stage(name, "src.marketing", ["--model", args.a1_model, *a2_args])

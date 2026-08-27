@@ -234,19 +234,36 @@ def _check_channel_call_complaint_block(ctx: RuleContext) -> RuleOutcome:
 
 def _check_channel_manager_quota(ctx: RuleContext) -> RuleOutcome:
     if ctx.get("channel") == "manager":
+        if not ctx.get("manager_pool_member", False):
+            return RuleOutcome(
+                "channel_manager_quota",
+                False,
+                "客户未进入当日经理池快照，不能使用 manager 渠道",
+            )
+        rank = ctx.get("manager_priority_rank")
+        size = ctx.get("manager_pool_size")
         return RuleOutcome(
-            "channel_manager_quota", True, "manager 渠道不设全局配额"
+            "channel_manager_quota",
+            True,
+            f"客户位于当日经理池快照第 {rank}/{size} 位",
         )
-    return RuleOutcome("channel_manager_quota", True, "非 manager 渠道")
+    return RuleOutcome(
+        "channel_manager_quota", True, "非 manager 渠道，不占用经理池容量"
+    )
 
 
 def _check_channel_manager_eligible(ctx: RuleContext) -> RuleOutcome:
-    """兼容旧规则 ID：manager 对所有客户开放，不做资格判断。"""
     if ctx.get("channel") == "manager":
+        if not ctx.get("manager_eligible", False):
+            return RuleOutcome(
+                "channel_manager_eligible",
+                False,
+                "客户未满足金卡/钻石或 AUM≥50万元的经理池资格",
+            )
         return RuleOutcome(
             "channel_manager_eligible",
             True,
-            "manager 渠道不设 VIP 或 AUM 资格限制",
+            "客户满足金卡/钻石或 AUM≥50万元的经理池资格",
         )
     return RuleOutcome(
         "channel_manager_eligible",
@@ -371,16 +388,16 @@ RULES = [
     ),
     _rule(
         "channel_manager_quota",
-        "manager 渠道不限额",
+        "当日经理池快照",
         "channel",
-        "manager 渠道不设全局配额（保留规则 ID 便于兼容历史轨迹）",
+        "仅当日高价值客户池成员可使用 manager 渠道",
         _check_channel_manager_quota,
     ),
     _rule(
         "channel_manager_eligible",
-        "manager 渠道无资格限制",
+        "经理池资格",
         "channel",
-        "manager 对所有客户开放，不设 VIP 或 AUM 资格限制",
+        "金卡/钻石或 AUM≥50万元可参与当日经理池排序",
         _check_channel_manager_eligible,
         hard=False,
     ),

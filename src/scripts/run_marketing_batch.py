@@ -12,7 +12,7 @@ from datetime import date
 
 from src.database import database_connection
 from src.marketing.batch import compute_marketing_batch, persist_marketing_batch
-from src.marketing.models import DEFAULT_MANAGER_QUOTA
+from src.marketing.models import DEFAULT_MANAGER_POOL_SIZE
 from src.marketing.warehouse import load_marketing_context
 from src.partA1serving.runtime import get_mysql_predictor
 from src.scripts.init_db import database_name, initialize_schema, load_environment
@@ -25,10 +25,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--batch-id")
     parser.add_argument(
-        "--manager-quota",
+        "--manager-pool-size",
         type=int,
-        default=DEFAULT_MANAGER_QUOTA,
-        help="兼容参数；manager 已不限资格和配额，该值不再生效",
+        default=DEFAULT_MANAGER_POOL_SIZE,
+        help="每日动态高价值经理池人数（默认 200）",
     )
     args = parser.parse_args()
     try:
@@ -82,7 +82,7 @@ def main() -> int:
         context,
         predictor,
         batch_id=batch_id,
-        manager_quota=args.manager_quota,
+        manager_pool_size=args.manager_pool_size,
     )
     persist_marketing_batch(result)
     print(

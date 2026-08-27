@@ -213,17 +213,23 @@ class MarketingRulesTestCase(unittest.TestCase):
         self.assertIn("试算已关闭", preview.reason)
 
     def test_manager_quota_rule(self):
-        unrestricted = self.engine.evaluate(
+        blocked = self.engine.evaluate(
             "channel_manager_quota",
-            self.base_context(channel="manager", manager_allowed=False),
+            self.base_context(channel="manager", manager_pool_member=False),
         )
-        self.assertTrue(unrestricted.passed)
-        self.assertIn("不设全局配额", unrestricted.reason)
+        self.assertFalse(blocked.passed)
+        self.assertIn("未进入当日经理池快照", blocked.reason)
         ok = self.engine.evaluate(
             "channel_manager_quota",
-            self.base_context(channel="manager", manager_allowed=True),
+            self.base_context(
+                channel="manager",
+                manager_pool_member=True,
+                manager_priority_rank=8,
+                manager_pool_size=200,
+            ),
         )
         self.assertTrue(ok.passed)
+        self.assertIn("8/200", ok.reason)
 
     def test_slot_enum(self):
         fail = self.engine.evaluate(

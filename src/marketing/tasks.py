@@ -10,6 +10,8 @@ from ..business_date import DEFAULT_BUSINESS_DATE
 from ..database import database_connection
 
 STATUS_VALUES = ("all", "pending", "follow_up", "converted")
+WORKSPACE_VALUES = ("all", "manager")
+MANAGER_VIEW_VALUES = ("today", "pool")
 
 
 class MarketingTaskStoreError(RuntimeError):
@@ -145,6 +147,9 @@ def query_marketing_tasks(
     status: str = "all",
     keyword: str | None = None,
     cohort: str = "all",
+    workspace: str = "all",
+    manager_view: str = "today",
+    manager_daily_capacity: int = 12,
     business_date: date = DEFAULT_BUSINESS_DATE,
 ) -> dict:
     if page < 1 or size < 1 or size > 100:
@@ -153,6 +158,12 @@ def query_marketing_tasks(
         raise ValueError(f"status must be one of {STATUS_VALUES}")
     if cohort not in ("all", "expiry"):
         raise ValueError("cohort must be 'all' or 'expiry'")
+    if workspace not in WORKSPACE_VALUES:
+        raise ValueError(f"workspace must be one of {WORKSPACE_VALUES}")
+    if manager_view not in MANAGER_VIEW_VALUES:
+        raise ValueError(f"manager_view must be one of {MANAGER_VIEW_VALUES}")
+    if manager_daily_capacity < 1 or manager_daily_capacity > 100:
+        raise ValueError("manager_daily_capacity must be between 1 and 100")
 
     rows, latest_date, strategy_ready_customers, model_covered_customers = (
         _latest_business_rows(business_date)
@@ -161,14 +172,68 @@ def query_marketing_tasks(
     if cohort == "expiry":
         expiring = _expiring_customers(business_date)
         rows = [row for row in rows if str(row["customer_id"]) in expiring]
-    counts = {
-        value: sum(row["status"] == value for row in rows)
-        for value in STATUS_VALUES
-        if value != "all"
+    rows.sort(
+        key=lambda row: (
+            -(float(row["response_prob"]) if row["response_prob"] is not None else -1),
+            str(row["customer_id"]),
+        )
+    )
+    manager_rows = [
+        row for row in rows if row.get("recommended_channel") == "manager"
+    ]
+    manager_pending_rows = [
+        row for row in manager_rows if row["status"] == "pending"
+    ]
+    manager_pool_rank = {
+        str(row["customer_id"]): rank
+        for rank, row in enumerate(manager_pending_rows, start=1)
     }
-    counts["all"] = len(rows)
-    if status != "all":
-        rows = [row for row in rows if row["status"] == status]
+    manager_today_ids = {
+        str(row["customer_id"])
+        for row in manager_pending_rows[:manager_daily_capacity]
+    }
+    manager_summary = {
+        "pool_total": len(manager_rows),
+        "pending": len(manager_pending_rows),
+        "today_count": min(len(manager_pending_rows), manager_daily_capacity),
+        "follow_up": sum(row["status"] == "follow_up" for row in manager_rows),
+        "converted": sum(row["status"] == "converted" for row in manager_rows),
+        "daily_capacity": manager_daily_capacity,
+    }
+
+    if workspace == "manager":
+        workspace_rows = manager_rows
+        counts = {
+            value: sum(row["status"] == value for row in workspace_rows)
+            for value in STATUS_VALUES
+            if value != "all"
+        }
+        counts["all"] = len(workspace_rows)
+        if status == "pending":
+            rows = (
+                manager_pending_rows[:manager_daily_capacity]
+                if manager_view == "today"
+                else manager_pending_rows
+            )
+        elif status == "all":
+            rows = manager_rows
+        else:
+            rows = [row for row in manager_rows if row["status"] == status]
+    else:
+        workspace_rows = [
+            row for row in rows if row.get("recommended_channel") != "manager"
+        ]
+        counts = {
+            value: sum(row["status"] == value for row in workspace_rows)
+            for value in STATUS_VALUES
+            if value != "all"
+        }
+        counts["all"] = len(workspace_rows)
+        rows = (
+            workspace_rows
+            if status == "all"
+            else [row for row in workspace_rows if row["status"] == status]
+        )
     if keyword and keyword.strip():
         term = keyword.strip().lower()
         rows = [
@@ -180,12 +245,6 @@ def query_marketing_tasks(
             or term in str(row.get("opportunity_product_id") or "").lower()
             or term in str(row.get("opportunity_product_name") or "").lower()
         ]
-    rows.sort(
-        key=lambda row: (
-            -(float(row["response_prob"]) if row["response_prob"] is not None else -1),
-            str(row["customer_id"]),
-        )
-    )
     total = len(rows)
     page_rows = rows[(page - 1) * size : page * size]
 
@@ -229,6 +288,11 @@ def query_marketing_tasks(
                     if row.get("opportunity_date") is not None
                     else None
                 ),
+                "manager_pool": row.get("recommended_channel") == "manager",
+                "manager_pool_rank": manager_pool_rank.get(
+                    str(row["customer_id"])
+                ),
+                "manager_today": str(row["customer_id"]) in manager_today_ids,
             }
         )
 
@@ -238,9 +302,12 @@ def query_marketing_tasks(
         "page": page,
         "size": size,
         "cohort": cohort,
+        "workspace": workspace,
+        "manager_view": manager_view,
         "business_date": business_date.isoformat(),
         "latest_strategy_date": latest_date,
         "counts": counts,
+        "manager_summary": manager_summary,
         "strategy_ready_customers": strategy_ready_customers,
         "model_covered_customers": model_covered_customers,
         "unscored_customers": population_total - model_covered_customers,
