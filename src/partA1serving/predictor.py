@@ -31,6 +31,7 @@ from . import model_store
 from .data_source import A1DataSource
 from .feature_service import (
     FeatureAssemblyError,
+    FeatureBundle,
     FeatureService,
     PredictRequest,
 )
@@ -47,6 +48,67 @@ DECISION_LABELS = {
     "MEDIUM": "可纳入触达名单",
     "LOW": "暂不建议触达",
 }
+
+
+FEATURE_LABELS = {
+    "channel": "触达渠道",
+    "product_id": "当前产品",
+    "product_type": "产品类型",
+    "risk_level": "产品风险等级",
+    "liquidity": "产品流动性",
+    "age_group": "客户年龄段",
+    "city": "客户所在城市",
+    "occupation": "客户职业",
+    "income_level": "客户收入等级",
+    "risk_appetite": "客户风险偏好",
+    "vip_level": "客户等级",
+    "channel_x_vip": "渠道与客户等级匹配",
+    "channel_x_has_app": "渠道与 App 状态匹配",
+    "aum": "客户资产规模",
+    "has_app": "App 使用状态",
+    "expected_return": "产品预期收益",
+    "volatility": "产品波动率",
+    "min_invest": "产品起投金额",
+    "duration_days": "产品期限",
+    "income_ord": "收入等级",
+    "vip_ord": "客户等级",
+    "cust_risk_num": "客户风险承受力",
+    "prod_risk_num": "产品风险等级",
+    "product_age_days": "产品存续时间",
+    "risk_gap": "客户与产品风险差",
+    "abs_risk_gap": "风险等级匹配度",
+    "is_risk_over": "产品风险是否越级",
+    "aum_ge_min_invest": "可投资资产是否达到门槛",
+    "log_aum_over_min_invest": "资产与起投金额匹配度",
+    "sharpe": "产品风险收益比",
+    "cust_hist_cnt": "客户历史触达次数",
+    "cust_hist_resp": "客户历史响应次数",
+    "cust_hist_rate": "客户历史响应率",
+    "cust_ch_cnt": "该渠道历史触达次数",
+    "cust_ch_rate": "该渠道历史响应率",
+    "cust_ptype_cnt": "同类产品历史触达次数",
+    "cust_ptype_rate": "同类产品历史响应率",
+    "prod_hist_cnt": "产品历史触达次数",
+    "prod_hist_rate": "产品历史响应率",
+    "owns_this_product": "是否已持有当前产品",
+    "hold_cnt": "当前持仓产品数",
+    "hold_amount_log": "当前持仓规模",
+    "owns_same_type": "是否持有同类产品",
+    "consult_30d": "近 30 天咨询次数",
+    "complaint_30d": "近 30 天投诉次数",
+    "days_since_last_contact": "距上次触达天数",
+}
+
+
+@dataclass
+class ExplanationFactor:
+    """单次客户 × 产品 × 渠道预测的局部贡献因子。"""
+
+    feature: str
+    label: str
+    direction: str
+    contribution: float
+    reason: str
 
 
 @dataclass
@@ -66,6 +128,9 @@ class PredictResult:
     model_name: str  # lr / lgbm / lgbm_onehot
     as_of: str
     history_available: bool
+    explanation_scope: str
+    explanation_method: str
+    local_factors: list[ExplanationFactor] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -106,11 +171,8 @@ class ResponsePredictor:
 
     # ------------------------------------------------------------ 单条
 
-    def predict(self, req: PredictRequest) -> PredictResult:
+    def predict(self, req: PredictRequest, *, explain: bool = True) -> PredictResult:
         bundle = self.features.assemble(req)
-        beyond_cutoff = self.meta.history_cutoff is not None and bundle.as_of >= pd.Timestamp(
-            self.meta.history_cutoff
-        )
         frame = bundle.frame
 
         missing = [c for c in self.meta.feature_columns if c not in frame.columns]
@@ -121,6 +183,14 @@ class ResponsePredictor:
         # 严格按训练期的列顺序取值，顺序错会导致结果完全错误
         x = frame.loc[:, self.meta.feature_columns]
         prob = float(np.clip(self.pipeline.predict_proba(x)[:, 1][0], 0.0, 1.0))
+
+        return self._result(req, bundle, prob, explain=explain)
+
+    def _result(self, req, bundle, prob: float, *, explain: bool) -> PredictResult:
+        """把已装配特征和概率转为统一服务契约。"""
+        beyond_cutoff = self.meta.history_cutoff is not None and bundle.as_of >= pd.Timestamp(
+            self.meta.history_cutoff
+        )
 
         decision = (
             "HIGH" if prob >= THRESHOLD_HIGH else "MEDIUM" if prob >= THRESHOLD_MEDIUM else "LOW"
@@ -139,6 +209,12 @@ class ResponsePredictor:
         if bundle.mode == "new_customer":
             warnings.append("新客模式：画像由调用方提供，历史/持仓类特征均为冷启动值")
 
+        local_factors, explanation_method = (
+            self._explain_factors(bundle.frame, top_n=5)
+            if explain
+            else ([], "not_requested")
+        )
+
         return PredictResult(
             probability=round(prob, 6),
             decision=decision,
@@ -152,7 +228,10 @@ class ResponsePredictor:
             model_name=self.meta.model_name,
             as_of=f"{bundle.as_of:%Y-%m-%d}",
             history_available=bundle.history_available,
-            reasons=self._explain(frame, top_n=5),
+            explanation_scope="customer_product_channel",
+            explanation_method=explanation_method,
+            local_factors=local_factors,
+            reasons=[factor.reason for factor in local_factors],
             warnings=warnings,
         )
 
@@ -169,13 +248,51 @@ class ResponsePredictor:
 
     # ------------------------------------------------------------ 批量
 
-    def predict_batch(self, requests: list[PredictRequest]) -> list[PredictResult]:
-        """逐条装配后合并推理。
-
-        注：此处按条装配是为了保证与单条完全一致的语义（含冷启动判定）；
-        大批量离线打分请使用 `training/predict.py`，它走全量向量化路径。
-        """
-        return [self.predict(r) for r in requests]
+    def predict_batch(
+        self,
+        requests: list[PredictRequest],
+        *,
+        explain: bool = False,
+    ) -> list[PredictResult]:
+        """逐条装配特征，但一次向量化模型推理，与单条口径一致。"""
+        if not requests:
+            return []
+        feature_batch = self.features.assemble_batch(requests)
+        merged = feature_batch.frame
+        missing = [column for column in self.meta.feature_columns if column not in merged.columns]
+        if missing:
+            raise RuntimeError(
+                f"特征装配缺少列：{missing}。通常意味着模型产物与当前特征代码不同步，请重新训练。"
+            )
+        probabilities = np.clip(
+            self.pipeline.predict_proba(merged.loc[:, self.meta.feature_columns])[:, 1],
+            0.0,
+            1.0,
+        )
+        empty_frame = merged.iloc[0:0]
+        results: list[PredictResult] = []
+        for index, (request, probability) in enumerate(
+            zip(requests, probabilities, strict=True)
+        ):
+            bundle = FeatureBundle(
+                frame=(
+                    merged.iloc[[index]].reset_index(drop=True)
+                    if explain
+                    else empty_frame
+                ),
+                mode=feature_batch.modes[index],
+                as_of=feature_batch.as_of_values[index],
+                history_available=feature_batch.history_available[index],
+            )
+            results.append(
+                self._result(
+                    request,
+                    bundle,
+                    float(probability),
+                    explain=explain,
+                )
+            )
+        return results
 
     def rank_products(
         self,
@@ -220,61 +337,92 @@ class ResponsePredictor:
 
     # ------------------------------------------------------------ 可解释
 
-    def _explain(self, frame: pd.DataFrame, top_n: int = 5) -> list[str]:
-        """按 LR 系数 × 标准化后特征值，给出贡献最大的若干项。
+    @staticmethod
+    def _feature_label(name: str) -> str:
+        """把编码后的模型列名翻译成客户经理可读的业务概念。"""
+        for feature in sorted(FEATURE_LABELS, key=len, reverse=True):
+            if name == feature or name.startswith(f"{feature}_"):
+                suffix = name[len(feature) :].lstrip("_")
+                return (
+                    f"{FEATURE_LABELS[feature]} · {suffix}"
+                    if suffix
+                    else FEATURE_LABELS[feature]
+                )
+        return name
 
-        线性模型的贡献可精确分解为各项之和，这是选用 LR 的一个工程优势。
+    @classmethod
+    def _factor(cls, name: str, contribution: float) -> ExplanationFactor:
+        direction = "positive" if contribution > 0 else "negative"
+        label = cls._feature_label(name)
+        verb = "提升" if contribution > 0 else "降低"
+        reason = f"{label}：{verb}本次响应倾向（局部贡献 {contribution:+.3f}）"
+        return ExplanationFactor(
+            feature=name,
+            label=label,
+            direction=direction,
+            contribution=round(float(contribution), 6),
+            reason=reason,
+        )
+
+    def _explain_factors(
+        self, frame: pd.DataFrame, top_n: int = 5
+    ) -> tuple[list[ExplanationFactor], str]:
+        """返回当前请求的局部贡献，而不是模型的全局重要性。
+
+        LR 使用 ``系数 × 标准化特征值``；LightGBM 使用内置 TreeSHAP
+        ``pred_contrib``。两者都只解释当前客户、产品和渠道这一次预测。
         """
         try:
             clf = self.pipeline.named_steps["clf"]
-            if not hasattr(clf, "coef_"):
-                # 树模型没有线性系数，改用全局特征重要性做近似解释。
-                # 注意这是"模型整体关注什么"，而非"这一条为何得此分"，
-                # 单条级别的精确归因需要 SHAP，此处不引入额外依赖。
-                return self._explain_importance(top_n)
-            pre = self.pipeline.named_steps["pre"]
             x = frame.loc[:, self.meta.feature_columns]
-            z = np.asarray(pre.transform(x))[0]
-            coefs = np.asarray(clf.coef_[0])
-            names = list(pre.get_feature_names_out())
-            contrib = coefs * z
+            if hasattr(clf, "coef_"):
+                pre = self.pipeline.named_steps["pre"]
+                z = np.asarray(pre.transform(x))[0]
+                names = list(pre.get_feature_names_out())
+                contrib = np.asarray(clf.coef_[0]) * z
+                method = "linear_contribution"
+            else:
+                booster = getattr(clf, "booster_", None)
+                if booster is None:
+                    return [], "unavailable"
+                transformed: Any = x
+                for _, step in self.pipeline.steps[:-1]:
+                    transformed = step.transform(transformed)
+                if "pre" in self.pipeline.named_steps:
+                    names = list(
+                        self.pipeline.named_steps["pre"].get_feature_names_out()
+                    )
+                elif isinstance(transformed, pd.DataFrame):
+                    names = list(transformed.columns)
+                else:
+                    names = list(booster.feature_name())
+                # 最后一列是 expected value，不属于任何业务特征。
+                contrib = np.asarray(
+                    booster.predict(transformed, pred_contrib=True)
+                )[0][:-1]
+                method = "tree_shap"
+
+            if len(names) != len(contrib):
+                return [], "unavailable"
             order = np.argsort(-np.abs(contrib))[:top_n]
-            out = []
-            for i in order:
-                if abs(contrib[i]) < 1e-9:
-                    continue
-                sign = "提升" if contrib[i] > 0 else "降低"
-                out.append(f"{names[i]}：{sign}响应概率（贡献 {contrib[i]:+.3f}）")
-            return out
+            return (
+                [
+                    self._factor(names[i], float(contrib[i]))
+                    for i in order
+                    if abs(contrib[i]) >= 1e-9
+                ],
+                method,
+            )
         except Exception as exc:  # pragma: no cover - 解释失败不应影响主流程
-            return [f"（可解释信息生成失败：{exc}）"]
-
-    def _explain_importance(self, top_n: int = 5) -> list[str]:
-        """树模型的解释：按分裂增益给出模型整体最关注的特征。"""
-        clf = self.pipeline.named_steps["clf"]
-        booster = getattr(clf, "booster_", None)
-        if booster is None:
-            return ["（当前模型不支持导出特征重要性）"]
-        names = list(booster.feature_name())
-        # LightGBM 拿到的是编码后的矩阵，列名可能退化为 Column_0/1/2...
-        # 这里用预处理器的输出名回填，否则解释信息对业务毫无意义。
-        pre = self.pipeline.named_steps.get("pre")
-        if pre is not None and all(n.startswith("Column_") for n in names[:3]):
-            try:
-                real = list(pre.get_feature_names_out())
-                if len(real) == len(names):
-                    names = real
-            except (AttributeError, ValueError):
-                pass
-        gains = np.asarray(booster.feature_importance(importance_type="gain"), dtype=float)
-        total = float(gains.sum()) or 1.0
-        order = np.argsort(-gains)[:top_n]
-        return [
-            f"{names[i]}：模型整体增益占比 {gains[i] / total * 100:.2f}%（全局重要性）"
-            for i in order
-            if gains[i] > 0
-        ]
-
+            return [
+                ExplanationFactor(
+                    feature="explanation_error",
+                    label="局部解释暂不可用",
+                    direction="neutral",
+                    contribution=0.0,
+                    reason=f"局部解释生成失败：{exc}",
+                )
+            ], "unavailable"
 
 __all__ = [
     "FeatureAssemblyError",

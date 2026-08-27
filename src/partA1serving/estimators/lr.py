@@ -1,6 +1,6 @@
 """LogisticRegression 基线模型。
 
-本模块从 `train_a1_baseline.build_pipeline()` 原样迁移而来，**行为完全一致**：
+本模块提供与 LightGBM 共用训练接口的逻辑回归基线：
 同样的编码方式、同样的超参、同样的随机种子。迁移的唯一目的是让模型定义
 可被注册表统一管理，从而支持 `--model` 切换。
 

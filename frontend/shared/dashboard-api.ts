@@ -12,6 +12,7 @@ interface ApiEnvelope<T> {
 
 export interface DashboardOverview {
   generated_at: string;
+  business_date: string;
   business_metrics: {
     customer_count: number;
     total_aum: number;
@@ -86,7 +87,7 @@ export interface DashboardOverview {
     touch: {
       total_customers: number;
       sent_customers: number;
-      official_target_customers: number;
+      strategy_ready_customers: number;
       sent_strategies: number;
       total_strategies: number;
       high_intent_untouched: number;
@@ -195,7 +196,14 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   return envelope.data;
 }
 
-export function getDashboardOverview(scenarioId: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ scenario_id: scenarioId });
+export function getDashboardOverview(
+  scenarioId: string,
+  businessDate: string,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    scenario_id: scenarioId,
+    business_date: businessDate,
+  });
   return request<DashboardOverview>(`/api/v1/dashboard/overview?${query}`, signal);
 }

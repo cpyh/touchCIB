@@ -6,8 +6,9 @@ USE `cib`;
 
 WITH checks AS (
     SELECT 10 AS sort_order, 'row_count' AS category,
-           'ods_customer has 8000 rows' AS check_name,
-           8000 AS expected_value, COUNT(*) AS actual_value
+           'ods_customer contains at least 8000 bundled customers' AS check_name,
+           0 AS expected_value,
+           CASE WHEN COUNT(*) >= 8000 THEN 0 ELSE 1 END AS actual_value
     FROM ods_customer
 
     UNION ALL
@@ -65,18 +66,23 @@ WITH checks AS (
          + (SELECT COUNT(*) FROM ods_event WHERE TRIM(etl_batch_id) = '')
 
     UNION ALL
-    SELECT 80, 'batch', 'all tables use one ETL batch', 1,
-           COUNT(DISTINCT etl_batch_id)
+    SELECT 80, 'batch', 'bundled ETL batch exists in all ODS tables', 5,
+           COUNT(DISTINCT source_table)
     FROM (
-        SELECT etl_batch_id FROM ods_customer
+        SELECT 'ods_customer' AS source_table FROM ods_customer
+        WHERE etl_batch_id = 'student_pkg_20260331'
         UNION ALL
-        SELECT etl_batch_id FROM ods_product
+        SELECT 'ods_product' FROM ods_product
+        WHERE etl_batch_id = 'student_pkg_20260331'
         UNION ALL
-        SELECT etl_batch_id FROM ods_holding
+        SELECT 'ods_holding' FROM ods_holding
+        WHERE etl_batch_id = 'student_pkg_20260331'
         UNION ALL
-        SELECT etl_batch_id FROM ods_campaign
+        SELECT 'ods_campaign' FROM ods_campaign
+        WHERE etl_batch_id = 'student_pkg_20260331'
         UNION ALL
-        SELECT etl_batch_id FROM ods_event
+        SELECT 'ods_event' FROM ods_event
+        WHERE etl_batch_id = 'student_pkg_20260331'
     ) AS all_batches
 
     UNION ALL
@@ -264,8 +270,9 @@ WITH checks AS (
             WHERE p.product_id IS NULL)
 
     UNION ALL
-    SELECT 400, 'snapshot', 'DWS has one row per DWD customer',
-           (SELECT COUNT(*) FROM dwd_dim_customer), COUNT(*)
+    SELECT 400, 'snapshot', 'DWS covers every as-of eligible DWD customer',
+           (SELECT COUNT(*) FROM dwd_dim_customer
+            WHERE register_date <= '2026-03-31'), COUNT(*)
     FROM dws_customer_360
 
     UNION ALL

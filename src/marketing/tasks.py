@@ -1,19 +1,14 @@
-"""客户经理营销机会队列：全量8000客户，A2名单仅作为赛事目标标识。"""
+"""客户经理营销机会队列：只读MySQL DWD/ADS与执行事件。"""
 
 from __future__ import annotations
 
-from functools import lru_cache
-from pathlib import Path
+from datetime import date, timedelta
 
-import pandas as pd
 import pymysql
 
+from ..business_date import DEFAULT_BUSINESS_DATE
 from ..database import database_connection
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-STRATEGY_CSV = PROJECT_DIR / "partA_strategy.csv"
-PREDICTION_CSV = PROJECT_DIR / "partA_prediction.csv"
-RAW_DIR = PROJECT_DIR / "src" / "data" / "raw"
 STATUS_VALUES = ("all", "pending", "follow_up", "converted")
 
 
@@ -21,141 +16,110 @@ class MarketingTaskStoreError(RuntimeError):
     """营销任务数据不可用。"""
 
 
-@lru_cache(maxsize=1)
-def _task_frame() -> pd.DataFrame:
-    """构造8000位客户的静态机会底表。"""
-    strategies = pd.read_csv(
-        STRATEGY_CSV,
-        dtype={"customer_id": str, "product_id": str, "rank": int},
+def _event_statuses(cursor, business_date: date) -> dict[str, str]:
+    cursor.execute(
+        "SELECT SUBSTRING_INDEX(strategy_id, ':', 1) AS customer_id, "
+        "MAX(event_type = 'sent') AS has_sent, "
+        "MAX(event_type = 'responded') AS has_responded "
+        "FROM app_campaign_event WHERE occurred_at < %s GROUP BY customer_id",
+        (business_date + timedelta(days=1),),
     )
-    rank1 = strategies[strategies["rank"] == 1].copy()
-    if len(rank1) != 2_000 or rank1["customer_id"].nunique() != 2_000:
-        raise MarketingTaskStoreError("A2策略客户必须恰好为2000位")
-    official_customers = pd.read_csv(
-        RAW_DIR / "partA_strategy_customers.csv",
-        dtype={"customer_id": str},
-    )["customer_id"]
-    if (
-        len(official_customers) != 2_000
-        or official_customers.nunique() != 2_000
-        or set(rank1["customer_id"]) != set(official_customers)
-    ):
-        raise MarketingTaskStoreError("A2正式策略与官方目标客户名单不一致")
-
-    customers = pd.read_csv(
-        RAW_DIR / "t_customer.csv",
-        dtype={"customer_id": str},
-    )[["customer_id", "risk_appetite", "vip_level", "aum"]]
-    if len(customers) != 8_000 or customers["customer_id"].nunique() != 8_000:
-        raise MarketingTaskStoreError("全量客户表必须恰好为8000位")
-    products = pd.read_csv(
-        RAW_DIR / "t_product.csv",
-        dtype={"product_id": str},
-    )[["product_id", "product_name", "risk_level", "expected_return"]]
-
-    contacts = pd.read_csv(
-        RAW_DIR / "partA_test_contacts.csv",
-        dtype={"contact_id": str, "customer_id": str, "product_id": str},
-    )
-    predictions = pd.read_csv(PREDICTION_CSV, dtype={"contact_id": str})
-    opportunities = contacts.merge(predictions, on="contact_id", how="left")
-    opportunities["response_prob"] = pd.to_numeric(
-        opportunities["response_prob"], errors="coerce"
-    )
-    opportunities = (
-        opportunities.sort_values(
-            ["response_prob", "contact_id"], ascending=[False, True]
-        )
-        .drop_duplicates("customer_id")
-        [[
-            "customer_id",
-            "contact_id",
-            "product_id",
-            "channel",
-            "contact_date",
-            "response_prob",
-        ]]
-        .rename(
-            columns={
-                "contact_id": "model_contact_id",
-                "product_id": "opportunity_product_id",
-                "channel": "opportunity_channel",
-                "contact_date": "opportunity_date",
-            }
-        )
-    )
-    opportunity_products = products[["product_id", "product_name"]].rename(
-        columns={
-            "product_id": "opportunity_product_id",
-            "product_name": "opportunity_product_name",
-        }
-    )
-    opportunities = opportunities.merge(
-        opportunity_products,
-        on="opportunity_product_id",
-        how="left",
-    )
-
-    frame = (
-        customers.merge(rank1, on="customer_id", how="left")
-        .merge(products, on="product_id", how="left")
-        .merge(opportunities, on="customer_id", how="left")
-    )
-    frame["official_target"] = frame["rank"].notna()
-    return frame
-
-
-def _event_statuses() -> dict[str, str]:
-    """从 append-only 事件推导客户级任务状态。"""
-    try:
-        connection = database_connection()
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT SUBSTRING_INDEX(strategy_id, ':', 1) AS customer_id, "
-                    "MAX(event_type = 'sent') AS has_sent, "
-                    "MAX(event_type = 'responded') AS has_responded "
-                    "FROM app_campaign_event GROUP BY customer_id"
-                )
-                rows = cursor.fetchall()
-        finally:
-            connection.close()
-    except (pymysql.MySQLError, OSError, ValueError) as exc:
-        raise MarketingTaskStoreError("unable to query marketing task status") from exc
-
     statuses: dict[str, str] = {}
-    for row in rows:
-        if int(row["has_responded"] or 0):
-            status = "converted"
-        elif int(row["has_sent"] or 0):
-            status = "follow_up"
-        else:
-            status = "pending"
+    for row in cursor.fetchall():
+        status = (
+            "converted"
+            if int(row["has_responded"] or 0)
+            else "follow_up"
+            if int(row["has_sent"] or 0)
+            else "pending"
+        )
         statuses[str(row["customer_id"])] = status
     return statuses
 
 
-def _live_strategy_customers() -> frozenset[str]:
-    """返回已冻结完整实时Top3的非A2客户。"""
+def _latest_business_rows(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> tuple[list[dict], str | None, int, int]:
+    """返回指定业务日全部存量客户、机会和Top1。"""
+    statement = """
+        WITH opportunity AS (
+            SELECT
+                a.customer_id,
+                a.product_id,
+                a.recommended_channel,
+                a.response_prob,
+                a.strategy_date,
+                ROW_NUMBER() OVER (
+                    PARTITION BY a.customer_id
+                    ORDER BY a.response_prob DESC, a.product_id
+                ) AS row_num
+            FROM ads_a1_customer_product_score a
+            WHERE a.strategy_date = %s
+        )
+        SELECT
+            c.customer_id, c.risk_appetite, c.vip_level, c.aum,
+            s.strategy_id, s.product_id, sp.product_name, sp.risk_level,
+            sp.expected_return, s.recommended_channel, s.recommended_time,
+            s.strategy_date, s.a1_probability, s.a1_rank,
+            o.product_id AS opportunity_product_id,
+            op.product_name AS opportunity_product_name,
+            o.recommended_channel AS opportunity_channel,
+            o.response_prob,
+            o.strategy_date AS opportunity_date
+        FROM dwd_dim_customer c
+        LEFT JOIN opportunity o
+          ON o.customer_id = c.customer_id AND o.row_num = 1
+        LEFT JOIN dwd_dim_product op ON op.product_id = o.product_id
+        LEFT JOIN ads_marketing_strategy s
+          ON s.customer_id = c.customer_id
+         AND s.strategy_date = %s
+         AND s.strategy_rank = 1
+        LEFT JOIN dwd_dim_product sp ON sp.product_id = s.product_id
+        WHERE c.register_date <= %s
+    """
     try:
         connection = database_connection()
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT customer_id FROM app_marketing_strategy "
-                    "GROUP BY customer_id HAVING COUNT(*) = 3"
+                    statement,
+                    (business_date, business_date, business_date),
                 )
-                rows = cursor.fetchall()
+                rows = list(cursor.fetchall())
+                statuses = _event_statuses(cursor, business_date)
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT customer_id) AS customers "
+                    "FROM ads_marketing_strategy WHERE strategy_date=%s",
+                    (business_date,),
+                )
+                strategy_summary = cursor.fetchone() or {}
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT customer_id) AS customers "
+                    "FROM ads_a1_customer_product_score "
+                    "WHERE strategy_date = %s",
+                    (business_date,),
+                )
+                score_summary = cursor.fetchone() or {}
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError) as exc:
-        raise MarketingTaskStoreError("unable to query live strategy status") from exc
-    return frozenset(str(row["customer_id"]) for row in rows)
+        raise MarketingTaskStoreError("unable to query marketing warehouse") from exc
+
+    for row in rows:
+        row["status"] = statuses.get(str(row["customer_id"]), "pending")
+    return (
+        rows,
+        business_date.isoformat()
+        if int(strategy_summary.get("customers") or 0) > 0
+        else None,
+        int(strategy_summary.get("customers") or 0),
+        int(score_summary.get("customers") or 0),
+    )
 
 
-@lru_cache(maxsize=1)
-def _expiring_customers() -> frozenset[str]:
-    """未来30天有固定期限持仓到期的客户集合（策略日 2026-04-15 口径）。"""
+def _expiring_customers(
+    business_date: date = DEFAULT_BUSINESS_DATE,
+) -> frozenset[str]:
     try:
         connection = database_connection()
         try:
@@ -163,20 +127,19 @@ def _expiring_customers() -> frozenset[str]:
                 cursor.execute(
                     """
                     SELECT DISTINCT h.customer_id
-                    FROM ods_holding h
-                    JOIN ods_product p ON p.product_id = h.product_id
+                    FROM dwd_fact_holding h
+                    JOIN dwd_dim_product p ON p.product_id = h.product_id
                     WHERE p.duration_days > 0
                       AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) > %s
                       AND DATE_ADD(h.buy_date, INTERVAL p.duration_days DAY) <= %s
                     """,
-                    ("2026-04-15", "2026-05-15"),
+                    (business_date, business_date + timedelta(days=30)),
                 )
-                rows = cursor.fetchall()
+                return frozenset(str(row["customer_id"]) for row in cursor.fetchall())
         finally:
             connection.close()
     except (pymysql.MySQLError, OSError, ValueError):
         return frozenset()
-    return frozenset(str(row["customer_id"]) for row in rows)
 
 
 def query_marketing_tasks(
@@ -186,11 +149,8 @@ def query_marketing_tasks(
     status: str = "all",
     keyword: str | None = None,
     cohort: str = "all",
+    business_date: date = DEFAULT_BUSINESS_DATE,
 ) -> dict:
-    """分页返回全量客户机会；未产生事件的客户默认为待联系。
-
-    cohort="expiry" 时仅返回未来30天有持仓到期的客户（到期跟进队列）。
-    """
     if page < 1 or size < 1 or size > 100:
         raise ValueError("page >= 1, 1 <= size <= 100")
     if status not in STATUS_VALUES:
@@ -198,129 +158,103 @@ def query_marketing_tasks(
     if cohort not in ("all", "expiry"):
         raise ValueError("cohort must be 'all' or 'expiry'")
 
-    frame = _task_frame().copy()
-    if cohort == "expiry":
-        frame = frame[frame["customer_id"].isin(_expiring_customers())]
-    statuses = _event_statuses()
-    live_strategy_customers = _live_strategy_customers()
-    frame["status"] = frame["customer_id"].map(statuses).fillna("pending")
-    counts = {
-        key: int((frame["status"] == key).sum())
-        for key in STATUS_VALUES
-        if key != "all"
-    }
-    counts["all"] = int(len(frame))
-
-    if status != "all":
-        frame = frame[frame["status"] == status]
-    if keyword:
-        term = keyword.strip().lower()
-        if term:
-            frame = frame[
-                frame["customer_id"].str.lower().str.contains(term, na=False, regex=False)
-                | frame["product_id"].fillna("").str.lower().str.contains(term, regex=False)
-                | frame["product_name"].fillna("").str.lower().str.contains(term, regex=False)
-                | frame["opportunity_product_id"].fillna("").str.lower().str.contains(term, regex=False)
-                | frame["opportunity_product_name"].fillna("").str.lower().str.contains(term, regex=False)
-            ]
-
-    frame = frame.sort_values(
-        ["response_prob", "official_target", "customer_id"],
-        ascending=[False, False, True],
-        na_position="last",
+    rows, latest_date, strategy_ready_customers, model_covered_customers = (
+        _latest_business_rows(business_date)
     )
-    total = int(len(frame))
-    start = (page - 1) * size
-    rows = frame.iloc[start : start + size]
+    population_total = len(rows)
+    if cohort == "expiry":
+        expiring = _expiring_customers(business_date)
+        rows = [row for row in rows if str(row["customer_id"]) in expiring]
+    counts = {
+        value: sum(row["status"] == value for row in rows)
+        for value in STATUS_VALUES
+        if value != "all"
+    }
+    counts["all"] = len(rows)
+    if status != "all":
+        rows = [row for row in rows if row["status"] == status]
+    if keyword and keyword.strip():
+        term = keyword.strip().lower()
+        rows = [
+            row
+            for row in rows
+            if term in str(row["customer_id"]).lower()
+            or term in str(row.get("product_id") or "").lower()
+            or term in str(row.get("product_name") or "").lower()
+            or term in str(row.get("opportunity_product_id") or "").lower()
+            or term in str(row.get("opportunity_product_name") or "").lower()
+        ]
+    rows.sort(
+        key=lambda row: (
+            -(float(row["response_prob"]) if row["response_prob"] is not None else -1),
+            str(row["customer_id"]),
+        )
+    )
+    total = len(rows)
+    page_rows = rows[(page - 1) * size : page * size]
 
     tasks = []
-    for row in rows.itertuples():
-        probability = None if pd.isna(row.response_prob) else float(row.response_prob)
-        official_target = bool(row.official_target)
-        strategy_ready = official_target or row.customer_id in live_strategy_customers
+    for row in page_rows:
+        ready = row.get("strategy_id") is not None
+        probability = (
+            float(row["response_prob"])
+            if row.get("response_prob") is not None
+            else None
+        )
         tasks.append(
             {
-                "customer_id": row.customer_id,
-                "risk_appetite": row.risk_appetite,
-                "vip_level": row.vip_level,
-                "aum": round(float(row.aum), 2),
-                "status": row.status,
-                "strategy_id": (
-                    f"{row.customer_id}:1" if strategy_ready else None
-                ),
-                "official_target": official_target,
-                "strategy_ready": strategy_ready,
-                "strategy_source": (
-                    "official_submission"
-                    if official_target
-                    else "live_generated"
-                    if strategy_ready
-                    else "live_on_demand"
-                ),
-                "product_id": None if pd.isna(row.product_id) else row.product_id,
-                "product_name": None if pd.isna(row.product_name) else row.product_name,
-                "risk_level": None if pd.isna(row.risk_level) else row.risk_level,
+                "customer_id": str(row["customer_id"]),
+                "risk_appetite": str(row["risk_appetite"]),
+                "vip_level": str(row["vip_level"]),
+                "aum": round(float(row["aum"]), 2),
+                "status": row["status"],
+                "strategy_id": row.get("strategy_id"),
+                "strategy_ready": ready,
+                "strategy_source": "batch_generated" if ready else "batch_pending",
+                "product_id": row.get("product_id"),
+                "product_name": row.get("product_name"),
+                "risk_level": row.get("risk_level"),
                 "expected_return": (
-                    None
-                    if pd.isna(row.expected_return)
-                    else round(float(row.expected_return), 6)
+                    round(float(row["expected_return"]), 6)
+                    if row.get("expected_return") is not None
+                    else None
                 ),
-                "recommended_channel": (
-                    None
-                    if pd.isna(row.recommended_channel)
-                    else row.recommended_channel
-                ),
-                "recommended_time": (
-                    None
-                    if pd.isna(row.recommended_time)
-                    else row.recommended_time
-                ),
-                "response_prob": (
-                    round(probability, 12) if probability is not None else None
-                ),
-                "opportunity_score": (
-                    round(probability, 12) if probability is not None else None
-                ),
-                "opportunity_source": (
-                    "a1_contact" if probability is not None else "not_in_a1_contacts"
-                ),
-                "model_contact_id": (
-                    None if pd.isna(row.model_contact_id) else row.model_contact_id
-                ),
-                "opportunity_product_id": (
-                    None
-                    if pd.isna(row.opportunity_product_id)
-                    else row.opportunity_product_id
-                ),
-                "opportunity_product_name": (
-                    None
-                    if pd.isna(row.opportunity_product_name)
-                    else row.opportunity_product_name
-                ),
-                "opportunity_channel": (
-                    None
-                    if pd.isna(row.opportunity_channel)
-                    else row.opportunity_channel
-                ),
+                "recommended_channel": row.get("recommended_channel"),
+                "recommended_time": row.get("recommended_time"),
+                "response_prob": round(probability, 12) if probability is not None else None,
+                "opportunity_score": round(probability, 12) if probability is not None else None,
+                "opportunity_source": "ads_a1_batch" if probability is not None else "not_scored",
+                "model_contact_id": None,
+                "opportunity_product_id": row.get("opportunity_product_id"),
+                "opportunity_product_name": row.get("opportunity_product_name"),
+                "opportunity_channel": row.get("opportunity_channel"),
                 "opportunity_date": (
-                    None if pd.isna(row.opportunity_date) else row.opportunity_date
+                    row["opportunity_date"].isoformat()
+                    if row.get("opportunity_date") is not None
+                    else None
                 ),
             }
         )
 
     return {
         "total": total,
-        "population_total": int(len(_task_frame())),
+        "population_total": population_total,
         "page": page,
         "size": size,
         "cohort": cohort,
-        "expiry_customer_count": len(_expiring_customers()) if cohort != "expiry" else total,
+        "business_date": business_date.isoformat(),
+        "latest_strategy_date": latest_date,
         "counts": counts,
-        "official_target_customers": int(_task_frame()["official_target"].sum()),
-        "model_covered_customers": int(_task_frame()["response_prob"].notna().sum()),
-        "unscored_customers": int(_task_frame()["response_prob"].isna().sum()),
-        "coverage_rate": round(
-            float(_task_frame()["response_prob"].notna().mean()), 6
+        "strategy_ready_customers": strategy_ready_customers,
+        "model_covered_customers": model_covered_customers,
+        "unscored_customers": population_total - model_covered_customers,
+        "coverage_rate": (
+            round(model_covered_customers / population_total, 6)
+            if population_total
+            else 0.0
         ),
         "tasks": tasks,
     }
+
+
+__all__ = ["MarketingTaskStoreError", "query_marketing_tasks"]

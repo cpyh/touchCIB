@@ -130,10 +130,12 @@ function SliderControl(props: SliderControlProps) {
 const allocationColors = ["#123f6b", "#286b9f", "#5a91b8", "#d39b36", "#7b8fa3", "#b6c2cc", "#e1e7ec"];
 
 export function PortfolioPage({
+  businessDate,
   initialCustomerId,
   notify,
   onOpenMarketing,
 }: {
+  businessDate: string;
   initialCustomerId?: string;
   notify: (message: string) => void;
   onOpenMarketing?: (customerId: string) => void;
@@ -183,10 +185,7 @@ export function PortfolioPage({
   }, [initialCustomerId]);
 
   useEffect(() => {
-    if (!customer || !result?.business) {
-      setRebalance(null);
-      return;
-    }
+    if (!customer || !result?.business) return;
     let cancelled = false;
     api<{
       code: number;
@@ -282,9 +281,10 @@ export function PortfolioPage({
       return null;
     }
     setCustomerBusy(true);
+    setRebalance(null);
     try {
       const data = await api<CustomerProfile>(
-        `/customers/${encodeURIComponent(normalized)}/profile`,
+        `/customers/${encodeURIComponent(normalized)}/profile?business_date=${encodeURIComponent(businessDate)}`,
       );
       setCustomer(data);
       setCustomerQuery(normalized);
@@ -320,6 +320,7 @@ export function PortfolioPage({
 
   async function optimize() {
     setBusy(true);
+    setRebalance(null);
     try {
       const data = await api<PortfolioResult>("/portfolio/optimize", {
         method: "POST",
@@ -402,13 +403,6 @@ export function PortfolioPage({
     }
   }
 
-  useEffect(() => {
-    if (resultView === "ai" && result && chatMessages.length === 0 && !chatBusy) {
-      void sendChat("帮我解读这个组合方案");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resultView, result]);
-
   const summary = result?.summary;
   const allocations = result?.allocations ?? [];
   const maxWeight = allocations.reduce((current, item) => Math.max(current, item.weight), 0);
@@ -431,34 +425,6 @@ export function PortfolioPage({
     ...(otherWeight >= 1e-6 ? [{ label: "其他产品", weight: otherWeight }] : []),
     ...((summary?.cash_weight ?? 0) >= 1e-6 ? [{ label: "现金", weight: summary?.cash_weight ?? 0 }] : []),
   ];
-  const explanation = summary && result
-    ? (() => {
-        const riskTone = result.scenario.risk_aversion >= 2
-          ? "优先控制组合波动"
-          : result.scenario.risk_aversion >= 1.2
-            ? "兼顾收益与风险"
-            : "适度提高收益权重";
-        const highRiskRoom = Math.max(
-          0,
-          result.scenario.max_high_risk_weight - summary.high_risk_weight,
-        );
-        const liquidRoom = Math.max(
-          0,
-          summary.liquid_plus_cash - result.scenario.min_liquid_weight,
-        );
-        const lead = allocations[0];
-        const clientText = parameterSource === "customer" && customer
-          ? `已按${customer.customer_id}的${customer.risk_appetite}${riskNames[customer.risk_appetite]}偏好生成。`
-          : "当前方案按所选场景参数生成。";
-        const leadText = lead
-          ? `最高配置为${lead.product_name}（${percent(lead.weight)}）。`
-          : "组合保留全部资金为现金。";
-        const gapText = summary.optimality_gap <= 1e-8
-          ? "接近0"
-          : `为${summary.optimality_gap.toExponential(1)}`;
-        return `${clientText}λ=${metric(result.scenario.risk_aversion, 2)}，${riskTone}；${leadText}高风险仓位仍有 ${formatNumber(highRiskRoom * 100, 1, 1)} 个百分点余量，流动性高于下限 ${formatNumber(liquidRoom * 100, 1, 1)} 个百分点，最优性 gap ${gapText}。`;
-      })()
-    : "";
   const parameterStatus = parameterSource === "customer" && customer
     ? `${customer.risk_appetite}客户参数`
     : isCustomized
@@ -601,7 +567,12 @@ export function PortfolioPage({
                   <button className={resultView === "business" ? "on" : ""} onClick={() => setResultView("business")}>业务落地</button>
                   <button className={resultView === "detail" ? "on" : ""} onClick={() => setResultView("detail")}>产品明细</button>
                   <button className={resultView === "guards" ? "on" : ""} onClick={() => setResultView("guards")}>合规校验</button>
-                  <button className={resultView === "ai" ? "on" : ""} onClick={() => setResultView("ai")}>AI分析</button>
+                  <button className={resultView === "ai" ? "on" : ""} onClick={() => {
+                    setResultView("ai");
+                    if (result && chatMessages.length === 0 && !chatBusy) {
+                      void sendChat("帮我解读这个组合方案");
+                    }
+                  }}>AI分析</button>
                 </div>
                 <Status warn={!allPassed}>{allPassed ? "全部约束通过" : "存在约束违例"}</Status>
               </div>

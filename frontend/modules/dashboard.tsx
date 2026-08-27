@@ -5,10 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   DashboardApiError,
   DashboardOverview,
-  DataStatus,
   getDashboardOverview,
 } from "../shared/dashboard-api";
-import { channelNames, PageHead, Status } from "../shared/ui";
+import { PageHead, Status } from "../shared/ui";
+import { PipelineTaskCenter } from "./pipeline";
 import {
   compactMoney,
   exactMoney,
@@ -17,54 +17,6 @@ import {
   metric,
   percent,
 } from "../shared/format";
-
-const scenarios = Array.from(
-  { length: 20 },
-  (_, index) => `S${String(index + 1).padStart(2, "0")}`
-);
-
-const statusText: Record<DataStatus, string> = {
-  READY: "数据已就绪",
-  NOT_READY: "待生成",
-  INVALID: "结果校验异常",
-  NOT_STARTED: "尚未执行",
-};
-
-const validationLabels: Record<string, string> = {
-  customer_coverage_passed: "客户名单",
-  top3_complete_passed: "每客Top3",
-  product_unique_passed: "产品不重复",
-  channel_enum_passed: "渠道合法",
-  time_enum_passed: "时段合法",
-  script_length_passed: "话术格式",
-};
-
-function ResultStatus({ status }: { status: DataStatus }) {
-  return (
-    <Status warn={status !== "READY"}>
-      {statusText[status]}
-    </Status>
-  );
-}
-
-function EmptyState({
-  status,
-  text,
-}: {
-  status: DataStatus;
-  text: string;
-}) {
-  return (
-    <div
-      className={`dashboard-empty ${
-        status === "INVALID" ? "invalid" : ""
-      }`}
-    >
-      <b>{statusText[status]}</b>
-      <span>{text}</span>
-    </div>
-  );
-}
 
 function SectionTitle({
   index,
@@ -88,9 +40,13 @@ function SectionTitle({
 }
 
 export function DashboardPage({
+  businessDate,
+  onBusinessDateChange,
   onOpenMarketing,
   onOpenPortfolio,
 }: {
+  businessDate: string;
+  onBusinessDateChange: (value: string) => void;
   onOpenMarketing?: (customerId: string) => void;
   onOpenPortfolio?: (customerId: string) => void;
 }) {
@@ -99,12 +55,14 @@ export function DashboardPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [view, setView] = useState<"overview" | "pipeline">("overview");
 
   useEffect(() => {
     const controller = new AbortController();
 
     getDashboardOverview(
       "S01",
+      businessDate,
       controller.signal
     )
       .then(setDashboard)
@@ -129,7 +87,7 @@ export function DashboardPage({
       });
 
     return () => controller.abort();
-  }, [refreshKey]);
+  }, [refreshKey, businessDate]);
 
   const maxRiskCount = useMemo(
     () =>
@@ -142,43 +100,23 @@ export function DashboardPage({
     [dashboard]
   );
 
-  const maxIntentCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a1_performance.probability_distribution.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
-  const maxChannelCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a2_performance.channel_distribution.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
-  const maxTimeCount = useMemo(
-    () =>
-      Math.max(
-        ...(dashboard?.a2_performance.time_distribution?.map(
-          (item) => item.count
-        ) ?? [1]),
-        1
-      ),
-    [dashboard]
-  );
-
   function refresh() {
     setLoading(true);
     setError("");
     setRefreshKey((value) => value + 1);
+  }
+
+  if (view === "pipeline") {
+    return (
+      <PipelineTaskCenter
+        businessDate={businessDate}
+        onBusinessDateChange={onBusinessDateChange}
+        onOpenOverview={() => {
+          setView("overview");
+          refresh();
+        }}
+      />
+    );
   }
 
   if (!dashboard && loading) {
@@ -229,18 +167,8 @@ export function DashboardPage({
 
   const business = dashboard.business_metrics;
   const a1 = dashboard.a1_performance;
-  const a2 = dashboard.a2_performance;
   const portfolioSummary =
     dashboard.portfolio_summary;
-
-  const validationEntries = Object.entries(
-    a2.validation ?? {}
-  );
-
-  const validationPassed =
-    validationEntries.filter(
-      ([, passed]) => passed
-    ).length;
 
   const actions = dashboard.action_items;
   const channel = actions?.channel;
@@ -256,6 +184,11 @@ export function DashboardPage({
 
   return (
     <>
+      <div className="dashboard-view-tabs" aria-label="可视化看板页面切换">
+        <button className="on">经营分析</button>
+        <button onClick={() => setView("pipeline")}>数据任务中心</button>
+      </div>
+
       <PageHead
         title="可视化看板"
         description="从数据基础、算法决策到营销执行，展示智能财富管理的完整业务闭环。"

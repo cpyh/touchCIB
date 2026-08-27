@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from functools import lru_cache
-from pathlib import Path
 
 import numpy as np
 import pymysql
@@ -21,9 +20,6 @@ from .algorithms.partb import (
 )
 
 from .database import database_connection
-
-PROJECT_DIR = Path(__file__).resolve().parents[1]
-
 
 class PortfolioInputError(ValueError):
     """Raised when an API parameter is missing or invalid."""
@@ -44,7 +40,7 @@ def optimizer_context() -> tuple[
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT product_id, product_name, product_type, risk_level, "
-                    "expected_return, volatility, liquidity "
+                    "expected_return, volatility, min_invest, duration_days, liquidity "
                     "FROM dwd_dim_product ORDER BY product_id"
                 )
                 product_rows = cursor.fetchall()
@@ -220,14 +216,24 @@ def optimize_portfolio(payload: dict) -> dict:
     business = None
     try:
         from .algorithms.solve_partB_business_pipeline_fullswap import (
-            load_business_products,
+            BusinessProduct,
             solve_business_scenario,
         )
 
-        business_products = load_business_products(
-            PROJECT_DIR / "src" / "data" / "raw",
-            products.product_ids,
-        )
+        business_products = [
+            BusinessProduct(
+                product_id=product_id,
+                product_name=str(details[product_id]["product_name"]),
+                product_type=str(details[product_id]["product_type"]),
+                risk_level=str(details[product_id]["risk_level"]),
+                expected_return=float(details[product_id]["expected_return"]),
+                volatility=float(details[product_id]["volatility"]),
+                min_invest=float(details[product_id]["min_invest"]),
+                duration_days=int(details[product_id]["duration_days"]),
+                liquidity=str(details[product_id]["liquidity"]),
+            )
+            for product_id in products.product_ids
+        ]
         business_result = solve_business_scenario(
             scenario,
             result,

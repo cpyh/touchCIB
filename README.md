@@ -15,7 +15,7 @@ touchCIB/                        # 提交时改名此目录
 │   ├── customer.py              # 客户画像查询
 │   ├── database.py              # MySQL 连接
 │   ├── portfolio.py             # 组合优化适配器（在线优化 + 场景配置存取）
-│   ├── marketing/               # A2 规则/流程引擎（13 规则 + 两阶段流水线 + 协同过滤）
+│   ├── marketing/               # A1排名 + A2基础规则过滤 + ADS日批
 │   ├── algorithms/              # 离线算法核心库（Part B 凸优化求解器）
 │   ├── pipelines/               # CLI 批量入口（run_all 一键编排 / A1 训练 / Part B 求解）
 │   ├── scripts/                 # 数据库初始化、提交前校验
@@ -79,22 +79,49 @@ python -m src.partA1serving.training.predict \
 A1 特征严格使用早于对应 `contact_date` 的持仓、行为和历史触达数据
 （不含同日）。离线训练读取官方 CSV；Flask 在线预测读取 MySQL DWD，二者
 共享同一特征装配与历史索引，避免训练/服务口径漂移。
+当前提交模型使用 46 个特征；demo 时间留出验证结果为 AUC 0.8828、
+F1 0.6185、Lift@10% 4.0047，三项均达到题目满分锚点。
 
 ## 复现 A2 营销策略生成
+
+业务平台不读取提交 CSV。批处理从 MySQL DWD 读取全量客户与
+产品，先生成 A1 客户×产品概率排名，再按风险、准入、起投能力、
+渠道、时段和话术规则过滤，幂等写入三张 ADS 表：
+
+```bash
+python -m src.scripts.run_marketing_batch --strategy-date 2026-04-15
+```
+
+可视化看板内的“数据任务中心”提供手动补跑演示：
+
+```text
+ODS/DWD/DWS 刷新 → 41 项质量门禁 → 营销 ADS → 投顾 ADS → BI 就绪
+```
+
+页面选择业务日期后，通过 `POST /pipeline/runs` 启动固定白名单任务，并轮询
+`GET /pipeline/runs/latest` 展示 DAG 节点状态和实时日志。该链路不会
+覆盖根目录的正式评分 CSV，也不会重置营销演示事件。
+
+```json
+{"business_date": "2026-04-15"}
+```
+
+业务日期用于营销与组合优化 ADS 批次，可幂等补跑任意历史日期；
+`dws_customer_360` 仍保持赛事基准画像快照日 `2026-03-31`。经营看板
+默认查询数据库中的最新 ADS 批次，因此补跑更早日期不会覆盖更新日期的展示。
+
+赛事自动评分所需的 `partA_strategy.csv` 是独立的离线导出物，仅在
+提交流程中生成：
 
 ```bash
 python -m src.marketing \
   --predictions partA_prediction.csv \
   --output partA_strategy.csv \
-  --audit-output src/data/outputs/a2_strategy_audit.csv \
-  --cf-audit src/data/outputs/a2_cf_similarity.csv
+  --audit-output src/data/outputs/a2_strategy_audit.csv
 ```
 
-规则/流程引擎（`src/marketing/`）为每位目标客户生成 Top3 产品、渠道、
-时段与话术：产品排序 = A1 概率 + 持有产品协同过滤相似度（模型管产品），
-合规/渠道/时段/话术由 13 条规则决定（规则管其余），manager 渠道按
-资格 + 全局配额分配（默认 600 行）。行为和持仓严格按 `strategy_date`
-截断，落盘后自动执行与题目红线一致的格式校验。
+A2 的职责是在 A1 概率顺序上做基础业务规则过滤并取 Top3。每条候选的通过/过滤原因、
+模型版本、特征日期和批次号均落库，供策略下钻审计。
 
 ## 复现 Part B 投资组合优化
 
@@ -110,14 +137,12 @@ python -m src.pipelines.solve_partB \
 
 ## 一键复现（run_all）
 
-进数 → 质量门禁（90 个单元测试）→ A1 → A2 → Part B → 三 CSV 红线校验，
+进数 → 质量门禁（当前 105 个单元测试）→ A1 → A2 → Part B → 三 CSV 红线校验，
 任何一步失败立即中止：
 
 ```bash
-python -m src.pipelines.run_all                        # A1 默认使用LGBM重训
-python -m src.pipelines.run_all \
-  --model src/data/outputs/a1_final.joblib             # A1 用提交模型 artifact
-python -m src.pipelines.run_all --with-demo            # 追加：日批缓存 + 演示事件预置
+python -m src.pipelines.run_all                # A1 默认使用LGBM重训
+python -m src.pipelines.run_all --with-demo    # 追加：ADS日批 + 演示事件预置
 ```
 
 ## 提交前校验
@@ -135,7 +160,8 @@ python -m src.scripts.check_submission
 ```bash
 cp .env.example .env
 python -m src.scripts.init_db
-python -m src.scripts.build_daily_roster          # 历史回放日批缓存
+python -m src.scripts.run_marketing_batch --strategy-date 2026-04-15
+python -m src.scripts.run_portfolio_batch --calculation-date 2026-04-15
 python -m src.scripts.seed_demo_events --reset    # 演示事件：30 触达 / 22 响应
 python -m src.app
 ```
@@ -152,10 +178,10 @@ curl http://127.0.0.1:5001/health
 python -m src.scripts.init_db --schema-only
 ```
 
-营销工作台以8000位客户为全量机会池，按A1最高机会分排序。赛事指定的
-2000位A2客户直接读取正式 `partA_strategy.csv`；其他客户首次打开时在线
-生成Top3并冻结到 `app_marketing_strategy`，随后执行、归因和服务重启均复用
-同一快照。A2标识只区分正式提交范围，不限制客户经理选择客户。
+营销工作台以8000位客户为全量机会池，按最新 `ads_a1_customer_product_score`
+中的客户最高机会分排序。Top3、规则轨迹与执行参数统一读取
+`ads_marketing_strategy`；请求阶段不会读 CSV、不会调用遗留 A2 模型，
+也不会临时生成并冻结策略。
 
 A1数据库在线推理：
 

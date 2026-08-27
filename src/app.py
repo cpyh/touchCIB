@@ -1,5 +1,6 @@
 from flask import Flask, Response, jsonify, request, stream_with_context
 
+from .business_date import DEFAULT_BUSINESS_DATE, parse_business_date
 from .campaign import (
     CampaignInputError,
     CampaignStoreError,
@@ -37,6 +38,12 @@ from .portfolio import (
     stream_ai_analysis,
     stream_chat,
 )
+from .warehouse_jobs import (
+    PipelineBusyError,
+    latest_pipeline_run,
+    pipeline_definition,
+    start_pipeline_run,
+)
 
 
 app = Flask(__name__)
@@ -68,7 +75,10 @@ def health_check():
 @app.get("/customers/<customer_id>/profile")
 def customer_profile(customer_id: str):
     try:
-        profile = get_customer_profile(customer_id)
+        business_date = parse_business_date(request.args.get("business_date"))
+        profile = get_customer_profile(customer_id, business_date)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
     except CustomerProfileError:
         app.logger.exception("Customer profile query failed")
         return jsonify(error="customer profile is temporarily unavailable"), 503
@@ -216,7 +226,10 @@ def campaign_events_create():
     """埋点入口：event_type=sent 标记已触达；responded 过归因校验后落库。"""
     try:
         payload = _campaign_event_payload()
-    except CampaignInputError as exc:
+        business_date = parse_business_date(payload.get("business_date"))
+        if business_date != DEFAULT_BUSINESS_DATE:
+            raise CampaignInputError("历史业务日期为只读快照，不能执行客户触达")
+    except (CampaignInputError, ValueError) as exc:
         return jsonify(error=str(exc)), 400
 
     event_type = payload.get("event_type")
@@ -259,8 +272,9 @@ def campaign_events_list():
         events = list_campaign_events(
             customer_id=request.args.get("customer_id"),
             strategy_id=request.args.get("strategy_id"),
+            business_date=parse_business_date(request.args.get("business_date")),
         )
-    except CampaignInputError as exc:
+    except (CampaignInputError, ValueError) as exc:
         return jsonify(error=str(exc)), 400
     except CampaignStoreError:
         app.logger.exception("Campaign event query failed")
@@ -273,6 +287,9 @@ def campaign_demo_holding_create():
     """演示入口：模拟新增持仓，自动归因后驱动响应 KPI。"""
     try:
         payload = _campaign_event_payload()
+        business_date = parse_business_date(payload.get("business_date"))
+        if business_date != DEFAULT_BUSINESS_DATE:
+            raise CampaignInputError("历史业务日期为只读快照，不能模拟新增持仓")
         amount = payload.get("amount", 50_000)
         if isinstance(amount, bool) or not isinstance(amount, (int, float)):
             raise CampaignInputError("amount must be a number")
@@ -320,7 +337,7 @@ def marketing_roster():
 
 @app.get("/marketing/tasks")
 def marketing_tasks():
-    """客户经理全量8000人机会队列；A2名单仅作为正式提交标识。"""
+    """客户经理全量客户机会队列；策略与机会分均读取最新ADS日批。"""
     try:
         return jsonify(
             query_marketing_tasks(
@@ -329,6 +346,7 @@ def marketing_tasks():
                 status=request.args.get("status", "all"),
                 keyword=request.args.get("keyword"),
                 cohort=request.args.get("cohort", "all"),
+                business_date=parse_business_date(request.args.get("business_date")),
             )
         )
     except (ValueError, TypeError) as exc:
@@ -340,12 +358,15 @@ def marketing_tasks():
 
 @app.get("/customers/<customer_id>/strategies")
 def customer_strategy_list(customer_id: str):
-    """客户Top3：A2读正式提交，其余客户首次生成并冻结运行快照。"""
+    """客户Top3：只读取最新ADS营销日批结果。"""
     try:
-        return jsonify(customer_strategies(customer_id))
+        business_date = parse_business_date(request.args.get("business_date"))
+        return jsonify(customer_strategies(customer_id, business_date))
     except CampaignInputError as exc:
         return jsonify(error=str(exc)), 404
-    except (ValueError, OSError) as exc:
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except OSError as exc:
         app.logger.exception("Customer strategies query failed")
         return jsonify(error=f"customer strategies failed: {exc}"), 503
     except CampaignStoreError:
@@ -370,7 +391,7 @@ def marketing_response_predict():
 
 @app.post("/marketing/strategy/generate")
 def marketing_strategy_generate():
-    """运营干预：调 manager 配额后现场重跑单客户 Top3（LTR 排序，不落库）。"""
+    """运营试算：单客户A1排序+基础规则过滤，不覆盖ADS日批。"""
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify(error="request body must be a JSON object"), 400
@@ -379,15 +400,17 @@ def marketing_strategy_generate():
         if manager_quota < 0:
             raise ValueError("manager_quota must be >= 0")
         top_n = int(payload.get("top_n", DEFAULT_TOP_N))
-        if not 1 <= top_n <= 30:
-            raise ValueError("top_n must be between 1 and 30")
+        if not 1 <= top_n <= 3:
+            raise ValueError("top_n must be between 1 and 3")
         customer_id = str(payload.get("customer_id", ""))
+        business_date = parse_business_date(payload.get("business_date"))
         return jsonify(
             generate_customer_strategy(
                 customer_id,
                 manager_quota=manager_quota,
                 top_n=top_n,
                 response_predictor=get_mysql_predictor(),
+                strategy_date=business_date,
             )
         )
     except StrategyGenerationError as exc:
@@ -409,10 +432,41 @@ def marketing_rules():
 def dashboard_summary_endpoint():
     """Tab4 看板聚合：模型指标 + 分布 + 漏斗 + KPI + 数据分层行数。"""
     try:
-        return jsonify(dashboard_summary())
-    except (ValueError, OSError, KeyError):
+        business_date = parse_business_date(request.args.get("business_date"))
+        return jsonify(dashboard_summary(business_date))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except (OSError, KeyError):
         app.logger.exception("Dashboard summary failed")
         return jsonify(error="dashboard summary is temporarily unavailable"), 503
+
+
+@app.get("/pipeline/runs/latest")
+def pipeline_run_latest():
+    """返回固定业务日批DAG与本进程最近一次运行状态。"""
+    return jsonify(
+        definition=pipeline_definition(),
+        run=latest_pipeline_run(),
+    )
+
+
+@app.post("/pipeline/runs")
+def pipeline_run_create():
+    """按业务日期触发受控日批；不接受命令、路径等任意执行参数。"""
+    payload = request.get_json(silent=True)
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        return jsonify(error="请求体必须是 JSON 对象"), 400
+    try:
+        business_date = parse_business_date(payload.get("business_date"))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    try:
+        run = start_pipeline_run(business_date)
+    except PipelineBusyError as exc:
+        return jsonify(error=str(exc)), 409
+    return jsonify(run=run), 202
 
 
 def main() -> None:

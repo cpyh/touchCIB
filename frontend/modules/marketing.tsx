@@ -8,6 +8,7 @@ import { formatNumber, formatTime, metric, money, percent } from "../shared/form
 
 type TaskStatus = "all" | "pending" | "follow_up" | "converted";
 type StrategyDetailTab = "why" | "compliance" | "script";
+type DrillLayer = "a1" | "a2" | "strategy";
 type ActionTab = "progress" | "attribution" | "lineage";
 type Drawer = "opportunities" | "model" | "lab" | null;
 
@@ -26,11 +27,16 @@ const ruleNames: Record<string, string> = {
   product_launched: "产品准入检查",
   customer_registered: "客户关系有效",
   duration_valid: "产品期限留痕",
+  min_invest_affordable: "起投金额留痕",
   channel_app_requires_app: "App渠道资格",
   channel_call_complaint_block: "投诉与外呼限制",
+  channel_manager_quota: "客户经理渠道配额",
+  channel_manager_eligible: "客户经理渠道资格",
   slot_in_enum: "联系时段合规",
   script_length: "话术长度检查",
   script_compliance_note: "风险提示完整",
+  script_overshoot_warning: "风险越级提示",
+  aum_affordability: "起投金额能力",
 };
 
 interface MarketingTask {
@@ -40,9 +46,8 @@ interface MarketingTask {
   aum: number;
   status: Exclude<TaskStatus, "all">;
   strategy_id: string | null;
-  official_target: boolean;
   strategy_ready: boolean;
-  strategy_source: "official_submission" | "live_generated" | "live_on_demand";
+  strategy_source: "batch_generated" | "batch_pending";
   product_id: string | null;
   product_name: string | null;
   risk_level: string | null;
@@ -51,7 +56,7 @@ interface MarketingTask {
   recommended_time: string | null;
   response_prob: number | null;
   opportunity_score: number | null;
-  opportunity_source: "a1_contact" | "not_in_a1_contacts";
+  opportunity_source: "ads_a1_batch" | "not_scored";
   model_contact_id: string | null;
   opportunity_product_id: string | null;
   opportunity_product_name: string | null;
@@ -96,9 +101,12 @@ interface StrategyItem {
   recommended_time: string;
   marketing_script: string;
   script_adjusted?: boolean;
-  score?: number | null;
   model_prob?: number | null;
-  ltr_score?: number | null;
+  a1_rank?: number;
+  selection_reason?: string;
+  model_version?: string;
+  rule_version?: string;
+  batch_id?: string;
   execution_enabled?: boolean;
   status: "待执行" | "已触达" | "已响应";
   rule_trace: RuleTrace[];
@@ -133,7 +141,20 @@ interface PredictionEvidence {
   decision_label: string;
   model_name: string;
   as_of: string;
+  lift_vs_base?: number;
+  explanation_scope?: "customer_product_channel" | string;
+  explanation_method?: "tree_shap" | "linear_contribution" | string;
+  local_factors?: PredictionFactor[];
   reasons: string[];
+  warnings?: string[];
+}
+
+interface PredictionFactor {
+  feature: string;
+  label: string;
+  direction: "positive" | "negative" | "neutral";
+  contribution: number;
+  reason: string;
 }
 
 interface GeneratedItem {
@@ -141,7 +162,6 @@ interface GeneratedItem {
   product_id: string;
   product_name: string;
   model_prob: number;
-  ltr_score?: number | null;
 }
 
 interface GeneratedResult {
@@ -191,6 +211,8 @@ interface MarketingSummary {
 }
 
 interface MarketingPageProps {
+  businessDate: string;
+  historical: boolean;
   initialCustomerId: string;
   initialCohort?: "all" | "expiry";
   onOpenCustomer: (customerId: string) => void;
@@ -199,6 +221,8 @@ interface MarketingPageProps {
 }
 
 export function MarketingPage({
+  businessDate,
+  historical,
   initialCustomerId,
   initialCohort,
   onOpenCustomer,
@@ -219,8 +243,8 @@ export function MarketingPage({
   const [taskQuery, setTaskQuery] = useState("");
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskPopulation, setTaskPopulation] = useState(8000);
-  const [officialTargetCount, setOfficialTargetCount] = useState(2000);
-  const [modelCoveredCustomers, setModelCoveredCustomers] = useState(5031);
+  const [strategyReadyCount, setStrategyReadyCount] = useState(0);
+  const [modelCoveredCustomers, setModelCoveredCustomers] = useState(0);
   const taskSearchTimer = useRef<number | null>(null);
   const taskRequestId = useRef(0);
   const rosterRequestId = useRef(0);
@@ -229,19 +253,19 @@ export function MarketingPage({
   const generationRequestId = useRef(0);
 
   const [summary, setSummary] = useState<MarketingSummary | null>(null);
-  const [strategyInput, setStrategyInput] = useState(initialCustomerId || "C000010");
   const [strategyCustomerId, setStrategyCustomerId] = useState(initialCustomerId || "");
-  const [strategyDate, setStrategyDate] = useState("2026-04-15");
+  const [strategyDate, setStrategyDate] = useState(businessDate);
   const [riskAppetite, setRiskAppetite] = useState("—");
   const [customerVipLevel, setCustomerVipLevel] = useState("—");
-  const [strategyOfficialTarget, setStrategyOfficialTarget] = useState(false);
-  const [strategySource, setStrategySource] = useState<"official_submission" | "live_generated">("official_submission");
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [selectedOpportunity, setSelectedOpportunity] = useState<MarketingTask | null>(null);
   const [strategies, setStrategies] = useState<StrategyItem[]>([]);
   const [selectedRank, setSelectedRank] = useState(1);
   const [events, setEvents] = useState<CampaignEvent[]>([]);
   const [detailTab, setDetailTab] = useState<StrategyDetailTab>("why");
+  const [drillLayer, setDrillLayer] = useState<DrillLayer>("a1");
+  const [expandedFactor, setExpandedFactor] = useState<number | null>(0);
+  const [expandedRule, setExpandedRule] = useState<string | null>(null);
   const [actionTab, setActionTab] = useState<ActionTab>("progress");
   const [predictionEvidence, setPredictionEvidence] = useState<PredictionEvidence | null>(null);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
@@ -256,13 +280,11 @@ export function MarketingPage({
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [rosterTotal, setRosterTotal] = useState(0);
   const [rosterPage, setRosterPage] = useState(1);
-  const [rosterDate, setRosterDate] = useState("2026-04-15");
-  const [rosterDates, setRosterDates] = useState<{ date: string; scope: string }[]>([]);
   const [rosterQuery, setRosterQuery] = useState("");
   const [rosterChannel, setRosterChannel] = useState("");
   const [rosterLoading, setRosterLoading] = useState(false);
   const [appliedRosterFilters, setAppliedRosterFilters] = useState<RosterFilters>({
-    date: "2026-04-15",
+    date: businessDate,
     keyword: "",
     channel: "",
   });
@@ -274,7 +296,9 @@ export function MarketingPage({
   useEffect(() => {
     void loadTasks(1, "all", "");
     void loadSummary();
-  }, []);
+    // 首次挂载只加载一次；后续刷新由筛选与业务动作显式触发。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessDate]);
 
   useEffect(() => {
     if (initialCohort && initialCohort !== taskCohort) {
@@ -288,6 +312,8 @@ export function MarketingPage({
 
   useEffect(() => {
     if (initialCustomerId) void loadStrategies(initialCustomerId);
+    // 跨页面传入的客户编号是唯一触发源，策略内部状态不应导致重复请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCustomerId]);
 
   useEffect(() => {
@@ -308,7 +334,7 @@ export function MarketingPage({
 
   async function loadSummary() {
     try {
-      setSummary(await api<MarketingSummary>("/dashboard/summary"));
+      setSummary(await api<MarketingSummary>(`/dashboard/summary?business_date=${encodeURIComponent(businessDate)}`));
     } catch (error) {
       notify(`经营指标加载失败：${(error as Error).message}`);
     }
@@ -328,12 +354,13 @@ export function MarketingPage({
         size: String(TASK_PAGE_SIZE),
         status,
         cohort,
+        business_date: businessDate,
       });
       if (keyword.trim()) params.set("keyword", keyword.trim());
       const data = await api<{
         total: number;
         population_total: number;
-        official_target_customers: number;
+        strategy_ready_customers: number;
         model_covered_customers: number;
         counts: Record<TaskStatus, number>;
         tasks: MarketingTask[];
@@ -352,7 +379,7 @@ export function MarketingPage({
       setTaskTotal(data.total);
       setTaskCounts(data.counts);
       setTaskPopulation(data.population_total);
-      setOfficialTargetCount(data.official_target_customers);
+      setStrategyReadyCount(data.strategy_ready_customers);
       setModelCoveredCustomers(data.model_covered_customers);
       setTaskPage(page);
       setTaskStatus(status);
@@ -388,7 +415,7 @@ export function MarketingPage({
   async function refreshEvents(customerId: string, requestId: number) {
     try {
       const data = await api<{ events: CampaignEvent[] }>(
-        `/campaign/events?customer_id=${encodeURIComponent(customerId)}`,
+        `/campaign/events?customer_id=${encodeURIComponent(customerId)}&business_date=${encodeURIComponent(businessDate)}`,
       );
       if (requestId === strategyRequestId.current) setEvents(data.events);
     } catch {
@@ -435,7 +462,6 @@ export function MarketingPage({
     setGenerating(false);
     setStrategyLoading(true);
     setStrategyCustomerId(normalized);
-    setStrategyInput(normalized);
     setStrategies([]);
     setEvents([]);
     setPredictionEvidence(null);
@@ -443,20 +469,17 @@ export function MarketingPage({
     setSelectedOpportunity(currentOpportunity);
     setRiskAppetite(currentOpportunity?.risk_appetite ?? "—");
     setCustomerVipLevel(currentOpportunity?.vip_level ?? "客户");
-    setStrategyOfficialTarget(currentOpportunity?.official_target ?? false);
-    setStrategySource(currentOpportunity?.official_target ? "official_submission" : "live_generated");
     setBusy(true);
     try {
       const data = await api<{
         customer_id: string;
         strategy_date: string;
-        official_target: boolean;
-        strategy_source: "official_submission" | "live_generated";
+        strategy_source: "warehouse_batch";
         risk_appetite: string;
         vip_level: string;
         aum: number;
         items: StrategyItem[];
-      }>(`/customers/${encodeURIComponent(normalized)}/strategies`);
+      }>(`/customers/${encodeURIComponent(normalized)}/strategies?business_date=${encodeURIComponent(businessDate)}`);
       if (requestId !== strategyRequestId.current) return;
       const next =
         data.items.find((item) => item.rank === preferredRank)
@@ -465,15 +488,15 @@ export function MarketingPage({
         ?? data.items.find((item) => item.status === "待执行")
         ?? data.items[0];
       setStrategyCustomerId(normalized);
-      setStrategyInput(normalized);
       setStrategyDate(data.strategy_date);
       setRiskAppetite(data.risk_appetite);
       setCustomerVipLevel(data.vip_level);
-      setStrategyOfficialTarget(data.official_target);
-      setStrategySource(data.strategy_source);
       setStrategies(data.items);
       setSelectedRank(next?.rank ?? 1);
       setDetailTab("why");
+      setDrillLayer("a1");
+      setExpandedFactor(0);
+      setExpandedRule(null);
       setActionTab("progress");
       setLastSimulation(null);
       setTasks((current) => current.map((task) => (
@@ -482,7 +505,7 @@ export function MarketingPage({
               ...task,
               strategy_id: next?.strategy_id ?? task.strategy_id,
               strategy_ready: true,
-              strategy_source: data.strategy_source,
+              strategy_source: "batch_generated",
               product_id: next?.product_id ?? task.product_id,
               product_name: next?.product_name ?? task.product_name,
               risk_level: next?.risk_level ?? task.risk_level,
@@ -497,7 +520,7 @@ export function MarketingPage({
           ...currentOpportunity,
           strategy_id: next?.strategy_id ?? currentOpportunity.strategy_id,
           strategy_ready: true,
-          strategy_source: data.strategy_source,
+          strategy_source: "batch_generated",
           product_id: next?.product_id ?? currentOpportunity.product_id,
           product_name: next?.product_name ?? currentOpportunity.product_name,
           risk_level: next?.risk_level ?? currentOpportunity.risk_level,
@@ -523,6 +546,9 @@ export function MarketingPage({
   function selectStrategy(item: StrategyItem) {
     setSelectedRank(item.rank);
     setDetailTab("why");
+    setDrillLayer("a1");
+    setExpandedFactor(0);
+    setExpandedRule(null);
     setActionTab("progress");
     setLastSimulation(null);
     void loadPrediction(strategyCustomerId, item, strategyDate);
@@ -537,6 +563,7 @@ export function MarketingPage({
         body: JSON.stringify({
           event_type: "sent",
           strategy_id: selectedStrategy.strategy_id,
+          business_date: businessDate,
         }),
       });
       notify("本次联系已完成，系统开始等待客户购买回流");
@@ -563,6 +590,7 @@ export function MarketingPage({
           product_id: selectedStrategy.product_id,
           buy_date: simulationDate,
           amount: simulationAmount,
+          business_date: businessDate,
         }),
       });
       setShowSimulation(false);
@@ -613,13 +641,11 @@ export function MarketingPage({
       const data = await api<{
         total: number;
         customers: RosterRow[];
-        dates: { date: string; scope: string }[];
       }>(`/marketing/roster?${params.toString()}`);
       if (requestId !== rosterRequestId.current) return;
       setRoster(data.customers);
       setRosterTotal(data.total);
       setRosterPage(page);
-      if (data.dates.length) setRosterDates(data.dates);
     } catch (error) {
       if (requestId === rosterRequestId.current) {
         notify(`模型机会池加载失败：${(error as Error).message}`);
@@ -631,7 +657,7 @@ export function MarketingPage({
 
   function openOpportunityPool() {
     const filters = {
-      date: rosterDate,
+      date: businessDate,
       keyword: rosterQuery,
       channel: rosterChannel,
     };
@@ -642,7 +668,7 @@ export function MarketingPage({
 
   function applyRosterFilters() {
     const filters = {
-      date: rosterDate,
+      date: businessDate,
       keyword: rosterQuery,
       channel: rosterChannel,
     };
@@ -661,6 +687,7 @@ export function MarketingPage({
         body: JSON.stringify({
           customer_id: strategyCustomerId,
           manager_quota: quota,
+          business_date: businessDate,
         }),
       });
       if (requestId === generationRequestId.current) {
@@ -697,38 +724,48 @@ export function MarketingPage({
   const riskReason = selectedStrategy?.rule_trace.find(
     (rule) => rule.rule_id === "risk_match",
   )?.reason;
-  const evidenceReasons = selectedStrategy
-    ? [
-        predictionEvidence
-          ? `A1 对当前客户 × ${selectedStrategy.product_id} × ${channelNames[selectedStrategy.recommended_channel]} 的在线复核概率为 ${percent(predictionEvidence.probability)}，${predictionEvidence.decision_label}。`
-          : "产品级在线复核暂未完成；任务池中的客户最高机会分不替代当前产品概率。",
-        riskReason ?? `客户风险偏好 ${riskAppetite}，产品风险 ${selectedStrategy.risk_level}。`,
-        `建议通过${channelNames[selectedStrategy.recommended_channel]}在${selectedStrategy.recommended_time}联系，渠道、时段和执行规则已逐项留痕。`,
-      ]
-    : [];
+  const localFactors: PredictionFactor[] = predictionEvidence?.local_factors?.length
+    ? predictionEvidence.local_factors
+    : (predictionEvidence?.reasons ?? [])
+      .filter((reason) => !reason.includes("全局重要性") && !reason.includes("模型整体"))
+      .map((reason, index) => ({
+        feature: `factor_${index + 1}`,
+        label: reason.split("：")[0] || `影响因子 ${index + 1}`,
+        direction: reason.includes("降低") ? "negative" : reason.includes("提升") ? "positive" : "neutral",
+        contribution: 0,
+        reason,
+      }));
+  // 下钻主概率必须与日批排名同口径；在线说明只补充因子。
+  const selectedA1Probability = selectedStrategy?.model_prob ?? predictionEvidence?.probability;
+  const explanationMethod = predictionEvidence?.explanation_method === "tree_shap"
+    ? "TreeSHAP 单次贡献"
+    : predictionEvidence?.explanation_method === "linear_contribution"
+      ? "线性模型单次贡献"
+      : "当前请求局部解释";
 
   return (
     <section className="manager-marketing-shell">
       <header className="manager-marketing-head">
         <div className="manager-title">
           <small>今日客户运营 · 客户经理 MGR001</small>
-          <h1>今日营销工作台</h1>
+          <h1>营销运营工作台</h1>
           <p>优先处理高机会客户，完成策略选择、客户触达与转化追踪。</p>
         </div>
         <div className="manager-kpis">
           <div><small>客户池</small><strong>{formatNumber(taskPopulation)}</strong><span>覆盖全部可运营客户</span></div>
           <div><small>高机会覆盖</small><strong>{formatNumber(modelCoveredCustomers)}</strong><span>A1 已完成机会评分</span></div>
           <div><small>已转化</small><strong>{eventServiceAvailable ? formatNumber(summary?.events.responded_customers ?? summary?.events.responded) : "—"}</strong><span>{eventServiceAvailable ? "购买回流自动归因" : "事件服务暂不可用"}</span></div>
-          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>A2 正式目标 {formatNumber(officialTargetCount)} 人</span></div>
+          <div className="target"><small>本月目标</small><strong>{eventServiceAvailable ? formatNumber(managerKpi?.actual) : "—"}<i>/ {formatNumber(managerKpi?.target ?? 30)}</i></strong><span>数仓策略已就绪 {formatNumber(strategyReadyCount)} 人</span></div>
         </div>
         <div className="manager-head-actions">
-          <button onClick={openOpportunityPool}><span><b>机会客户池</b><small>查看 A1 排序</small></span><i>›</i></button>
-          <button onClick={() => setDrawer("model")}><span><b>模型证据</b><small>口径与数据链路</small></span><i>›</i></button>
+          <button onClick={openOpportunityPool}><b>机会客户池</b><i>›</i></button>
+          <button onClick={() => setDrawer("model")}><b>模型与数据证据</b><i>›</i></button>
           {onOpenDashboard && (
-            <button onClick={onOpenDashboard}><span><b>去看板复盘</b><small>目标与机会全貌</small></span><i>›</i></button>
+            <button onClick={onOpenDashboard}><b>去看板复盘</b><i>›</i></button>
           )}
         </div>
       </header>
+      {historical && <div className="historical-snapshot-note"><b>{businessDate} 历史快照</b><span>客户、机会和策略均按该日口径展示；触达、归因和实时策略操作已锁定。</span></div>}
 
       <div className="manager-workspace">
         <aside className="task-pane">
@@ -778,32 +815,32 @@ export function MarketingPage({
               return (
                 <button
                   className={strategyCustomerId === task.customer_id ? "task-card selected" : "task-card"}
-                  disabled={busy}
+                  disabled={busy || !task.strategy_ready}
                   key={task.customer_id}
                   onClick={() => void loadStrategies(task.customer_id, undefined, task)}
                 >
                   <span className="task-card-head">
                     <b>{task.customer_id}</b>
                     <span className="task-card-badges">
-                      {task.official_target && <em className="a2">A2目标</em>}
-                      {!task.official_target && task.strategy_ready && <em className="ready">Top3就绪</em>}
+                      {task.strategy_ready && <em className="ready">Top3就绪</em>}
+                      {!task.strategy_ready && <em className="a2">待跑批</em>}
                       <em className={task.status}>{taskStatusNames[task.status]}</em>
                     </span>
                   </span>
                   <span className="task-card-opportunity">
                     <span>
                       <small>首选机会</small>
-                      <strong>{task.opportunity_product_name ?? "可实时生成策略"}</strong>
+                      <strong>{task.opportunity_product_name ?? "等待下次日批"}</strong>
                     </span>
                     <em className={task.opportunity_score == null ? "live" : ""}>
-                      <b>{task.opportunity_score == null ? "实时" : percent(task.opportunity_score)}</b>
-                      <small>{task.opportunity_score == null ? "计算" : "机会分"}</small>
+                      <b>{task.opportunity_score == null ? "待评分" : percent(task.opportunity_score)}</b>
+                      <small>{task.opportunity_score == null ? "日批" : "机会分"}</small>
                     </em>
                   </span>
                   <small className="task-card-meta">{task.vip_level} · {task.risk_appetite} · {opportunityChannel}</small>
                   <span className="task-signal">
                     <i><b style={{ width: `${(task.opportunity_score ?? 0) * 100}%` }} /></i>
-                    <em>{task.opportunity_score == null ? "点击客户后生成 Top3" : "A1 客户最高机会"}</em>
+                    <em>{task.opportunity_score == null ? "等待策略批处理覆盖" : "A1 客户最高机会"}</em>
                   </span>
                 </button>
               );
@@ -825,32 +862,26 @@ export function MarketingPage({
             <span>
               <small className="strategy-source-line">
                 {strategyCustomerId && (
-                  <i className={strategyOfficialTarget ? "official" : "live"}>
-                    {strategyOfficialTarget ? "A2目标 · 正式Top3" : "全量客户 · 实时Top3"}
+                  <i className="official">
+                    全量客户 · 数仓日批Top3
                   </i>
                 )}
                 当前客户
               </small>
               <strong>{strategyCustomerId || "请选择左侧客户任务"}</strong>
-              <em>{strategyCustomerId ? `${selectedTask?.vip_level ?? customerVipLevel} · 风险偏好 ${riskAppetite} · ${strategyOfficialTarget ? "策略日" : "计算日"} ${strategyDate}` : "按客户最高机会分排序，点击后查看Top3"}</em>
+              <em>{strategyCustomerId ? `${selectedTask?.vip_level ?? customerVipLevel} · 风险偏好 ${riskAppetite} · 策略批次 ${strategyDate}` : "按客户最高机会分排序，点击后查看Top3"}</em>
             </span>
             <div className="customer-context-actions">
-              <input
-                aria-label="跳转客户编号"
-                value={strategyInput}
-                onChange={(event) => setStrategyInput(event.target.value)}
-              />
-              <button disabled={busy} onClick={() => void loadStrategies(strategyInput)}>跳转</button>
               <button disabled={!strategyCustomerId || busy} onClick={() => onOpenCustomer(strategyCustomerId)}>查看画像</button>
-              <button disabled={!strategyCustomerId || busy} className="lab" onClick={() => setDrawer("lab")}>策略试算</button>
+              <button disabled={historical || !strategyCustomerId || busy} className="lab" title={historical ? "历史快照只读" : undefined} onClick={() => setDrawer("lab")}>策略试算</button>
             </div>
           </header>
 
           {strategyLoading ? (
             <div className="strategy-loading-new">
               <i />
-              <b>{strategyOfficialTarget ? "正在加载正式 Top3" : "正在计算并冻结实时 Top3"}</b>
-              <p>{strategyOfficialTarget ? "读取赛事正式提交结果与执行规则。" : "首次打开会基于当前客户特征生成，后续直接复用同一快照。"}</p>
+              <b>正在加载数仓 Top3</b>
+              <p>读取所选业务日的A1评分、A2基础规则轨迹与最终执行策略。</p>
             </div>
           ) : selectedStrategy ? (
             <>
@@ -871,7 +902,7 @@ export function MarketingPage({
               <article className="strategy-detail">
                 <header className="strategy-detail-head">
                   <div>
-                    <small>{strategySource === "official_submission" ? "正式提交策略" : "实时策略快照"} · TOP {selectedStrategy.rank}</small>
+                    <small>数仓日批策略 · TOP {selectedStrategy.rank}</small>
                     <h2>{selectedStrategy.product_name}</h2>
                     <p>{selectedStrategy.product_type ?? "财富产品"} · 风险 {selectedStrategy.risk_level} · 预期年化 {percent(selectedStrategy.expected_return)}</p>
                   </div>
@@ -882,7 +913,7 @@ export function MarketingPage({
                 </header>
 
                 <nav className="strategy-detail-tabs">
-                  <button className={detailTab === "why" ? "on" : ""} onClick={() => setDetailTab("why")}>为什么推荐</button>
+                  <button className={detailTab === "why" ? "on" : ""} onClick={() => setDetailTab("why")}>策略下钻</button>
                   <button className={detailTab === "compliance" ? "on" : ""} onClick={() => setDetailTab("compliance")}>合规检查 <i>{selectedPassedRules.length}/{selectedStrategy.rule_trace.length}</i></button>
                   <button className={detailTab === "script" ? "on" : ""} onClick={() => setDetailTab("script")}>执行话术</button>
                 </nav>
@@ -890,27 +921,103 @@ export function MarketingPage({
                 <div className="strategy-detail-body">
                   {detailTab === "why" && (
                     <div className="why-view">
-                      <div className="signal-cards">
-                        <article><small>A1产品级在线复核</small><strong>{evidenceLoading ? "计算中" : predictionEvidence ? percent(predictionEvidence.probability) : "待复核"}</strong><span>{predictionEvidence?.decision_label ?? (selectedTask?.response_prob != null ? `任务池客户最高机会 ${percent(selectedTask.response_prob)}` : "该客户不在A1测试触达中")}</span></article>
-                        <article><small>客户风险偏好</small><strong>{riskAppetite}</strong><span>产品风险 {selectedStrategy.risk_level}</span></article>
-                        <article><small>产品吸引力</small><strong>{percent(selectedStrategy.expected_return)}</strong><span>预期年化收益</span></article>
-                        <article><small>执行适配</small><strong>{channelNames[selectedStrategy.recommended_channel]}</strong><span>{selectedStrategy.recommended_time}</span></article>
-                      </div>
-                      <section className="recommendation-reasons">
-                        <header><small>个性化解释</small><h3>为什么适合向该客户推荐</h3></header>
-                        <ul>
-                          {evidenceReasons.map((reason, index) => (
-                            <li key={`${reason}-${index}`}><b>{index + 1}</b><span>{reason}</span></li>
-                          ))}
-                        </ul>
-                      </section>
-                      {predictionEvidence?.reasons?.length ? (
-                        <details className="model-reason-details">
-                          <summary>查看模型层重要因子</summary>
-                          <p>以下为模型全局重要性证据，用于解释模型整体，不等同于单客户的因果归因。</p>
-                          <ul>{predictionEvidence.reasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-                        </details>
-                      ) : null}
+                      <nav className="drill-stepper" aria-label="策略形成过程">
+                        <button className={drillLayer === "a1" ? "on" : ""} onClick={() => setDrillLayer("a1")}>
+                          <i>1</i><span><small>A1 意愿预测</small><strong>{evidenceLoading ? "计算中" : selectedA1Probability != null ? percent(selectedA1Probability) : "待复核"}</strong></span>
+                        </button>
+                        <b>›</b>
+                        <button className={drillLayer === "a2" ? "on" : ""} onClick={() => setDrillLayer("a2")}>
+                          <i>2</i><span><small>A2 规则筛选</small><strong>{selectedFailedRules.length ? "需复核" : `${selectedPassedRules.length} 项通过`}</strong></span>
+                        </button>
+                        <b>›</b>
+                        <button className={drillLayer === "strategy" ? "on" : ""} onClick={() => setDrillLayer("strategy")}>
+                          <i>3</i><span><small>形成可执行策略</small><strong>TOP {selectedStrategy.rank}</strong></span>
+                        </button>
+                      </nav>
+
+                      {drillLayer === "a1" && (
+                        <section className="drill-panel a1-drill">
+                          <header className="drill-panel-head">
+                            <div><small>客户 × 产品 × 渠道</small><h3>这一次预测为什么得到这个概率</h3><p>以下只解释当前客户与当前产品的本次预测，不是全局模型重要性。</p></div>
+                            <aside><strong>{evidenceLoading ? "…" : selectedA1Probability != null ? percent(selectedA1Probability) : "—"}</strong><span>{predictionEvidence?.decision_label ?? "等待 A1 在线复核"}</span></aside>
+                          </header>
+                          {evidenceLoading ? (
+                            <div className="factor-loading">正在按 {strategyDate} 的 as-of 口径生成单客户局部解释…</div>
+                          ) : localFactors.length ? (
+                            <div className="local-factor-list">
+                              <header><span>本次预测的主要影响因子</span><small>{explanationMethod} · 点击查看关系</small></header>
+                              {localFactors.map((factor, index) => (
+                                <button
+                                  className={`${factor.direction} ${expandedFactor === index ? "expanded" : ""}`}
+                                  key={`${factor.feature}-${index}`}
+                                  onClick={() => setExpandedFactor(expandedFactor === index ? null : index)}
+                                >
+                                  <i>{factor.direction === "positive" ? "↑" : factor.direction === "negative" ? "↓" : "·"}</i>
+                                  <span><strong>{factor.label}</strong><small>{expandedFactor === index ? factor.reason : "点击查看该因子与本次推荐的关系"}</small></span>
+                                  <em>{factor.contribution ? `${factor.contribution > 0 ? "+" : ""}${factor.contribution.toFixed(3)}` : "查看"}</em>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="factor-empty">A1 局部解释暂不可用；概率结果仍可用于排序，但不展示无法核验的归因。</div>
+                          )}
+                          {predictionEvidence?.warnings?.map((warning) => <p className="prediction-warning" key={warning}>{warning}</p>)}
+                        </section>
+                      )}
+
+                      {drillLayer === "a2" && (
+                        <section className="drill-panel a2-drill">
+                          <header className="drill-panel-head">
+                            <div><small>A1 排序结果 → A2 业务约束</small><h3>高概率不等于可以直接联系</h3><p>A2 不重复预测意愿，而是在 A1 优先级基础上检查风险、准入、渠道、时段与话术限制。</p></div>
+                            <aside className={selectedFailedRules.length ? "warn" : "pass"}><strong>{selectedPassedRules.length}/{selectedStrategy.rule_trace.length}</strong><span>{selectedFailedRules.length ? "需要人工复核" : "当前策略可执行"}</span></aside>
+                          </header>
+                          <div className="a2-summary-flow">
+                            <span><small>A1 原始排名</small><b>#{selectedStrategy.a1_rank ?? "—"} · {selectedA1Probability != null ? percent(selectedA1Probability) : "—"}</b></span>
+                            <i>规则过滤</i>
+                            <span><small>A2 保留结果</small><b>TOP {selectedStrategy.rank}</b></span>
+                          </div>
+                          {selectedStrategy.selection_reason && <p className="prediction-warning">{selectedStrategy.selection_reason}</p>}
+                          <div className="rule-drill-list">
+                            <header><span>当前策略的规则证据</span><small>点击规则查看判断依据</small></header>
+                            {selectedStrategy.rule_trace.map((rule) => (
+                              <button
+                                className={`${rule.passed ? "passed" : "failed"} ${expandedRule === rule.rule_id ? "expanded" : ""}`}
+                                key={rule.rule_id}
+                                onClick={() => setExpandedRule(expandedRule === rule.rule_id ? null : rule.rule_id)}
+                              >
+                                <i>{rule.passed ? "✓" : "!"}</i>
+                                <span><strong>{ruleNames[rule.rule_id] ?? rule.rule_id}</strong><small>{expandedRule === rule.rule_id ? rule.reason : "查看本客户与本策略的规则判断"}</small></span>
+                                <em>{rule.passed ? "通过" : "复核"}</em>
+                              </button>
+                            ))}
+                          </div>
+                          <button className="drill-link" onClick={() => setDetailTab("compliance")}>查看全部合规证据与执行状态</button>
+                        </section>
+                      )}
+
+                      {drillLayer === "strategy" && (
+                        <section className="drill-panel strategy-drill">
+                          <header className="drill-panel-head">
+                            <div><small>模型信号与规则证据汇合</small><h3>客户经理最终应该怎么做</h3><p>把“推荐什么”与“怎么联系”放在同一条可执行路径中。</p></div>
+                            <aside className="pass"><strong>TOP {selectedStrategy.rank}</strong><span>{selectedFailedRules.length ? "执行前需复核" : "可进入触达"}</span></aside>
+                          </header>
+                          <div className="strategy-relationship">
+                            <article><small>客户</small><strong>{strategyCustomerId}</strong><span>{customerVipLevel} · 风险偏好 {riskAppetite}</span></article>
+                            <i>匹配</i>
+                            <article><small>产品</small><strong>{selectedStrategy.product_name}</strong><span>{selectedStrategy.risk_level} · 年化 {percent(selectedStrategy.expected_return)}</span></article>
+                            <i>执行</i>
+                            <article><small>触达</small><strong>{channelNames[selectedStrategy.recommended_channel]}</strong><span>{selectedStrategy.recommended_time}</span></article>
+                          </div>
+                          <div className="manager-conclusion">
+                            <b>给客户经理的一句话</b>
+                            <p>{riskReason ?? `客户风险偏好为 ${riskAppetite}，当前产品风险等级为 ${selectedStrategy.risk_level}`}；A1 对本次组合的响应倾向为 {selectedA1Probability != null ? percent(selectedA1Probability) : "待在线复核"}，建议在 {selectedStrategy.recommended_time} 通过{channelNames[selectedStrategy.recommended_channel]}完成联系。</p>
+                          </div>
+                          <div className="strategy-drill-actions">
+                            <button onClick={() => setDetailTab("script")}>查看并复制执行话术</button>
+                            <button onClick={() => setDetailTab("compliance")}>复核规则证据</button>
+                          </div>
+                        </section>
+                      )}
                       <div className="asof-note"><b>严格 as-of</b><span>客户持仓、行为和历史触达均截断在 {strategyDate} 之前；在线复核与离线训练共用特征口径。</span></div>
                     </div>
                   )}
@@ -952,7 +1059,7 @@ export function MarketingPage({
               </article>
             </>
           ) : (
-            <div className="strategy-empty-new"><b>先从左侧选择一位高机会客户</b><p>系统会读取正式结果或实时生成 Top3，再由客户经理选择一条策略执行联系。</p></div>
+            <div className="strategy-empty-new"><b>先从左侧选择一位高机会客户</b><p>系统会读取 {businessDate} 的数仓日批 Top3 与规则轨迹，再由客户经理选择一条策略执行联系。</p></div>
           )}
         </section>
 
@@ -998,10 +1105,10 @@ export function MarketingPage({
                         <h3>按推荐渠道完成本次客户联系</h3>
                         <p>完成后系统将记录联系事实，并等待客户购买数据自动回流。</p>
                         <button
-                          disabled={busy || selectedStrategy.execution_enabled === false || selectedFailedRules.length > 0}
+                          disabled={historical || busy || selectedStrategy.execution_enabled === false || selectedFailedRules.length > 0}
                           onClick={() => void completeContact()}
                         >
-                          {busy ? "处理中…" : strategyOfficialTarget ? "完成本次联系" : `采用 TOP ${selectedStrategy.rank} 并完成联系`}
+                          {busy ? "处理中…" : `采用 TOP ${selectedStrategy.rank} 并完成联系`}
                         </button>
                         {selectedFailedRules.length > 0 && <em>请先在“合规检查”中完成人工复核</em>}
                       </div>
@@ -1014,7 +1121,7 @@ export function MarketingPage({
                         <details>
                           <summary>答辩演示工具</summary>
                           <span>仅用于模拟核心业务系统回传一笔新增持仓。</span>
-                          <button onClick={() => setShowSimulation(true)}>模拟系统收到新增持仓</button>
+                          <button disabled={historical} onClick={() => setShowSimulation(true)}>模拟系统收到新增持仓</button>
                         </details>
                       </div>
                     )}
@@ -1053,13 +1160,15 @@ export function MarketingPage({
                   <div className="lineage-view">
                     <p>业务人员看到的是任务状态，系统在后台保留完整可审计链路。</p>
                     {[
-                      ["个性化策略", strategySource === "official_submission" ? "partA_strategy · 正式Top3" : "app_marketing_strategy · 实时Top3快照"],
+                      ["A1全量评分", "ads_a1_customer_product_score · 客户×产品"],
+                      ["A2规则决策", "ads_a2_candidate_decision · 通过/过滤证据"],
+                      ["可执行Top3", "ads_marketing_strategy · 日批策略"],
                       ["客户联系事实", "app_campaign_event · sent"],
                       ["新增持仓回流", "t_holding（生产）/ app_demo_holding（演示）"],
                       ["自动响应归因", "app_campaign_event · responded"],
                       ["经营指标更新", "dashboard · KPI重新聚合"],
-                    ].map((item, index) => (
-                      <div className="lineage-node" key={item[0]}><i>{index + 1}</i><span><b>{item[0]}</b><small>{item[1]}</small></span>{index < 4 && <em>↓</em>}</div>
+                    ].map((item, index, lineage) => (
+                      <div className="lineage-node" key={item[0]}><i>{index + 1}</i><span><b>{item[0]}</b><small>{item[1]}</small></span>{index < lineage.length - 1 && <em>↓</em>}</div>
                     ))}
                   </div>
                 )}
@@ -1072,6 +1181,13 @@ export function MarketingPage({
               </div>
             </>
           )}
+          {!selectedStrategy && (
+            <div className="action-empty">
+              <i>1</i>
+              <b>先选择客户与策略</b>
+              <p>左侧选择客户，中间确认 Top3 推荐后，这里会给出唯一的下一步行动。</p>
+            </div>
+          )}
         </aside>
       </div>
 
@@ -1082,7 +1198,7 @@ export function MarketingPage({
               <div>
                 <small>评委验收与高级能力</small>
                 <h2>{drawer === "opportunities" ? "A1 模型机会池" : drawer === "model" ? "模型与数据证据" : "实时策略试算"}</h2>
-                <p>{drawer === "opportunities" ? "A1触达评分用于机会排序；任一客户都可回到主工作台查看Top3，A2目标仅作为赛事正式提交标识。" : drawer === "model" ? "展示时间截断、模型指标和从数据到任务的形成过程。" : "调整模型与运营参数，观察当前客户Top3变化；不会覆盖已冻结策略或赛事提交文件。"}</p>
+                <p>{drawer === "opportunities" ? `查看 ${businessDate} A1日批的客户产品机会，并查看候选是否通过A2基础规则。` : drawer === "model" ? "展示时间截断、模型指标和从数据到任务的形成过程。" : "调整运营参数，现场试算A1排名和规则过滤后Top3；不覆盖ADS日批。"}</p>
               </div>
               <button aria-label="关闭抽屉" onClick={() => setDrawer(null)}>×</button>
             </header>
@@ -1090,9 +1206,7 @@ export function MarketingPage({
             {drawer === "opportunities" && (
               <div className="opportunity-drawer-body">
                 <div className="opportunity-toolbar">
-                  <select aria-label="模型名单日期" value={rosterDate} onChange={(event) => setRosterDate(event.target.value)}>
-                    {(rosterDates.length ? rosterDates : [{ date: "2026-04-15", scope: "submitted" }]).map((item) => <option key={item.date} value={item.date}>{item.date}{item.scope === "submitted" ? " · 提交版" : " · 历史回放"}</option>)}
-                  </select>
+                  <span className="roster-business-date"><small>业务日期</small><b>{businessDate}</b></span>
                   <input value={rosterQuery} onChange={(event) => setRosterQuery(event.target.value)} placeholder="客户ID / 产品" />
                   <select aria-label="模型名单渠道" value={rosterChannel} onChange={(event) => setRosterChannel(event.target.value)}>
                     <option value="">全部渠道</option>
@@ -1110,7 +1224,7 @@ export function MarketingPage({
                           <td><b>{row.product_name}</b><small>{row.product_id} · {row.risk_level}</small></td>
                           <td>{channelNames[row.channel]}</td>
                           <td><strong>{percent(row.response_prob)}</strong></td>
-                          <td><Status warn={false}>{row.strategy_eligible ? "A2目标" : "全量客户"}</Status></td>
+                          <td><Status warn={!row.strategy_eligible}>{row.strategy_eligible ? "规则通过" : "已过滤"}</Status></td>
                           <td><button onClick={() => { setDrawer(null); void loadStrategies(row.customer_id); }}>查看Top3</button></td>
                         </tr>
                       ))}
@@ -1133,12 +1247,12 @@ export function MarketingPage({
                   {[
                     ["ODS/DWD业务数据", "客户、产品、持仓、行为、历史触达"],
                     ["严格时间截断", "所有特征严格早于 contact_date / strategy_date"],
-                    ["A1 响应预测", "8,000 条触达记录生成认购概率"],
-                    ["统一策略服务", "A2 2,000 人读取正式 Top3，其余客户按需生成并冻结"],
+                    ["A1 响应预测", "全量客户×30产品生成响应概率与排名"],
+                    ["A2 基础规则", "按风险、产品准入、客户状态与起投能力过滤"],
                     ["客户经理任务", "策略下钻、联系执行、自动归因与KPI"],
                   ].map((item, index) => <article key={item[0]}><b>{index + 1}</b><span><strong>{item[0]}</strong><small>{item[1]}</small></span>{index < 4 && <i>→</i>}</article>)}
                 </div>
-                <div className="model-proof-note"><b>可复现证据</b><span>统一分析基准日 2026-03-31，策略日 2026-04-15，训练与推理共用特征工程，模型与特征版本随 ADS 结果留存。</span></div>
+                <div className="model-proof-note"><b>可复现证据</b><span>当前业务日期 {businessDate}；日批覆盖截至当日已注册的全部客户，训练与推理共用特征工程，模型与特征版本随 ADS 结果留存。</span></div>
               </div>
             )}
 
@@ -1146,19 +1260,19 @@ export function MarketingPage({
               <div className="lab-drawer-body">
                 <div className="lab-controls">
                   <label>客户经理配额 <b>{formatNumber(quota)}</b><input type="number" min="0" max="6000" step="100" value={quota} onChange={(event) => { generationRequestId.current += 1; setGenerating(false); setGenerated(null); setQuota(Number(event.target.value)); }} /></label>
-                  <button disabled={generating || !strategyCustomerId} onClick={() => void regenerate()}>{generating ? "模型计算中…" : "运行实时策略"}</button>
+                  <button disabled={historical || generating || !strategyCustomerId} onClick={() => void regenerate()}>{generating ? "模型计算中…" : "运行实时策略"}</button>
                 </div>
                 {generated ? (
                   <div className="lab-compare">
-                    <header><b>当前 Top3 vs 参数试算</b><Status>{generated.parameters.ranking_source === "ltr" ? "LTR排序" : "A1概率回退"}</Status></header>
+                    <header><b>当前 Top3 vs 参数试算</b><Status>A1概率排序</Status></header>
                     {[1, 2, 3].map((rank) => {
                       const before = strategies.find((item) => item.rank === rank);
                       const after = generated.items.find((item) => item.rank === rank);
                       if (!after) return null;
                       const changed = before?.product_id !== after.product_id;
-                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{after.ltr_score != null ? metric(after.ltr_score, 3) : percent(after.model_prob)}<small>{after.ltr_score != null ? "LTR 分" : "A1 概率"}</small></em></article>;
+                      return <article key={rank}><b>TOP {rank}</b><span><small>当前快照</small><strong>{before ? `${before.product_id} ${before.product_name}` : "—"}</strong></span><i>→</i><span><small>参数试算</small><strong className={changed ? "changed" : ""}>{after.product_id} {after.product_name}</strong></span><em>{percent(after.model_prob)}<small>A1 概率</small></em></article>;
                     })}
-                    <p>产品排序 = LTR 学习排序模型分（回退 A1 概率）；渠道、时段和话术再由规则引擎回验。</p>
+                    <p>产品按A1概率排序，再用基础业务规则过滤；渠道、时段和话术继续由规则引擎校验。</p>
                   </div>
                 ) : <div className="lab-waiting"><b>等待运行策略试算</b><p>该能力用于现场展示运营参数变化如何驱动策略结果变化。</p></div>}
               </div>
@@ -1175,7 +1289,7 @@ export function MarketingPage({
             <label>购买日期<input type="date" value={simulationDate} onChange={(event) => setSimulationDate(event.target.value)} /></label>
             <label>购买金额<input type="number" min="1" step="1000" value={simulationAmount} onChange={(event) => setSimulationAmount(Number(event.target.value))} /></label>
             <p>模拟记录只写入演示持仓表，不修改赛事原始持仓数据。命中 Top3 且处于 30 天窗口内时，客户经理 KPI 才会增加。</p>
-            <footer><button onClick={() => setShowSimulation(false)}>取消</button><button className="primary" disabled={busy} onClick={() => void simulateHolding()}>{busy ? "正在归因…" : "确认回传并自动归因"}</button></footer>
+            <footer><button onClick={() => setShowSimulation(false)}>取消</button><button className="primary" disabled={historical || busy} onClick={() => void simulateHolding()}>{busy ? "正在归因…" : "确认回传并自动归因"}</button></footer>
           </section>
         </div>
       )}

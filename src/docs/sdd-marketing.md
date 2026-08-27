@@ -12,27 +12,34 @@
 
 | 指标 | 满分 | 地板 | 低锚点→分 | 高锚点→分 | 当前验证值 |
 |------|------|------|-----------|-----------|------|
-| AUC | 17 | 3.4 | 0.79→6.8 | 0.85→17 | **0.8619** ✅ |
-| F1（3 位小数阈值扫描） | 7 | 1.4 | 0.50→2.8 | 0.615→7 | **0.595**（约 6.3 分） |
-| Lift@10% | 6 | 1.2 | 2.6→2.4 | 3.3→6 | **3.738** ✅ |
+| AUC | 17 | 3.4 | 0.79→6.8 | 0.85→17 | **0.8828** ✅ |
+| F1（3 位小数阈值扫描） | 7 | 1.4 | 0.50→2.8 | 0.615→7 | **0.6185** ✅ |
+| Lift@10% | 6 | 1.2 | 2.6→2.4 | 3.3→6 | **4.0047** ✅ |
 
 格式红线（违者 A1 记 0 分）：精确覆盖全部 contact_id、不重复不多交、概率 ∈ [0,1]、≤5 MiB。当前提交文件已通过全部自校验。
 
-## 2. A1 特征规格（`src/a1_features.py`，v1）
+## 2. A1 特征规格（`src/partA1serving/`，schema v3）
 
-**48 个特征 = 16 类别 + 32 数值**，训练/推理共用，`FEATURE_VERSION = "a1_features_v1"`。
+**46 个特征 = 13 类别 + 33 数值**，训练/推理共用；模型工件的
+`schema_version = 3`，并记录特征列顺序与 as-of 截止日期。
 
-- 类别：客户画像 6 + 产品属性 4 + 触达属性 3 + 交互特征 3（`product_channel` / `risk_pair` / `vip_channel`）
-- 数值：基础 6、时点 2、匹配度 4、持仓 5、行为 7、历史营销 8（含 Beta(2,8) 平滑响应率）
-- **as-of 三道防线**：持仓 `buy_date < contact_date`；事件 `event_date < contact_date` 且按 30/90 天窗口；历史触达 `< 当前 contact_date`；验证按日期后 20% 留出（cutoff 2026-01-14）
+- 类别：触达渠道、产品 ID/类型/风险/流动性、6 项客户画像、2 项交叉特征，共 13 项。
+- 数值：客户与产品基础数值、风险/起投/收益匹配、持仓与行为统计、历史营销平滑响应率，共 33 项。
+- **as-of 三道防线**：持仓 `buy_date < contact_date`；事件 `event_date < contact_date` 且按窗口聚合；历史触达 `< 当前 contact_date`；验证按日期留出（cutoff 2026-02-01）。
 
-## 3. A1 训练规格（`src/pipelines/train_a1_baseline.py`）
+## 3. A1 训练规格（`src/partA1serving/training/`）
 
-LogisticRegression（class_weight=balanced, lbfgs, max_iter=2000, random_state=42），时间留出验证（训练 40095 / 验证 9905），评估口径与后台一致（3 位小数阈值扫描 F1、前 10% Lift）。产物：`src/data/outputs/a1_baseline.joblib`（含版本元数据）+ 指标 JSON + 全局系数 CSV。
+主模型为 one-hot LightGBM，固定 `random_state=42`；demo 工件按 2026-02-01
+切分训练 42642 行、验证 7358 行，full 工件使用 50000 行历史触达训练。
+评估口径为 3 位小数阈值扫描 F1 与前 10% Lift。LR 工件作为可解释基线保留，
+两类工件都携带模型名、特征顺序、训练范围与 as-of 元数据。
 
-## 4. A1 推理规格（`src/a1_inference.py`）
+## 4. A1 推理规格（`src/partA1serving/predictor.py`）
 
-MySQL DWD / CSV 双数据源共用特征构建器；模型/特征版本双重校验；输出 `partA_prediction.csv`（12 位小数）并回读自校验；局部解释审计（top±5 因子 + 证据字段）落 `a1_prediction_audit.csv`；可选持久化 `ads_marketing_response_score`（含 explanation_json）。
+离线 CSV 与 Flask/MySQL 在线模式共用特征服务；模型/特征版本双重校验。
+正式批量入口输出 `partA_prediction.csv` 并回读自校验；在线预测返回当前
+客户×产品×渠道的局部解释。业务日批的全量概率统一写入
+`ads_a1_customer_product_score`。
 
 ---
 
@@ -45,17 +52,16 @@ MySQL DWD / CSV 双数据源共用特征构建器；模型/特征版本双重校
 
 ## 6. A2 设计哲学（v2 定稿）
 
-**模型管产品，规则管其余。**
-产品排序 = A1 模型概率 + 协同过滤相似度（纯信号，权重可调）；
-规则只做合规拦截、渠道/时段/话术决策、manager 配额与格式校验。
-队友若替换产品排序逻辑，只需换排序信号注入，引擎其余部分不受影响。
+**A1 管产品排序，A2 管业务可执行性。**
+产品排序只使用 A1 响应概率；A2 不再训练第二个排序模型，只执行风险、
+准入、起投能力、渠道、时段和话术规则，再形成过滤后的 Top3。
 
 ## 7. 两阶段流水线（`src/marketing/pipeline.py`，✅ 已实现）
 
 ```mermaid
 flowchart TB
     subgraph BATCH["阶段一：全局批次"]
-        S1["产品排序：A1 概率 + w_cf×CF 相似度"] --> S2["合规顺位过滤<br/>（偏好内优先，不足 3 个自动溢出 1 级）"]
+        S1["产品排序：A1 响应概率"] --> S2["基础规则过滤<br/>（风险、准入、起投能力）"]
         S2 --> S3["Top3 产品"]
         S3 --> S4["manager 配额分配<br/>（资格池价值排序 + 全局配额 600）"]
     end
@@ -68,26 +74,20 @@ flowchart TB
 - 全流程确定性执行（tie-break：product_id / customer_id 字典序），无随机数
 - 每客户产出 `StrategyResult`：items（策略行）+ steps（6 步轨迹）→ `to_dict()` 供看板直用
 
-## 8. 产品排序信号（§ 模型管产品）
+## 8. 产品排序信号
 
-```
-score = A1 response_prob + w_cf × cf_score        # 默认 w_cf = 0.3
-```
+`score(customer, product) = A1 response_prob`。每位客户对 30 个产品完成
+评分并保留原始 `a1_rank`；A2 只过滤不可执行候选，不修改概率，避免页面出现
+“队列概率”和“策略下钻概率”口径不一致。
 
-### 8.1 持有产品协同过滤（`src/marketing/collaborative.py`）
-
-- item-based 共持相似：`sim(i→j) = 同时持有 i、j 的客户数 / 持有 i 的客户数`（非对称）
-- `cf_score(c, j) = max{ sim(i→j) : i ∈ 客户持仓 }`，排除已持有产品，无持仓客户为 0（冷启动）
-- as-of：只统计 `buy_date < strategy_date` 的持仓
-- **数据证据**：推荐产品与持仓相似度中档（0.05~0.2）的触达响应率 24.3% vs 无信号 16.5%（+47%）；精确持有响应率 0.364 vs 0.180（2 倍，该信号归队友排序特征）
-
-## 9. 规则目录（`src/marketing/rules.py`，13 条，✅ 已实现）
+## 9. 规则目录（`src/marketing/rules.py`，14 条，✅ 已实现）
 
 | 类别 | rule_id | 硬/软 | 判定 |
 |------|---------|-------|------|
 | 合规 | `risk_match` | 硬 | 产品风险 ≤ 客户偏好；候选 <3 时自动溢出 1 级（`max_allowed_risk`） |
 | 合规 | `product_launched` | 硬 | launch_date ≤ strategy_date |
 | 合规 | `customer_registered` | 硬 | register_date ≤ strategy_date |
+| 合规 | `aum_affordability` | 硬 | 客户 AUM ≥ 产品起投金额 |
 | 记录 | `duration_valid` | 记录 | **仅留痕不拦截**：评分不校验存续期，产品池以发放 30 个为准 |
 | 记录 | `min_invest_affordable` | 记录 | 仅展示用，不参与 A2 评分 |
 | 渠道 | `channel_app_requires_app` | 硬 | app_push 要求 has_app=1 |
@@ -123,15 +123,18 @@ score = A1 response_prob + w_cf × cf_score        # 默认 w_cf = 0.3
 ## 12. 复现步骤
 
 ```bash
-# A1 训练
-uv run python -m src.pipelines.train_a1_baseline
-# A1 推理（CSV 源，离线复现）
-uv run python -m src.a1_inference --source csv
-# A2 策略生成（规则/流程引擎）
-uv run python -m src.marketing
+# A1 训练与提交预测
+uv run python -m src.partA1serving.training.train_and_save --profile all --model lgbm_onehot
+uv run python -m src.partA1serving.training.predict --model lgbm_onehot --out partA_prediction.csv
+# A2 提交文件
+uv run python -m src.marketing --predictions partA_prediction.csv --output partA_strategy.csv
+# 业务 ADS 日批
+uv run python -m src.scripts.run_marketing_batch --strategy-date 2026-04-15
 ```
 
-A2 产出：`partA_strategy.csv`（6000 行）+ `src/data/outputs/a2_strategy_audit.csv`（逐行分数/信号/溢出/渠道）+ `a2_cf_similarity.csv`（共持相似矩阵）。
+A2 离线产出 `partA_strategy.csv`（6000 行）和可选审计文件；业务日批产出
+`ads_a1_customer_product_score`、`ads_a2_candidate_decision`、
+`ads_marketing_strategy`。
 
 ## 13. 当前验证结果（2026-04-15 as-of 口径）
 
@@ -148,4 +151,7 @@ A2 产出：`partA_strategy.csv`（6000 行）+ `src/data/outputs/a2_strategy_au
 
 ## 14. A 链路测试
 
-`tests/test_marketing_rules.py`（13 条规则正反/边界）、`test_marketing_collaborative.py`（方向性相似度/as-of/自持有排除）、`test_marketing_pipeline.py`（溢出补齐、配额分配、渠道禁用、信号排序、确定性、轨迹）、`test_marketing_validate.py`（每条红线反例）；全仓 55 测试全绿。
+`tests/test_marketing_rules.py` 覆盖规则正反/边界，
+`test_marketing_pipeline.py` 覆盖溢出补齐、配额分配、渠道禁用、A1 排序、
+确定性与轨迹，`test_marketing_batch.py` 覆盖 ADS 批处理与 as-of 客户范围，
+`test_marketing_validate.py` 覆盖提交红线反例。

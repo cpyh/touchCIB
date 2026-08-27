@@ -67,9 +67,9 @@ class MarketingRulesTestCase(unittest.TestCase):
         context.update(overrides)
         return context
 
-    def test_catalog_has_13_rules_with_unique_ids(self):
+    def test_catalog_has_14_rules_with_unique_ids(self):
         metadata = self.engine.metadata()
-        self.assertEqual(len(metadata), 13)
+        self.assertEqual(len(metadata), 14)
         ids = [entry["rule_id"] for entry in metadata]
         self.assertEqual(len(ids), len(set(ids)))
 

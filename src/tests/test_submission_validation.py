@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.a1_inference import validate_prediction_file
+from src.scripts.check_submission import validate_prediction_file
 
 
-class A1InferenceTestCase(unittest.TestCase):
+class SubmissionValidationTestCase(unittest.TestCase):
     def test_prediction_validator_accepts_exact_coverage(self) -> None:
         expected = pd.DataFrame({"contact_id": ["KT1", "KT2"]})
         with tempfile.TemporaryDirectory() as directory:

@@ -43,12 +43,18 @@ def fake_connection(fetchone_results=None, fetchall_results=None):
 
 class CampaignEventTestCase(unittest.TestCase):
     def setUp(self):
-        # 用真实策略文件做校验（strategy_top3 与 strategy_date 来自仓库根 CSV）
-        from src.campaign import strategy_top3
-
-        self.top3 = strategy_top3()
-        self.customer_id = next(iter(self.top3))
+        self.customer_id = "C000001"
+        self.top3 = {self.customer_id: ("P001", "P002", "P003")}
         self.strategy_id = f"{self.customer_id}:1"
+        patchers = (
+            patch("src.campaign._known_customer_ids", return_value=frozenset({self.customer_id})),
+            patch("src.campaign.customer_top3", return_value=self.top3[self.customer_id]),
+            patch("src.campaign.customer_strategy_date", return_value=date(2026, 4, 15)),
+            patch("src.campaign.customer_strategy_channel", return_value="manager"),
+        )
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _top3_of_first_customer(self):
         return self.top3[self.customer_id]

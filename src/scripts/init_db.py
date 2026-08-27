@@ -211,37 +211,10 @@ def initialize_schema(database: str) -> None:
                 cursor.execute(statement)
             _migrate_ai_summary_columns(cursor)
             _migrate_campaign_event_response_dedupe(cursor)
-            _migrate_a2_ltr_column(cursor)
         finally:
             cursor.close()
     finally:
         connection.close()
-
-
-def _migrate_a2_ltr_column(cursor) -> None:
-    """幂等迁移：app_marketing_strategy 的协同过滤列改名为 LTR 学习排序列。
-
-    A2 产品排序主信号由协同过滤升级为 LTR 模型后，
-    CREATE TABLE IF NOT EXISTS 不会改旧表，这里做受检改名。
-    """
-    cursor.execute(
-        "SELECT COUNT(*) FROM information_schema.COLUMNS "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_marketing_strategy' "
-        "AND COLUMN_NAME = 'cf_score'"
-    )
-    if int(cursor.fetchone()[0]) == 0:
-        return
-    cursor.execute(
-        "SELECT COUNT(*) FROM information_schema.COLUMNS "
-        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_marketing_strategy' "
-        "AND COLUMN_NAME = 'ltr_score'"
-    )
-    if int(cursor.fetchone()[0]) == 0:
-        cursor.execute(
-            "ALTER TABLE app_marketing_strategy "
-            "CHANGE COLUMN cf_score ltr_score DECIMAL(16, 12) NOT NULL "
-            "COMMENT 'LTR学习排序信号'"
-        )
 
 
 def _migrate_ai_summary_columns(cursor) -> None:
@@ -404,7 +377,7 @@ def load_table(
     *,
     batch_id: str,
     batch_size: int,
-) -> int:
+) -> tuple[int, tuple[str, ...]]:
     csv_path = DATA_DIR / spec.csv_name
     if not csv_path.is_file():
         raise FileNotFoundError(f"Source file not found: {csv_path}")
@@ -440,7 +413,7 @@ def load_table(
                 cursor.executemany(statement, batch)
                 imported += len(batch)
 
-        return imported
+        return imported, tuple(sorted(seen_primary_keys))
     finally:
         cursor.close()
 
@@ -545,22 +518,39 @@ def load_preset_scenarios(connection: Connection) -> int:
     return len(rows)
 
 
-def database_batch_row_count(
+def database_source_row_count(
     connection: Connection,
-    table_name: str,
+    spec: TableSpec,
     batch_id: str,
+    source_primary_keys: tuple[str, ...],
+    *,
+    batch_size: int,
 ) -> int:
+    """Count only rows from this source snapshot.
+
+    ODS also accepts online customer ingress. Those rows may coexist with the
+    bundled source data and must not make a repeatable source import fail.
+    """
+    if not source_primary_keys:
+        return 0
+
     cursor = connection.cursor()
     try:
-        cursor.execute(
-            f"SELECT COUNT(*) FROM {quote_identifier(table_name)} "
-            "WHERE `etl_batch_id`=%s",
-            (batch_id,),
-        )
-        result = cursor.fetchone()
-        if result is None:
-            raise RuntimeError(f"Unable to count rows in {table_name}")
-        return int(result[0])
+        total = 0
+        primary_key = quote_identifier(spec.columns[0])
+        for offset in range(0, len(source_primary_keys), batch_size):
+            key_batch = source_primary_keys[offset : offset + batch_size]
+            placeholders = ", ".join(["%s"] * len(key_batch))
+            cursor.execute(
+                f"SELECT COUNT(*) FROM {quote_identifier(spec.table_name)} "
+                f"WHERE `etl_batch_id`=%s AND {primary_key} IN ({placeholders})",
+                (batch_id, *key_batch),
+            )
+            result = cursor.fetchone()
+            if result is None:
+                raise RuntimeError(f"Unable to count rows in {spec.table_name}")
+            total += int(result[0])
+        return total
     finally:
         cursor.close()
 
@@ -586,16 +576,18 @@ def main() -> int:
     preset_count = 0
     try:
         for spec in TABLES:
-            imported = load_table(
+            imported, source_primary_keys = load_table(
                 connection,
                 spec,
                 batch_id=batch_id,
                 batch_size=args.batch_size,
             )
-            stored = database_batch_row_count(
+            stored = database_source_row_count(
                 connection,
-                spec.table_name,
+                spec,
                 batch_id,
+                source_primary_keys,
+                batch_size=args.batch_size,
             )
             if stored != imported:
                 raise RuntimeError(

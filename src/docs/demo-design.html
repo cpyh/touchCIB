@@ -156,7 +156,7 @@
     <span class="part p-dw">环一 · 数仓与离线 pipeline</span>
     <h2>数据底座：分层 + 批次 + 质量门禁 + 一键复现</h2>
     <div class="card">
-      <h3>已有：14 张分层表 <span class="badge b-ok">✅</span></h3>
+      <h3>已有：20 张业务与分层表 <span class="badge b-ok">✅</span></h3>
       <table>
         <tr><th>层</th><th>表</th><th>职责</th></tr>
         <tr><td>ODS</td><td>5 业务主表 + 相关系数</td><td>贴源、批次溯源 etl_batch_id</td></tr>
@@ -175,7 +175,7 @@
         <div class="arrow">→</div>
         <div class="step"><b>A1 训练+推理</b><span class="sub">模型 + 预测</span></div>
         <div class="arrow">→</div>
-        <div class="step"><b>A2 生成</b><span class="sub">6000 策略</span></div>
+        <div class="step"><b>A2 生成</b><span class="sub">提交 6000 行 + 平台全量 ADS</span></div>
         <div class="arrow">→</div>
         <div class="step"><b>Part B 求解</b><span class="sub">20 场景</span></div>
         <div class="arrow">→</div>
@@ -192,13 +192,13 @@
     <div class="grid3">
       <div class="card">
         <h3>A1 响应预测 <span class="badge b-ok">✅</span></h3>
-        <p><b>AUC 0.8619 ｜ F1 0.595 ｜ Lift 3.738</b></p>
-        <p>48 特征 · as-of 三道防线 · 时间留出验证</p>
+        <p><b>AUC 0.8828 ｜ F1 0.6185 ｜ Lift 4.0047</b></p>
+        <p>46 特征 · as-of 三道防线 · 时间留出验证</p>
         <p class="muted">局部解释 top±5 因子 → 个性化载体</p>
       </div>
       <div class="card">
         <h3>A2 规则引擎 <span class="badge b-ok">✅</span></h3>
-        <p><b>13 规则 · 两阶段流水线 · 6000 条策略</b></p>
+        <p><b>14 规则 · 两阶段流水线 · 24000 条策略</b></p>
         <p>模型管产品、规则管其余；manager 配额 600</p>
         <p class="muted">规则轨迹逐条可查 → 合规性载体</p>
       </div>
@@ -209,7 +209,7 @@
         <p class="muted">全局最优性证书 → 创新栏素材</p>
       </div>
     </div>
-    <div class="quote">协同过滤信号：推荐与持仓相似的产品，历史数据验证响应率 +47%（16.5%→24.3%）——算法与数据互相成就。</div>
+    <div class="quote">A1 对全量客户产品组合预测响应概率；A2 不改写模型分数，只做基础规则过滤，并为每条 Top3 策略固化可追溯规则证据。</div>
   </div>
 
   <!-- S5 环三 事件化 -->
@@ -230,7 +230,7 @@
     <div class="card">
       <h3>状态推导：<b style="color:#c0392b">"未触达"零存储</b></h3>
       <div class="flow">
-        <div class="step"><b>策略已生成</b><span class="sub">CSV 有行</span></div>
+        <div class="step"><b>策略已生成</b><span class="sub">ADS 有完整 Top3</span></div>
         <div class="arrow">→</div>
         <div class="step"><b>待执行</b><span class="sub">无事件</span></div>
         <div class="arrow">→</div>
@@ -316,7 +316,7 @@
       <h3>三个现场验收维度 → 载体</h3>
       <ul>
         <li><b>个性化</b> → Tab3 策略卡 + A1 解释因子（top±5）</li>
-        <li><b>合规性</b> → Tab3 规则轨迹（13 条规则命中/拦截）</li>
+        <li><b>合规性</b> → Tab3 规则轨迹（14 条规则命中/拦截）</li>
         <li><b>平台联动</b> → Tab2 改约束重算 + Tab3 调参重跑 + 埋点/KPI 实时变化</li>
       </ul>
     </div>
@@ -342,7 +342,7 @@
       <ul>
         <li><span class="badge b-ok">✅</span> Part B 全局最优性证书（gap≈1e-18）</li>
         <li><span class="badge b-ok">✅</span> 规则引擎 + 轨迹可解释（合规验收载体）</li>
-        <li><span class="badge b-ok">✅</span> 协同过滤信号（+47% 响应率数据证据）</li>
+        <li><span class="badge b-ok">✅</span> A1 局部 TreeSHAP 解释 + A2 逐候选规则轨迹</li>
         <li><span class="badge b-ok">✅</span> 特征/模型版本管理 + 局部解释审计</li>
         <li><span class="badge b-new">新增</span> 归因事件化 + KPI 目标管理（本稿三层设计）</li>
         <li><span class="badge b-new">新增</span> 离线 pipeline 一键复现 + 质量门禁</li>
@@ -363,7 +363,7 @@
       <h3>演示动作清单（4 + 1）</h3>
       <ul>
         <li><b>①</b> Tab2 改约束 → 秒级重算（API 已就绪）</li>
-        <li><b>②</b> Tab3 调 w_cf / manager 配额 → Top3 变化（引擎现成）</li>
+        <li><b>②</b> Tab3 调整 manager 配额 → 推荐渠道变化（试算不覆盖 ADS）</li>
         <li><b>③</b> Tab3 标记已触达/已响应 → 状态流转（事件表 + 埋点 API）</li>
         <li><b>④</b> Tab4 KPI 进度 +1、漏斗数字变化（dashboard 聚合）</li>
         <li><b>⑤</b> 改源文件 → run_all 一键复跑 → 产物更新 + 41 项门禁全绿（工程分）</li>
@@ -371,7 +371,7 @@
     </div>
     <div class="card">
       <h3><span class="badge b-cut">砍掉</span> 2 天不碰</h3>
-      <p>Tab1 完整进件落库（静态 + 口头讲）｜ Kafka、多经理、declined、鉴权审计｜ 策略落库表（CSV/内存 + 轨迹快照 JSON）｜ <b>AI/LLM 接入（讲而不做</b>：话术模板可升级 LLM 生成，规则引擎保合规底线<span class="b-cut">）</span></p>
+      <p>Kafka、多经理、declined、鉴权审计｜ <b>AI/LLM 话术生成（作为展望）</b>：规则引擎仍保留合规底线。</p>
     </div>
   </div>
 

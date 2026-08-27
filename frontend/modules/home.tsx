@@ -8,6 +8,7 @@ import { compactMoney, formatNumber } from "../shared/format";
 type Module = "customer" | "portfolio" | "marketing" | "dashboard";
 
 interface HomePageProps {
+  businessDate: string;
   onOpenModule: (module: Module) => void;
   onOpenExpiry: (customerId: string) => void;
 }
@@ -55,14 +56,14 @@ function encouragement(conversionGap: number | undefined) {
   return `转化目标还差 ${formatNumber(conversionGap)} 个——把高意向客户排进今天的前三名。`;
 }
 
-export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
+export function HomePage({ businessDate, onOpenModule, onOpenExpiry }: HomePageProps) {
   const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getDashboardOverview>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    getDashboardOverview("S01", controller.signal)
+    getDashboardOverview("S01", businessDate, controller.signal)
       .then(setDashboard)
       .catch((requestError: unknown) => {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
@@ -72,7 +73,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [businessDate]);
 
   const conversion = dashboard?.action_items?.conversion;
   const touch = dashboard?.action_items?.touch;
@@ -84,7 +85,7 @@ export function HomePage({ onOpenModule, onOpenExpiry }: HomePageProps) {
     <div className="home-page">
       <section className="home-hero home-hero-compact">
         <div className="home-greeting">
-          <small>2026年4月15日 · 星期四 · 财富运营部</small>
+          <small>{businessDate} · 业务快照 · 财富运营部</small>
           <h1>早上好，李经理</h1>
           <p>{goalText}</p>
         </div>

@@ -78,6 +78,16 @@ class FeatureBundle:
     history_available: bool  # 历史特征是否来自真实数据（False = 冷启动默认值）
 
 
+@dataclass
+class FeatureBatch:
+    """批量特征表与逐行上下文，避免把每行拆成小DataFrame。"""
+
+    frame: pd.DataFrame
+    modes: tuple[str, ...]
+    as_of_values: tuple[pd.Timestamp, ...]
+    history_available: tuple[bool, ...]
+
+
 class FeatureService:
     """在线特征装配器。构造时载入参考数据并预建索引，之后可重复调用。
 
@@ -217,4 +227,123 @@ class FeatureService:
             frame.loc[:, col] = hist_row[col]
         return FeatureBundle(
             frame=frame, mode=mode, as_of=as_of, history_available=history_available
+        )
+
+    def assemble_batch(self, requests: list[PredictRequest]) -> FeatureBatch:
+        """批量装配同一客户/渠道/日期的产品候选。
+
+        日批会对一个客户的30个产品同时评分。基础特征拼表只做一次，
+        历史索引仍按产品查询，因此语义与 ``assemble`` 一致。
+        不满足同组条件时自动回退单条装配。
+        """
+        if not requests:
+            return FeatureBatch(pd.DataFrame(), (), (), ())
+        for request in requests:
+            self._validate(request)
+        first = requests[0]
+        same_group = all(
+            request.customer_id == first.customer_id
+            and request.channel == first.channel
+            and request.contact_date == first.contact_date
+            and request.customer == first.customer
+            for request in requests
+        )
+        if not same_group:
+            # 日批分块：多客户均为数仓已有客户且不做画像覆盖时，
+            # 一次完成客户/产品拼表，避免几十万次小DataFrame merge。
+            warehouse_batch = all(
+                request.customer_id in self._known_customers
+                and not request.customer
+                for request in requests
+            )
+            if not warehouse_batch:
+                bundles = [self.assemble(request) for request in requests]
+                return FeatureBatch(
+                    frame=pd.concat(
+                        [bundle.frame for bundle in bundles], ignore_index=True
+                    ),
+                    modes=tuple(bundle.mode for bundle in bundles),
+                    as_of_values=tuple(bundle.as_of for bundle in bundles),
+                    history_available=tuple(
+                        bundle.history_available for bundle in bundles
+                    ),
+                )
+            as_of_values = [
+                pd.Timestamp(request.contact_date)
+                if request.contact_date
+                else self.default_as_of
+                for request in requests
+            ]
+            contacts = pd.DataFrame(
+                [
+                    {
+                        "contact_id": f"__ONLINE_{index}__",
+                        "customer_id": request.customer_id,
+                        "product_id": request.product_id,
+                        "channel": request.channel,
+                        "contact_date": as_of_values[index],
+                    }
+                    for index, request in enumerate(requests)
+                ]
+            )
+            base = pd.DataFrame(
+                F.build_features(contacts, self.customer, self.product)
+            )
+            history_rows = [
+                self.history.build_row(
+                    customer_id=str(request.customer_id),
+                    product_id=request.product_id,
+                    channel=request.channel,
+                    as_of=as_of_values[index],
+                )
+                for index, request in enumerate(requests)
+            ]
+            for column in self._history_columns:
+                base.loc[:, column] = [row[column] for row in history_rows]
+            return FeatureBatch(
+                frame=base.reset_index(drop=True),
+                modes=tuple("existing_customer" for _ in requests),
+                as_of_values=tuple(as_of_values),
+                history_available=tuple(
+                    bool(row["cust_hist_cnt"] > 0) for row in history_rows
+                ),
+            )
+
+        as_of = (
+            pd.Timestamp(first.contact_date)
+            if first.contact_date
+            else self.default_as_of
+        )
+        cust_row, mode, hist_key = self._resolve_customer(first)
+        contacts = pd.DataFrame(
+            [
+                {
+                    "contact_id": f"__ONLINE_{index}__",
+                    "customer_id": cust_row.loc[0, "customer_id"],
+                    "product_id": request.product_id,
+                    "channel": request.channel,
+                    "contact_date": as_of,
+                }
+                for index, request in enumerate(requests)
+            ]
+        )
+        base = pd.DataFrame(F.build_features(contacts, cust_row, self.product))
+        history_rows = [
+            self.history.build_row(
+                customer_id=hist_key,
+                product_id=request.product_id,
+                channel=request.channel,
+                as_of=as_of,
+            )
+            for request in requests
+        ]
+        for column in self._history_columns:
+            base.loc[:, column] = [row[column] for row in history_rows]
+        return FeatureBatch(
+            frame=base.reset_index(drop=True),
+            modes=tuple(mode for _ in requests),
+            as_of_values=tuple(as_of for _ in requests),
+            history_available=tuple(
+                bool(row["cust_hist_cnt"] > 0) for row in history_rows
+            ),
         )

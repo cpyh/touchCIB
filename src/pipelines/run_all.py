@@ -2,9 +2,7 @@
 """一键复现编排（demo 动作⑤）：进数 → 质量门禁 → A1 → A2 → Part B → 红线校验。
 
     python -m src.pipelines.run_all                # 全链路（A1 用队友LGBM模型）
-    python -m src.pipelines.run_all --model src/data/outputs/a1_final.joblib
-                                                   # A1 用最终 LGBM artifact
-    python -m src.pipelines.run_all --with-demo    # 追加：日批缓存重建 + 演示事件预置
+    python -m src.pipelines.run_all --with-demo    # 追加：ADS日批 + 演示事件预置
 
 任何一步失败立即中止并报告阶段名；全部通过则打印"全链路复现成功"。
 """
@@ -81,12 +79,6 @@ def run_command(name: str, command: list[str]) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--model",
-        type=Path,
-        default=None,
-        help="兼容旧A1模型artifact；缺省走partA1serving新模型",
-    )
-    parser.add_argument(
         "--a1-model",
         choices=("lr", "lgbm", "lgbm_onehot"),
         default="lgbm_onehot",
@@ -101,7 +93,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--with-demo",
         action="store_true",
-        help="追加演示准备：重建日批缓存 + 重置并预置演示事件（22/30）",
+        help="追加演示准备：营销/组合ADS日批 + 重置演示事件（22/30）",
     )
     return parser.parse_args(argv)
 
@@ -113,19 +105,12 @@ def main(argv: list[str] | None = None) -> int:
     for name, module, stage_args in STAGES[:2]:
         run_stage(name, module, stage_args)
 
-    # 阶段 3：A1 训练/推理
-    if args.model is not None:
-        run_stage(
-            "A1 推理（提交模型）",
-            "src.a1_inference",
-            ["--model", str(args.model), "--source", "mysql", "--persist-db"],
-        )
-    else:
-        run_stage(
-            f"A1训练与推理（{args.a1_model}）",
-            "src.partA1serving.training.predict",
-            ["--model", args.a1_model, "--out", "partA_prediction.csv"],
-        )
+    # 阶段 3：A1 训练/推理（唯一实现）
+    run_stage(
+        f"A1训练与推理（{args.a1_model}）",
+        "src.partA1serving.training.predict",
+        ["--model", args.a1_model, "--out", "partA_prediction.csv"],
+    )
 
     # 阶段 4-6：A2 / Part B / 红线校验
     a2_args: list[str] = []
@@ -148,7 +133,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # 阶段 7：演示准备（可选）
     if args.with_demo:
-        run_stage("日批缓存重建", "src.scripts.build_daily_roster", [])
+        run_stage(
+            "营销ADS日批",
+            "src.scripts.run_marketing_batch",
+            ["--strategy-date", "2026-04-15"],
+        )
+        run_stage(
+            "组合ADS日批",
+            "src.scripts.run_portfolio_batch",
+            ["--calculation-date", "2026-04-15"],
+        )
         run_stage(
             "演示事件预置",
             "src.scripts.seed_demo_events",

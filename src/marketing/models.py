@@ -37,9 +37,6 @@ MANAGER_ELIGIBLE_AUM = 500_000.0
 DEFAULT_MANAGER_QUOTA = 600
 DEFAULT_TOP_N = 3
 
-# 协同过滤信号在产品排序中的默认权重
-DEFAULT_W_CF = 0.3
-
 # 风险溢出上限（候选不足 3 个时自动放宽的等级数）
 MAX_RISK_OVERSHOOT = 1
 
@@ -121,9 +118,7 @@ class StrategyItem:
     recommended_channel: str
     recommended_time: str
     marketing_script: str
-    score: float
     model_prob: float
-    ltr_score: float
     overshoot: bool
     rule_trace: tuple[RuleOutcome, ...] = ()
 
@@ -161,9 +156,7 @@ class StrategyResult:
             "items": [
                 {
                     **item.to_row(self.customer_id),
-                    "score": item.score,
                     "model_prob": item.model_prob,
-                    "ltr_score": item.ltr_score,
                     "overshoot": item.overshoot,
                     "rule_trace": [
                         {"rule_id": o.rule_id, "passed": o.passed, "reason": o.reason}

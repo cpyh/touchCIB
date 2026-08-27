@@ -1,15 +1,10 @@
 """营销策略规则/流程引擎（A2，设计定稿 v2，见 docs/sdd-marketing.md）。"""
 
-from .collaborative import (
-    build_co_holding_similarity,
-    customer_cf_scores,
-)
 from .engine import Rule, RuleEngine
 from .models import (
     CHANNELS,
     DEFAULT_MANAGER_QUOTA,
     DEFAULT_TOP_N,
-    DEFAULT_W_CF,
     RISK_RANK,
     STRATEGY_COLUMNS,
     TIME_SLOTS,
@@ -36,7 +31,6 @@ __all__ = [
     "COMPLIANCE_NOTE",
     "DEFAULT_MANAGER_QUOTA",
     "DEFAULT_TOP_N",
-    "DEFAULT_W_CF",
     "OVERSHOOT_NOTE",
     "RISK_RANK",
     "RULES",
@@ -52,10 +46,8 @@ __all__ = [
     "StrategyItem",
     "StrategyRequest",
     "StrategyResult",
-    "build_co_holding_similarity",
     "build_default_engine",
     "build_script",
-    "customer_cf_scores",
     "generate_strategies",
     "validate_strategy_file",
     "validate_strategy_rows",

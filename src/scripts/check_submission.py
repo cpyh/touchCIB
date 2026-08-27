@@ -17,7 +17,6 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-from src.a1_inference import validate_prediction_file  # noqa: E402
 from src.marketing.validate import validate_strategy_file  # noqa: E402
 from src.algorithms.partb import (  # noqa: E402
     build_covariance_matrix,
@@ -39,6 +38,24 @@ OFFICIAL_FILES = {
 def require_file(path: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"required file is missing: {path}")
+
+
+def validate_prediction_file(
+    output_path: Path, expected_contacts: pd.DataFrame
+) -> None:
+    """校验 A1 提交文件的字段、覆盖范围与概率边界。"""
+    written = pd.read_csv(output_path, dtype={"contact_id": str})
+    if list(written.columns) != ["contact_id", "response_prob"]:
+        raise ValueError("prediction columns must be contact_id,response_prob")
+    if len(written) != len(expected_contacts):
+        raise ValueError("prediction row count does not match test contacts")
+    if written["contact_id"].duplicated().any():
+        raise ValueError("prediction contains duplicate contact_id values")
+    if set(written["contact_id"]) != set(expected_contacts["contact_id"]):
+        raise ValueError("prediction contact_id coverage is not exact")
+    probabilities = pd.to_numeric(written["response_prob"], errors="raise")
+    if probabilities.isna().any() or not probabilities.between(0, 1).all():
+        raise ValueError("prediction probability is outside [0, 1]")
 
 
 def validate_a1() -> None:

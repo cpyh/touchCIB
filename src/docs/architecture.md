@@ -26,12 +26,12 @@
 
 | 题目模块 | 分值性质 | 系统组件 | 状态 |
 |----------|----------|----------|------|
-| A1 营销响应预测 | 30 分自动 | `src/a1_features.py`、`src/pipelines/train_a1_baseline.py`、`src/a1_inference.py` | ✅ |
-| A2 营销策略生成 | 5 分自动 + D 验收 | 规则/流程引擎（`src/marketing/`）+ 策略契约 + CSV 生成 | ✅（CSV 导入落库 🟡） |
+| A1 营销响应预测 | 30 分自动 | `src/partA1serving/`（训练、特征、在线推理） | ✅ |
+| A2 营销策略生成 | 5 分自动 + D 验收 | A1 概率排序 + 规则过滤 + ADS 日批 | ✅ |
 | B 投资组合优化 | 15 分自动 | `src/algorithms/partb.py`（核心）、`src/pipelines/solve_partB.py`（CLI）、`src/portfolio.py` | ✅ |
 | C 系统架构与工程 | 人工 | 数据分层（ODS→DWD→DWS→ADS）、Flask 服务、质量检查、测试、规则/流程引擎 | ✅ |
-| D 平台演示与看板 | 人工 | 官方四 Tab 看板（进件评估 / 智能投顾 / 营销运营 / 可视化） | ⬜ |
-| 加分创新 | 人工 | 全局最优性证书、局部解释审计、规则轨迹、特征/模型版本管理 | ✅ 部分 |
+| D 平台演示与看板 | 人工 | 四页看板（进件评估 / 智能投顾 / 营销运营 / 可视化） | ✅ |
+| 加分创新 | 人工 | 全局最优性证书、局部解释、规则轨迹、特征/模型版本管理 | ✅ |
 
 ---
 
@@ -50,12 +50,12 @@ flowchart TB
         API["REST API"]
         CUS["/customers/&lt;id&gt;/profile"]
         PF["/portfolio/optimize<br/>/portfolio/scenarios"]
-        MK["/marketing/*<br/>(规划中)"]
+        MK["/marketing/tasks<br/>/customers/&lt;id&gt;/strategies"]
     end
 
     subgraph ALG["算法层（离线/在线可切换）"]
         A1F["A1 特征构建器<br/>as-of 严格截断"]
-        A1M["A1 模型<br/>LR 基线（可升级 GBDT）"]
+        A1M["A1 模型<br/>LightGBM 主模型 + LR 基线"]
         A1I["A1 推理 + 局部解释"]
         A2E["A2 规则/流程引擎<br/>合规过滤→打分→渠道→时段→话术"]
         BP["Part B 凸优化求解器<br/>SLSQP 多起点 + KKT 精修 + 上界证书"]
@@ -65,7 +65,7 @@ flowchart TB
         ODS["ODS 原始层<br/>5 业务主表 + 相关系数"]
         DWD["DWD 明细层<br/>维度/事实表（含 CHECK 约束）"]
         DWS["DWS 汇总层<br/>dws_customer_360"]
-        ADS["ADS 应用层<br/>ads_marketing_response_score"]
+        ADS["ADS 结果层<br/>A1全量评分 / A2候选决策 / 营销Top3<br/>组合结果 / 组合明细"]
     end
 
     QC["数据质量检查<br/>41 项 SQL 校验"]
@@ -92,27 +92,26 @@ flowchart TB
 flowchart LR
     RAW["5 张业务主表<br/>t_customer / t_product / t_holding<br/>t_campaign / t_event"] -->|"init_db 批次导入"| ODS["ODS 层"]
     ODS -->|"dwd.sql 标准化"| DWD["DWD 层"]
-    DWD --> F["A1 特征构建<br/>48 特征 · 严格早于目标日"]
+    DWD --> F["A1 特征构建<br/>46 特征 · 严格早于目标日"]
     F --> TR["训练（时间留出后 20%）"]
     F --> INF["推理（partA_test_contacts 8000 条）"]
     TR --> M["模型工件<br/>joblib + 指标 + 系数"]
     M --> INF
     INF --> P["partA_prediction.csv<br/>contact_id, response_prob"]
-    INF --> EXP["局部解释审计<br/>a1_prediction_audit.csv"]
-    INF --> ADS["ADS 评分表<br/>ads_marketing_response_score"]
+    INF --> A1ADS["ads_a1_customer_product_score<br/>客户×产品概率与A1排名"]
     P -->|"response_prob 按 (customer, product) 注入"| ENG["A2 规则/流程引擎<br/>✅ 已实现"]
     DWD --> ENG
+    A1ADS --> ENG
     ENG --> S["partA_strategy.csv<br/>每客户 Top3"]
-    S --> T["Tab3 营销运营工作台"]
-    EXP --> W
-    P --> W
+    ENG --> A2ADS["ads_a2_candidate_decision<br/>ads_marketing_strategy"]
+    A2ADS --> T["营销运营工作台"]
 ```
 
 链路要点：
 
-- **时间穿越防护**（三道防线）：① 持仓特征仅用 `buy_date < contact_date`；② 行为事件仅用 `event_date < contact_date`；③ 历史触达仅用 `contact_date < 当前 contact_date`；④ 训练验证按日期后 20% 留出（cutoff 2026-01-14），不用随机切分。
-- **A1 当前验证指标**：AUC 0.8619（锚点 0.85=17 分）、F1 0.595（锚点 0.615=7 分，约 6.3）、Lift@10% 3.738（锚点 3.3=6 分）。
-- **A1→A2 联动**：A1 输出 `response_prob` 按 `(customer_id, product_id)` 键注入 A2 引擎打分，作为排序因子之一（详见 `sdd-marketing.md`）。
+- **时间穿越防护**（三道防线）：① 持仓特征仅用 `buy_date < contact_date`；② 行为事件仅用 `event_date < contact_date`；③ 历史触达仅用 `contact_date < 当前 contact_date`；④ 训练验证按日期留出（cutoff 2026-02-01），不用随机切分。
+- **A1 当前验证指标**：AUC 0.8828、F1 0.6185、Lift@10% 4.0047，三项均达到题目满分锚点。
+- **A1→A2 联动**：A1 概率是唯一产品排序信号；A2 只做基础业务规则过滤、渠道/时段/话术决策与 Top3 固化。
 
 ---
 
@@ -144,21 +143,18 @@ flowchart LR
 
 | 模块 | 职责 | 状态 |
 |------|------|------|
-| `src/a1_features.py` | 训练/推理共用特征构建（48 特征，as-of 截断） | ✅ |
-| `src/pipelines/train_a1_baseline.py` | LR 基线训练、时间留出验证、模型工件产出 | ✅ |
-| `src/a1_inference.py` | 批量推理、解释审计、提交文件与 ADS 落表、格式自校验 | ✅ |
+| `src/partA1serving/` | 训练/推理共用的 46 特征、LR/LGBM 工件与在线推理（as-of 截断） | ✅ |
 | `src/algorithms/partb.py` | Part B 凸优化求解核心 + 证书 + 独立验证（被服务层复用） | ✅ |
 | `src/pipelines/solve_partB.py` | Part B CLI 入口（编排，`python -m` 执行） | ✅ |
 | `src/portfolio.py` | 组合优化 API 适配（读 MySQL，参数校验）+ 场景配置 CRUD | ✅ |
 | `src/customer.py` | 客户画像查询（DWS） | ✅ |
 | `src/scripts/init_db.py` | 建库建表、批次导入、重建 DWD/DWS | ✅ |
-| `src/sql/schema.sql` | 13 张表结构 + CHECK 约束 | ✅ |
+| `src/sql/schema.sql` | 19 张有效表结构 + CHECK 约束 | ✅ |
 | `src/sql/dwd.sql` / `src/sql/warehouse.sql` | DWD 标准化、DWS 画像 | ✅ |
 | `src/sql/quality_checks.sql` | 41 项数据质量检查 | ✅ |
-| `src/tests/` | 55 个单元测试 | ✅ |
-| `src/marketing/` | A2 规则/流程引擎：13 条规则、两阶段流水线、协同过滤、话术、校验 | ✅ |
-| `src/scripts/import_strategy.py`（规划） | 导入队友 `partA_strategy.csv` 落库 | 🟡 |
-| `frontend/`（规划） | 官方四 Tab 看板（规格 sdd-platform §4） | ⬜ |
+| `src/tests/` | 后端单元测试 | ✅ |
+| `src/marketing/` | A1 排序 + A2 基础规则过滤、日批、话术与校验 | ✅ |
+| `frontend/` | 今日工作台 + 官方四个核心业务页面 | ✅ |
 
 ---
 
@@ -170,9 +166,9 @@ flowchart LR
 | Web 服务 | Flask 3.x | 轻量、演示可控、无重框架包袱 |
 | 数据库 | MySQL 8（utf8mb4） | 分层建模（ODS/DWD/DWS/ADS）、约束与索引完整 |
 | 特征/数值 | pandas + numpy | 特征工程与矩阵运算 |
-| 机器学习 | scikit-learn（LR 基线，可扩展 GBDT） | 可解释性优先；版本化工件（joblib） |
+| 机器学习 | LightGBM 主模型 + LR 基线 | 表格数据效果与可解释基线兼顾；版本化工件（joblib） |
 | 优化 | scipy（SLSQP / linprog / root） | 凸问题精确求解 + 证书 |
-| 前端（规划） | 待定（建议轻量 SPA，讨论见 `sdd-platform.md` §5） | 明天与队友对齐 |
+| 前端 | React + Vinext | 单页工作台，四个业务页面按模块拆分 |
 | 依赖管理 | uv + pyproject（提交时补 requirements.txt） | 可复现环境 |
 
 ---
@@ -181,7 +177,7 @@ flowchart LR
 
 | # | 决策 | 理由 | 备选（未采用） |
 |---|------|------|----------------|
-| 1 | 训练/推理共用 `a1_features.py`，特征带版本号 | 口径唯一、防训练推理错配 | 两份独立特征代码（易漂移） |
+| 1 | 训练/推理共用 `partA1serving` 特征装配，特征带版本号 | 口径唯一、防训练推理错配 | 两份独立特征代码（易漂移） |
 | 2 | 时间留出验证（后 20% 日期） | 贴合真实预测场景，防时间泄漏 | 随机 K 折（会高估） |
 | 3 | as-of 一律取**严格早于**目标日 | 题目时间穿越约束的保守实现 | 含当日（有泄漏风险） |
 | 4 | 历史响应率用 Beta(2,8) 平滑 | 无历史时的中性先验 20%，避免 0/0 | 加一平滑（偏乐观） |
@@ -197,8 +193,8 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph OFFLINE["离线（复现/训练）"]
-        T1["uv run python -m src.pipelines.train_a1_baseline"]
-        T2["uv run python -m src.a1_inference --source csv"]
+        T1["python -m src.partA1serving.training.train_and_save"]
+        T2["python -m src.partA1serving.training.predict"]
         T3["python -m src.pipelines.solve_partB --data-dir src/data/raw"]
     end
     subgraph ONLINE["在线（平台演示）"]
@@ -206,7 +202,7 @@ flowchart TB
         T5["uv run python -m src.app"]
         T6["前端看板 → REST API"]
     end
-    T1 --> M["src/data/outputs/a1_baseline.joblib"]
+    T1 --> M["src/partA1serving/artifacts/"]
     M --> T2
     T2 --> SUB["partA_prediction.csv"]
     T3 --> SUBB["partB_allocation.csv"]
@@ -224,12 +220,12 @@ flowchart TB
 | 评分项 | 架构支撑 | 状态 |
 |--------|----------|------|
 | A1 AUC/F1/Lift | 特征工程 + 时间验证 + 模型工件 | ✅ 已达标 |
-| A2 HitRate@3 | 产品排序（A1 + 协同过滤信号，队友可替换） | ✅ |
+| A2 HitRate@3 | A1 概率排序 + 基础规则过滤 | ✅ |
 | A2 格式合规 | 提交校验器（`src/marketing/validate.py`） | ✅ |
 | B 效用分数 | 凸优化 + 证书 | ✅ |
 | C 架构与工程 | 分层数据架构、质量检查、测试、双源算法层 | ✅ |
-| C 规则/流程引擎 | `src/marketing/`（两阶段流水线 + 13 规则 + 配额） | ✅ |
-| D 运营看板与联动 | 官方四 Tab + 规则轨迹/干预重跑 | ⬜ |
-| 加分 | 最优性证书、解释审计、版本管理、规则轨迹 | ✅ 部分 |
+| C 规则/流程引擎 | `src/marketing/`（两阶段流水线 + 14 规则 + 配额） | ✅ |
+| D 运营看板与联动 | 四页工作台 + 规则轨迹 + 执行归因 | ✅ |
+| 加分 | 最优性证书、局部解释、版本管理、规则轨迹 | ✅ |
 
 > 差距与分工详见 `roadmap.md`。

@@ -157,12 +157,14 @@ export function listCustomers(
     riskAppetite?: string;
     vipLevel?: string;
     city?: string;
+    businessDate: string;
   },
   signal?: AbortSignal,
 ) {
   const query = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
+    business_date: params.businessDate,
   });
   if (params.keyword) query.set("keyword", params.keyword);
   if (params.riskAppetite) query.set("risk_appetite", params.riskAppetite);
@@ -171,9 +173,13 @@ export function listCustomers(
   return request<CustomerListData>(`/api/v1/customers?${query}`, { signal });
 }
 
-export function getCustomerProfile(customerId: string, signal?: AbortSignal) {
+export function getCustomerProfile(
+  customerId: string,
+  businessDate: string,
+  signal?: AbortSignal,
+) {
   return request<CustomerProfile>(
-    `/api/v1/customers/${encodeURIComponent(customerId)}/profile`,
+    `/api/v1/customers/${encodeURIComponent(customerId)}/profile?business_date=${encodeURIComponent(businessDate)}`,
     { signal },
   );
 }
@@ -185,9 +191,9 @@ export function createCustomer(payload: CustomerCreatePayload) {
   });
 }
 
-export function generateAiSummary(customerId: string) {
+export function generateAiSummary(customerId: string, businessDate: string) {
   return request<AiSummaryData>(
-    `/api/v1/customers/${encodeURIComponent(customerId)}/ai-summary`,
+    `/api/v1/customers/${encodeURIComponent(customerId)}/ai-summary?business_date=${encodeURIComponent(businessDate)}`,
     { method: "POST" },
   );
 }
